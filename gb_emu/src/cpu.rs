@@ -10,8 +10,8 @@ impl Cpu {
         Default::default()
     }
 
-    fn get_flag(&self, flag: Flag) -> bool {
-        self.get_af() >> flag.get_af_index() == 1
+    fn get_flag(&self, flag: Flag) -> u8 {
+        (self.get_af() >> flag.get_af_index()) as u8
     }
 
     fn get_a(&self) -> u8 {
@@ -98,7 +98,7 @@ impl Cpu {
         } 
     }
 
-    fn get_r16_mem(&mut self, r16_mem: u8, bus: &mut Bus) -> CpuResult<u16> {
+    fn get_r16_mem(&mut self, r16_mem: u8) -> CpuResult<u16> {
         match r16_mem {
             0 => Ok(self.get_bc()),
             1 => Ok(self.get_de()), 
@@ -116,6 +116,16 @@ impl Cpu {
             },
             _ => unreachable!("r16_mem is represented as a 2-bit bitfield. It cannot be more than 3")
 
+        }
+    }
+
+    fn get_condition(&self, cond: u8) -> u8 {
+        match cond {
+            0 => !self.get_flag(Flag::Zero) & 0b1,
+            1 => self.get_flag(Flag::Zero),
+            2 => !self.get_flag(Flag::Carry) & 0b1,
+            3 => self.get_flag(Flag::Carry),
+            _ => unreachable!("cond is represented as a 2-bit bitfield. It cannot be more than 3")
         }
     }
 
@@ -145,11 +155,59 @@ impl Flag {
     }
 }
 
+enum R8 {
+    B,
+    C,
+    D,
+    E,
+    H,
+    L,
+    HLPointer,
+    A,
+}
+
+impl TryFrom<u8> for R8 {
+    type Error = CpuError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::B),
+            1 => Ok(Self::C),
+            2 => Ok(Self::D),
+            3 => Ok(Self::E),
+            4 => Ok(Self::H),
+            5 => Ok(Self::L),
+            6 => Ok(Self::HLPointer),
+            7 => Ok(Self::A),
+            _ => Err(CpuError::OperandError)
+        }
+    }
+}
+
+enum R16 {
+    BC,
+    DE,
+    HL,
+    SP,
+}
+enum R16Stk {
+    BC,
+    DE,
+    HL,
+    AF,
+}
+enum R16Mem {
+    BC,
+    DE,
+    HLI,
+    HLD,
+}
 
 type CpuResult<T> = Result<T, CpuError>;
 
 enum CpuError {
-    MemoryAccessError(MemoryAccessError)
+    MemoryAccessError(MemoryAccessError),
+    OperandError,
 }
 
 impl From<MemoryAccessError> for CpuError {

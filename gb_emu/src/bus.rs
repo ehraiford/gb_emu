@@ -1,11 +1,16 @@
 type MemoryAccessResult<T> = Result<T, MemoryAccessError>;
 
 
+#[derive(Default)]
 pub struct Bus {
 
 }
 
 impl Bus {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
     pub fn read(&mut self, address: u16) -> MemoryAccessResult<u8> {
         todo!()
     }
