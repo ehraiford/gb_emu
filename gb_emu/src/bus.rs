@@ -1,3 +1,5 @@
+use crate::instructions::Instruction;
+
 type MemoryAccessResult<T> = Result<T, MemoryAccessError>;
 
 
@@ -18,6 +20,9 @@ impl Bus {
         todo!()
     }
     pub fn peek(&self, address: u16) -> MemoryAccessResult<u8> {
+        todo!()
+    }
+    pub fn read_next_instruction(&mut self, pc: u16) -> Instruction {
         todo!()
     }
 }
@@ -90,6 +95,7 @@ pub trait BusAccessible {
     fn peek(&self, address: u16) -> MemoryAccessResult<u8>;
 }
 
+#[derive(Debug)]
 pub enum MemoryAccessError {
 
 }

@@ -1,4 +1,4 @@
-use crate::bus::{Bus, MemoryAccessError};
+use crate::{bus::{Bus, MemoryAccessError}, instructions::{Instruction, Operand}};
 
 #[derive(Default)]
 pub struct Cpu {
@@ -10,38 +10,47 @@ impl Cpu {
         Default::default()
     }
 
-    fn get_flag(&self, flag: Flag) -> u8 {
+    pub fn get_flag(&self, flag: Flag) -> u8 {
         (self.get_af() >> flag.get_af_index()) as u8
     }
 
-    fn get_a(&self) -> u8 {
-        (self.get_af() >> 4) as u8
+    pub fn get_a(&self) -> u8 {
+        (self.get_af() >> 8) as u8
+    }
+    pub fn set_a(&mut self, new_a: u8) {
+        let f = self.get_f() as u16;
+        let a = (new_a as u16) << 8;
+        
+        self.set_af(a | f);
     }
     fn get_b(&self) -> u8 {
-        (self.get_bc() >> 4) as u8
+        (self.get_bc() >> 8) as u8
     }
     fn get_d(&self) -> u8 {
-        (self.get_de() >> 4) as u8
+        (self.get_de() >> 8) as u8
     }
     fn get_h(&self) -> u8 {
-        (self.get_hl() >> 4) as u8
+        (self.get_hl() >> 8) as u8
     }
 
     fn get_f(&self) -> u8 {
-        (self.get_af() & 0x0F) as u8
+        (self.get_af() & 0xFF) as u8
     }
     fn get_c(&self) -> u8 {
-        (self.get_bc() & 0x0F) as u8
+        (self.get_bc() & 0xFF) as u8
     }
     fn get_e(&self) -> u8 {
-        (self.get_de() & 0x0F) as u8
+        (self.get_de() & 0xFF) as u8
     }
     fn get_l(&self) -> u8 {
-        (self.get_hl() & 0x0F) as u8
+        (self.get_hl() & 0xFF) as u8
     }
 
     fn get_af(&self) -> u16 {
         self.registers[0]
+    }
+    fn set_af(&mut self, value: u16) {
+        self.registers[0] = value;
     }
 
     fn get_bc(&self) -> u16 {
@@ -60,26 +69,27 @@ impl Cpu {
     fn get_sp(&self) -> u16 {
         self.registers[4]
     }
-    fn get_pc(&self) -> u16 {
+    pub fn get_pc(&self) -> u16 {
         self.registers[5]
     }
 
-    fn get_r8(&self, r8: u8, bus: &mut Bus) -> CpuResult<u8> {
-        match r8 {
-            0 => Ok(self.get_b()),
-            1 => Ok(self.get_c()), 
-            2 => Ok(self.get_d()), 
-            3 => Ok(self.get_e()), 
-            4 => Ok(self.get_h()), 
-            5 => Ok(self.get_l()), 
-            6 => Ok(bus.read(self.get_hl())?),
-            7 => Ok(self.get_a()),
+    fn get_r8(&self, r8: R8, bus: &mut Bus) -> u8 {
+        match r8.into() {
+            0 => self.get_b(),
+            1 => self.get_c(), 
+            2 => self.get_d(), 
+            3 => self.get_e(), 
+            4 => self.get_h(), 
+            5 => self.get_l(), 
+            6 => bus.read(self.get_hl()).unwrap(),
+            7 => self.get_a(),
             _ => unreachable!("r8 is represented as a 3-bit bitfield. It cannot be more than 7")
         }
     }
+
     
-    fn get_r16(&self, r16: u8) -> u16 {
-        match r16 {
+    fn get_r16(&self, r16: R16) -> u16 {
+        match r16.into() {
             0 => self.get_bc(),
             1 => self.get_de(), 
             2 => self.get_hl(), 
@@ -88,8 +98,8 @@ impl Cpu {
         }
     }
 
-    fn get_r16_stk(&self, r16_stk: u8) -> u16 {
-        match r16_stk {
+    fn get_r16_stk(&self, r16_stk: R16Stk) -> u16 {
+        match r16_stk.into() {
             0 => self.get_bc(),
             1 => self.get_de(), 
             2 => self.get_hl(), 
@@ -98,20 +108,20 @@ impl Cpu {
         } 
     }
 
-    fn get_r16_mem(&mut self, r16_mem: u8) -> CpuResult<u16> {
-        match r16_mem {
-            0 => Ok(self.get_bc()),
-            1 => Ok(self.get_de()), 
+    fn get_r16_mem(&mut self, r16_mem: R16Mem) -> u16 {
+        match r16_mem.into() {
+            0 => self.get_bc(),
+            1 => self.get_de(), 
             2 => {
                 let hl = self.get_hl();
                 self.set_hl(hl + 1);
-                Ok(hl)
+                hl
 
             },
             3 => {
                 let hl = self.get_hl();
                 self.set_hl(hl - 1);
-                Ok(hl)
+                hl
 
             },
             _ => unreachable!("r16_mem is represented as a 2-bit bitfield. It cannot be more than 3")
@@ -129,15 +139,25 @@ impl Cpu {
         }
     }
 
+    pub fn get_operand(&mut self, operand: &Operand, bus: &mut Bus) -> u16 {
+        match *operand {
+            Operand::R8(r8) => self.get_r8(r8, bus) as u16,
+            Operand::R16(r16) => self.get_r16(r16),
+            Operand::R16Stk(r16_stk) => self.get_r16_stk(r16_stk),
+            Operand::R16Mem(r16_mem) => self.get_r16_mem(r16_mem),
+            Operand::N16(val) => val,
+            Operand::N8(val) | Operand::U3(val) => val as u16,
+        }
+    }
+
+    pub fn set_operand(&mut self, operand: &Operand, value: u16, bus: &mut Bus) {
+        todo!()
+    }
+
 }
 
-// Instructions
-impl Cpu {
-    
-}
 
-
-enum Flag {
+pub enum Flag {
     Zero,
     Subtraction,
     HalfCarry,
@@ -155,7 +175,8 @@ impl Flag {
     }
 }
 
-enum R8 {
+#[derive(Clone, Copy)]
+pub enum R8 {
     B,
     C,
     D,
@@ -184,28 +205,123 @@ impl TryFrom<u8> for R8 {
     }
 }
 
-enum R16 {
+impl From<R8> for u8 {
+    fn from(value: R8) -> Self {
+        match value {
+            R8::B => 0,
+            R8::C => 1,
+            R8::D => 2,
+            R8::E => 3,
+            R8::H => 4,
+            R8::L => 5,
+            R8::HLPointer => 6,
+            R8::A => 7,
+    }
+}
+}
+
+#[derive(Clone, Copy)]
+pub enum R16 {
     BC,
     DE,
     HL,
     SP,
 }
-enum R16Stk {
+
+impl TryFrom<u16> for R16 {
+    type Error = CpuError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::BC),
+            1 => Ok(Self::DE),
+            2 => Ok(Self::HL),
+            3 => Ok(Self::SP),    
+            _ => Err(CpuError::OperandError)        
+        }
+    }
+}
+
+impl From<R16> for u16 {
+    fn from(value: R16) -> Self {
+        match value {
+            R16::BC => 0,
+            R16::DE => 1,
+            R16::HL => 2,
+            R16::SP => 3,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum R16Stk {
     BC,
     DE,
     HL,
     AF,
 }
-enum R16Mem {
+
+impl TryFrom<u16> for R16Stk {
+    type Error = CpuError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::BC),
+            1 => Ok(Self::DE),
+            2 => Ok(Self::HL),
+            3 => Ok(Self::AF),    
+            _ => Err(CpuError::OperandError)        
+        }
+    }
+}
+
+impl From<R16Stk> for u16 {
+    fn from(value: R16Stk) -> Self {
+        match value {
+            R16Stk::BC => 0,
+            R16Stk::DE => 1,
+            R16Stk::HL => 2,
+            R16Stk::AF => 3,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum R16Mem {
     BC,
     DE,
     HLI,
     HLD,
 }
 
+impl TryFrom<u16> for R16Mem {
+    type Error = CpuError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::BC),
+            1 => Ok(Self::DE),
+            2 => Ok(Self::HLI),
+            3 => Ok(Self::HLD),    
+            _ => Err(CpuError::OperandError)        
+        }
+    }
+}
+
+impl From<R16Mem> for u16 {
+    fn from(value: R16Mem) -> Self {
+        match value {
+            R16Mem::BC => 0,
+            R16Mem::DE => 1,
+            R16Mem::HLI => 2,
+            R16Mem::HLD => 3,
+        }
+    }
+}
+
 type CpuResult<T> = Result<T, CpuError>;
 
-enum CpuError {
+pub enum CpuError {
     MemoryAccessError(MemoryAccessError),
     OperandError,
 }
