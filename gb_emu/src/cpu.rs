@@ -1,8 +1,12 @@
-use crate::{bus::{Bus, MemoryAccessError}, instructions::{Instruction, Operand}};
+use crate::{
+    bus::{Bus, MemoryAccessError},
+    instructions::Operand,
+};
 
 #[derive(Default)]
 pub struct Cpu {
-    registers: [u16;6],
+    registers: [u16; 6],
+    ime: bool,
 }
 
 impl Cpu {
@@ -11,7 +15,26 @@ impl Cpu {
     }
 
     pub fn get_flag(&self, flag: Flag) -> u8 {
-        (self.get_af() >> flag.get_af_index()) as u8
+        match flag {
+            Flag::InterruptMasterEnable => self.ime.into(),
+            _ => (self.get_af() >> flag.get_af_index()) as u8,
+        }
+    }
+
+    pub fn set_flag(&mut self, flag: Flag, value: bool) {
+        match flag {
+            Flag::InterruptMasterEnable => self.ime = value,
+            _ => {
+                let flag_index = flag.get_af_index();
+                let flag_mask = !(0b1 << flag_index);
+                let af = self.get_af();
+
+                let masked_af = af & flag_mask;
+                let result = masked_af | (value as u16) << flag_index;
+
+                self.set_af(result);
+            },
+        }
     }
 
     pub fn get_a(&self) -> u8 {
@@ -20,7 +43,7 @@ impl Cpu {
     pub fn set_a(&mut self, new_a: u8) {
         let f = self.get_f() as u16;
         let a = (new_a as u16) << 8;
-        
+
         self.set_af(a | f);
     }
     fn get_b(&self) -> u8 {
@@ -72,70 +95,73 @@ impl Cpu {
     pub fn get_pc(&self) -> u16 {
         self.registers[5]
     }
+    pub fn set_pc(&mut self, value: u16) {
+        self.registers[5] = value;
+    }
 
     fn get_r8(&self, r8: R8, bus: &mut Bus) -> u8 {
         match r8.into() {
             0 => self.get_b(),
-            1 => self.get_c(), 
-            2 => self.get_d(), 
-            3 => self.get_e(), 
-            4 => self.get_h(), 
-            5 => self.get_l(), 
+            1 => self.get_c(),
+            2 => self.get_d(),
+            3 => self.get_e(),
+            4 => self.get_h(),
+            5 => self.get_l(),
             6 => bus.read(self.get_hl()).unwrap(),
             7 => self.get_a(),
-            _ => unreachable!("r8 is represented as a 3-bit bitfield. It cannot be more than 7")
+            _ => unreachable!("r8 is represented as a 3-bit bitfield. It cannot be more than 7"),
         }
     }
 
-    
     fn get_r16(&self, r16: R16) -> u16 {
         match r16.into() {
             0 => self.get_bc(),
-            1 => self.get_de(), 
-            2 => self.get_hl(), 
+            1 => self.get_de(),
+            2 => self.get_hl(),
             3 => self.get_sp(),
-            _ => unreachable!("r16 is represented as a 2-bit bitfield. It cannot be more than 3")
+            _ => unreachable!("r16 is represented as a 2-bit bitfield. It cannot be more than 3"),
         }
     }
 
     fn get_r16_stk(&self, r16_stk: R16Stk) -> u16 {
         match r16_stk.into() {
             0 => self.get_bc(),
-            1 => self.get_de(), 
-            2 => self.get_hl(), 
+            1 => self.get_de(),
+            2 => self.get_hl(),
             3 => self.get_af(),
-            _ => unreachable!("r16_stk is represented as a 2-bit bitfield. It cannot be more than 3")
-        } 
+            _ => unreachable!("r16_stk is represented as a 2-bit bitfield. It cannot be more than 3"),
+        }
     }
 
     fn get_r16_mem(&mut self, r16_mem: R16Mem) -> u16 {
         match r16_mem.into() {
             0 => self.get_bc(),
-            1 => self.get_de(), 
+            1 => self.get_de(),
             2 => {
                 let hl = self.get_hl();
                 self.set_hl(hl + 1);
                 hl
-
             },
             3 => {
                 let hl = self.get_hl();
                 self.set_hl(hl - 1);
                 hl
-
             },
-            _ => unreachable!("r16_mem is represented as a 2-bit bitfield. It cannot be more than 3")
-
+            _ => unreachable!("r16_mem is represented as a 2-bit bitfield. It cannot be more than 3"),
         }
     }
 
-    fn get_condition(&self, cond: u8) -> u8 {
-        match cond {
+    pub fn check_condition(&self, cond: &Condition) -> bool {
+        self.get_condition(cond) == 1
+    }
+
+    fn get_condition(&self, cond: &Condition) -> u8 {
+        match (*cond).into() {
             0 => !self.get_flag(Flag::Zero) & 0b1,
             1 => self.get_flag(Flag::Zero),
             2 => !self.get_flag(Flag::Carry) & 0b1,
             3 => self.get_flag(Flag::Carry),
-            _ => unreachable!("cond is represented as a 2-bit bitfield. It cannot be more than 3")
+            _ => unreachable!("cond is represented as a 2-bit bitfield. It cannot be more than 3"),
         }
     }
 
@@ -147,21 +173,21 @@ impl Cpu {
             Operand::R16Mem(r16_mem) => self.get_r16_mem(r16_mem),
             Operand::N16(val) => val,
             Operand::N8(val) | Operand::U3(val) => val as u16,
+            Operand::CC(cond) => self.get_condition(&cond) as u16,
         }
     }
 
     pub fn set_operand(&mut self, operand: &Operand, value: u16, bus: &mut Bus) {
         todo!()
     }
-
 }
-
 
 pub enum Flag {
     Zero,
     Subtraction,
     HalfCarry,
     Carry,
+    InterruptMasterEnable,
 }
 
 impl Flag {
@@ -171,6 +197,7 @@ impl Flag {
             Flag::Subtraction => 6,
             Flag::HalfCarry => 5,
             Flag::Carry => 4,
+            _ => unreachable!("This function is invalid for any other falg and isn't called anywhere to reach this."),
         }
     }
 }
@@ -200,7 +227,7 @@ impl TryFrom<u8> for R8 {
             5 => Ok(Self::L),
             6 => Ok(Self::HLPointer),
             7 => Ok(Self::A),
-            _ => Err(CpuError::OperandError)
+            _ => Err(CpuError::OperandError),
         }
     }
 }
@@ -216,8 +243,8 @@ impl From<R8> for u8 {
             R8::L => 5,
             R8::HLPointer => 6,
             R8::A => 7,
+        }
     }
-}
 }
 
 #[derive(Clone, Copy)]
@@ -236,8 +263,8 @@ impl TryFrom<u16> for R16 {
             0 => Ok(Self::BC),
             1 => Ok(Self::DE),
             2 => Ok(Self::HL),
-            3 => Ok(Self::SP),    
-            _ => Err(CpuError::OperandError)        
+            3 => Ok(Self::SP),
+            _ => Err(CpuError::OperandError),
         }
     }
 }
@@ -269,8 +296,8 @@ impl TryFrom<u16> for R16Stk {
             0 => Ok(Self::BC),
             1 => Ok(Self::DE),
             2 => Ok(Self::HL),
-            3 => Ok(Self::AF),    
-            _ => Err(CpuError::OperandError)        
+            3 => Ok(Self::AF),
+            _ => Err(CpuError::OperandError),
         }
     }
 }
@@ -302,8 +329,8 @@ impl TryFrom<u16> for R16Mem {
             0 => Ok(Self::BC),
             1 => Ok(Self::DE),
             2 => Ok(Self::HLI),
-            3 => Ok(Self::HLD),    
-            _ => Err(CpuError::OperandError)        
+            3 => Ok(Self::HLD),
+            _ => Err(CpuError::OperandError),
         }
     }
 }
@@ -319,8 +346,26 @@ impl From<R16Mem> for u16 {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum Condition {}
+
+impl TryFrom<u16> for Condition {
+    type Error = CpuError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        todo!()
+    }
+}
+
+impl From<Condition> for u16 {
+    fn from(value: Condition) -> Self {
+        todo!()
+    }
+}
+
 type CpuResult<T> = Result<T, CpuError>;
 
+#[derive(Debug)]
 pub enum CpuError {
     MemoryAccessError(MemoryAccessError),
     OperandError,

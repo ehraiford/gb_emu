@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 
-use crate::{bus::{Bus, BusAccessible, MMDevice}, cpu::Cpu, instructions::*};
-
-
+use crate::{
+    bus::{Bus, BusAccessible, MMDevice},
+    cpu::Cpu,
+    instructions::*,
+};
 
 #[derive(Default)]
 pub struct GameBoy {
@@ -16,7 +18,6 @@ impl GameBoy {
     }
 
     pub fn test_looping(&mut self, cycles: usize) {
-
         for _ in 0..cycles {
             self.tick_cpu_execution();
         }
@@ -29,7 +30,8 @@ impl GameBoy {
 
     fn read_next_instruction(&mut self) -> Instruction {
         let pc = self.cpu.get_pc();
-        self.bus.read_next_instruction(pc)
+        self.bus
+            .read_next_instruction(pc)
+            .expect("We'll want a top level error that other errors can convert to later.")
     }
 }
-
