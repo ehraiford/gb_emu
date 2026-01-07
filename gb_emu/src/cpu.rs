@@ -107,7 +107,7 @@ impl Cpu {
             3 => self.get_e(),
             4 => self.get_h(),
             5 => self.get_l(),
-            6 => bus.read(self.get_hl()).unwrap(),
+            6 => unreachable!("This should have been handled elsewhere."),
             7 => self.get_a(),
             _ => unreachable!("r8 is represented as a 3-bit bitfield. It cannot be more than 7"),
         }
@@ -174,6 +174,10 @@ impl Cpu {
             Operand::N16(val) => val,
             Operand::N8(val) | Operand::U3(val) => val as u16,
             Operand::CC(cond) => self.get_condition(&cond) as u16,
+            Operand::SpE8(imm) => self.get_sp() + imm as u16,
+            Operand::HlPointer => bus.read(self.get_hl()).unwrap() as u16,
+            Operand::MemPointer(address) => bus.read(address).unwrap() as u16,
+            Operand::E8(imm) => imm as u16,
         }
     }
 
@@ -202,7 +206,7 @@ impl Flag {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum R8 {
     B,
     C,
@@ -210,7 +214,6 @@ pub enum R8 {
     E,
     H,
     L,
-    HLPointer,
     A,
 }
 
@@ -225,7 +228,6 @@ impl TryFrom<u8> for R8 {
             3 => Ok(Self::E),
             4 => Ok(Self::H),
             5 => Ok(Self::L),
-            6 => Ok(Self::HLPointer),
             7 => Ok(Self::A),
             _ => Err(CpuError::OperandError),
         }
@@ -241,18 +243,25 @@ impl From<R8> for u8 {
             R8::E => 3,
             R8::H => 4,
             R8::L => 5,
-            R8::HLPointer => 6,
             R8::A => 7,
         }
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum R16 {
     BC,
     DE,
     HL,
     SP,
+}
+
+impl TryFrom<u8> for R16 {
+    type Error = CpuError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::try_from(value as u16)
+    }
 }
 
 impl TryFrom<u16> for R16 {
@@ -280,12 +289,20 @@ impl From<R16> for u16 {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum R16Stk {
     BC,
     DE,
     HL,
     AF,
+}
+
+impl TryFrom<u8> for R16Stk {
+    type Error = CpuError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::try_from(value as u16)
+    }
 }
 
 impl TryFrom<u16> for R16Stk {
@@ -313,12 +330,20 @@ impl From<R16Stk> for u16 {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum R16Mem {
     BC,
     DE,
     HLI,
     HLD,
+}
+
+impl TryFrom<u8> for R16Mem {
+    type Error = CpuError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::try_from(value as u16)
+    }
 }
 
 impl TryFrom<u16> for R16Mem {
@@ -346,19 +371,27 @@ impl From<R16Mem> for u16 {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Condition {}
+
+impl From<Condition> for u8 {
+    fn from(value: Condition) -> Self {
+        todo!()
+    }
+}
+
+impl TryFrom<u8> for Condition {
+    type Error = CpuError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::try_from(value as u16)
+    }
+}
 
 impl TryFrom<u16> for Condition {
     type Error = CpuError;
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
-        todo!()
-    }
-}
-
-impl From<Condition> for u16 {
-    fn from(value: Condition) -> Self {
         todo!()
     }
 }

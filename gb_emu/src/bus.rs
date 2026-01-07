@@ -106,16 +106,16 @@ pub trait BusAccessible {
 
 #[derive(Debug)]
 pub enum MemoryAccessError {
-    NotAnOperation(Vec<u8>),
+    NotAnOperation(u8),
 }
 
 impl From<InstructionError> for MemoryAccessError {
     fn from(value: InstructionError) -> Self {
         match value {
-            InstructionError::InvalidOperandType { expected: _, received: _ } => {
+            InstructionError::InvalidOperandType { expected: _, received: _ } | InstructionError::LdhLowValue(_) => {
                 unreachable!("There shouldn't be any place this conversion happens")
             },
-            InstructionError::InvalidOperation(bytes) => Self::NotAnOperation(bytes),
+            InstructionError::InvalidOperation(byte) => Self::NotAnOperation(byte),
         }
     }
 }
