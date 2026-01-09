@@ -1,9 +1,11 @@
 use crate::{
-    bus::{Bus, MemoryAccessError},
+    bus::{Bus, MemoryAccessResult},
     helper_functions::concat_2_bytes,
-    instructions::{Instruction, InstructionError, InstructionResult, OpCode, Operand},
+    instructions::{
+        EightBitOperand, Instruction, InstructionError, InstructionOutcome, InstructionResult, OpCode, Operand,
+        OperandType, SixteenBitOperand,
+    },
 };
-use std::ops::{Shl, Shr};
 
 #[derive(Default)]
 pub struct Cpu {
@@ -12,14 +14,19 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn new() -> Self {
-        Default::default()
+    pub fn set_flags(&mut self, z: bool, n: bool, h: bool, c: bool) {
+        let mut new_flags = z as u8;
+        new_flags = (new_flags << 1) | n as u8;
+        new_flags = (new_flags << 1) | h as u8;
+        new_flags = (new_flags << 1) | c as u8;
+
+        self.set_f(new_flags);
     }
 
-    pub fn get_flag(&self, flag: Flag) -> u8 {
+    pub fn get_flag(&self, flag: Flag) -> bool {
         match flag {
             Flag::InterruptMasterEnable => self.ime.into(),
-            _ => (self.get_af() >> flag.get_af_index()) as u8,
+            _ => (self.get_af() >> flag.get_af_index()) & 0b1 == 1,
         }
     }
 
@@ -61,25 +68,25 @@ impl Cpu {
         (self.get_de() >> 8) as u8
     }
     pub fn set_d(&mut self, new_d: u8) {
-        let e = self.get_c() as u16;
+        let e = self.get_e() as u16;
         let d = (new_d as u16) << 8;
 
-        self.set_bc(d | e);
+        self.set_de(d | e);
     }
     fn get_h(&self) -> u8 {
         (self.get_hl() >> 8) as u8
     }
     pub fn set_h(&mut self, new_h: u8) {
-        let l = self.get_c() as u16;
+        let l = self.get_l() as u16;
         let h = (new_h as u16) << 8;
 
-        self.set_bc(h | l);
+        self.set_hl(h | l);
     }
     fn get_f(&self) -> u8 {
         (self.get_af() & 0xFF) as u8
     }
     fn set_f(&mut self, new_f: u8) {
-        self.set_af((self.get_af() & 0xFF00) | new_f as u16)
+        self.set_af((self.get_af() & 0xFF00) | (new_f as u16) & 0xF0)
     }
     fn get_c(&self) -> u8 {
         (self.get_bc() & 0xFF) as u8
@@ -123,8 +130,8 @@ impl Cpu {
     fn get_hl(&self) -> u16 {
         self.registers[3]
     }
-    fn set_hl(&mut self, val: u16) {
-        self.registers[3] = val;
+    fn set_hl(&mut self, value: u16) {
+        self.registers[3] = value;
     }
     fn get_sp(&self) -> u16 {
         self.registers[4]
@@ -140,91 +147,11 @@ impl Cpu {
     }
 
     pub fn check_condition(&self, cond: &Condition) -> bool {
-        self.get_condition(cond) == 1
-    }
-
-    fn get_condition(&self, cond: &Condition) -> u8 {
         match cond {
-            Condition::NotZero => !self.get_flag(Flag::Zero) & 0b1,
+            Condition::NotZero => !self.get_flag(Flag::Zero),
             Condition::Zero => self.get_flag(Flag::Zero),
-            Condition::NotCarry => !self.get_flag(Flag::Carry) & 0b1,
+            Condition::NotCarry => !self.get_flag(Flag::Carry),
             Condition::Carry => self.get_flag(Flag::Carry),
-        }
-    }
-
-    pub fn get_operand(&mut self, operand: &Operand, bus: &mut Bus, bytes: [u8; 3]) -> InstructionResult<u16> {
-        match *operand {
-            Operand::Immediate(imm) => Ok(imm as u16),
-            Operand::A => Ok(self.get_a() as u16),
-            Operand::AF => Ok(self.get_af()),
-            Operand::B => Ok(self.get_b() as u16),
-            Operand::BC => Ok(self.get_bc()),
-            Operand::BCPointer => Ok(bus.read(self.get_bc())? as u16),
-            Operand::C => Ok(self.get_c() as u16),
-            Operand::D => Ok(self.get_d() as u16),
-            Operand::DE => Ok(self.get_de()),
-            Operand::DEPointer => Ok(bus.read(self.get_de())? as u16),
-            Operand::E => Ok(self.get_e() as u16),
-            Operand::H => Ok(self.get_h() as u16),
-            Operand::HL => Ok(self.get_hl()),
-            Operand::HLPointer => Ok(bus.read(self.get_hl())? as u16),
-            Operand::L => Ok(self.get_l() as u16),
-            Operand::NC => Ok(self.get_condition(&Condition::NotCarry) as u16),
-            Operand::NZ => Ok(self.get_condition(&Condition::NotZero) as u16),
-            Operand::SP => Ok(self.get_sp()),
-            Operand::Z => Ok(self.get_condition(&Condition::Zero) as u16),
-            Operand::A16 => Ok(concat_2_bytes(bytes[1], bytes[2])),
-            Operand::A16Pointer => Ok(bus.read(concat_2_bytes(bytes[1], bytes[2]))? as u16),
-            Operand::E8 => Ok(bytes[1] as u16),
-            Operand::N16 => Ok(concat_2_bytes(bytes[1], bytes[2])),
-            Operand::N8 => Ok(bytes[1] as u16),
-            Operand::FF00OffsetByA => Ok(0xFF00 + self.get_a() as u16),
-            Operand::FF00OffsetByC => Ok(0xFF00 + self.get_a() as u16),
-            Operand::HLD => {
-                let value = self.get_hl();
-                self.set_hl(value - 1);
-                Ok(value)
-            },
-            Operand::HLI => {
-                let value = self.get_hl();
-                self.set_hl(value + 1);
-                Ok(value)
-            },
-            Operand::SPAndE8 => Ok(self.get_sp().wrapping_add(bytes[1] as i8 as u16)),
-        }
-    }
-
-    pub fn set_operand(&mut self, operand: &Operand, value: u16, bus: &mut Bus) -> InstructionResult<()> {
-        match operand {
-            Operand::A => Ok(self.set_a(value as u8)),
-            Operand::A16 => todo!(),
-            Operand::A16Pointer => todo!(),
-            Operand::AF => todo!(),
-            Operand::B => Ok(self.set_b(value as u8)),
-            Operand::BC => todo!(),
-            Operand::BCPointer => todo!(),
-            Operand::C => Ok(self.set_c(value as u8)),
-            Operand::D => Ok(self.set_d(value as u8)),
-            Operand::DE => todo!(),
-            Operand::DEPointer => todo!(),
-            Operand::E => Ok(self.set_e(value as u8)),
-            Operand::E8 => Err(InstructionError::OperandCannotBeSet),
-            Operand::FF00OffsetByA => Err(InstructionError::OperandCannotBeSet),
-            Operand::FF00OffsetByC => Err(InstructionError::OperandCannotBeSet),
-            Operand::H => Ok(self.set_h(value as u8)),
-            Operand::HL => todo!(),
-            Operand::HLD => Err(InstructionError::OperandCannotBeSet),
-            Operand::HLI => Err(InstructionError::OperandCannotBeSet),
-            Operand::HLPointer => todo!(),
-            Operand::Immediate(_) => Err(InstructionError::OperandCannotBeSet),
-            Operand::L => Ok(self.set_l(value as u8)),
-            Operand::N16 => todo!(),
-            Operand::N8 => todo!(),
-            Operand::NC => todo!(),
-            Operand::NZ => todo!(),
-            Operand::SP => todo!(),
-            Operand::SPAndE8 => Err(InstructionError::OperandCannotBeSet),
-            Operand::Z => todo!(),
         }
     }
 }
@@ -244,7 +171,7 @@ impl Flag {
             Flag::Subtraction => 6,
             Flag::HalfCarry => 5,
             Flag::Carry => 4,
-            _ => unreachable!("This function is invalid for any other falg and isn't called anywhere to reach this."),
+            _ => unreachable!("This function is invalid for any other flag and isn't called anywhere to reach this."),
         }
     }
 }
@@ -255,6 +182,20 @@ pub enum Condition {
     Zero,
     NotCarry,
     Carry,
+}
+
+impl TryFrom<Operand> for Condition {
+    type Error = InstructionError;
+
+    fn try_from(value: Operand) -> Result<Self, Self::Error> {
+        match value {
+            Operand::Carry => Ok(Condition::Carry),
+            Operand::NotCarry => Ok(Condition::NotCarry),
+            Operand::NotZero => Ok(Condition::NotZero),
+            Operand::Zero => Ok(Condition::Zero),
+            _ => Err(InstructionError::InvalidOperand),
+        }
+    }
 }
 
 pub struct OperationContext<'a, 'b> {
@@ -268,20 +209,17 @@ impl<'a, 'b> OperationContext<'a, 'b> {
         Self { cpu, bus, bytes }
     }
 
-    fn push_to_stack(&mut self, value: u16) {
-        todo!();
+    fn push_to_stack(&mut self, value: u16) -> MemoryAccessResult<()> {
+        let new_sp = self.cpu.get_sp().wrapping_sub(2);
+        self.cpu.set_sp(new_sp);
+        self.bus.write_u16(new_sp, value)
     }
 
-    fn pop_from_stack(&mut self) -> u16 {
-        todo!()
-    }
-
-    fn peek_stack(&self) -> u16 {
-        todo!()
-    }
-
-    fn get_condition(&self, operand: &Operand) -> InstructionResult<Condition> {
-        todo!()
+    fn pop_from_stack(&mut self) -> MemoryAccessResult<u16> {
+        let sp = self.cpu.get_sp();
+        let value = self.bus.read_u16(sp)?;
+        self.cpu.set_sp(sp.wrapping_add(2));
+        Ok(value)
     }
 
     fn check_condition(&self, cond: &Condition) -> bool {
@@ -296,475 +234,799 @@ impl<'a, 'b> OperationContext<'a, 'b> {
         self.cpu.set_a(value)
     }
 
-    fn get_operand(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        self.cpu.get_operand(operand, self.bus, self.bytes)
-    }
-    fn set_operand(&mut self, operand: &Operand, value: u16) {
-        self.cpu.set_operand(operand, value, self.bus);
+    pub fn set_flags(&mut self, z: bool, n: bool, h: bool, c: bool) {
+        self.cpu.set_flags(z, n, h, c)
     }
 
-    pub fn perform_instruction(&mut self, instruction: &Instruction) -> InstructionResult<()> {
-        match instruction.op_code {
-            OpCode::Adc => self.add_with_carry(&instruction.operands[0])?,
-            OpCode::Add => self.add(&instruction.operands[0], &instruction.operands[1])?,
-            OpCode::And => self.and(&instruction.operands[0])?,
-            OpCode::Bit => self.test_bit(&instruction.operands[0], &instruction.operands[1])?,
-            OpCode::Call => self.call(&instruction.operands[0])?,
-            OpCode::Ccf => self.complement_carry_flag()?,
-            OpCode::Cp => self.compare(&instruction.operands[0])?,
-            OpCode::Cpl => self.complement()?,
-            OpCode::Daa => self.decimal_adjust_accumulator()?,
-            OpCode::Dec => self.decrement(&instruction.operands[0])?,
-            OpCode::Di => self.disable_interrupts()?,
-            OpCode::Ei => self.enable_interrupts()?,
-            OpCode::Halt => self.halt()?,
-            OpCode::Illegal => unreachable!(),
-            OpCode::Inc => self.increment(&instruction.operands[0])?,
-            OpCode::Jp => self.jump(&instruction.operands[0])?,
-            OpCode::Jr => self.jump_relative(&instruction.operands[0])?,
-            OpCode::Ld => self.load(&instruction.operands[0], &instruction.operands[1])?,
-            OpCode::Ldh => self.load_high(&instruction.operands[0], &instruction.operands[1])?,
-            OpCode::Nop => self.nop()?,
-            OpCode::Or => self.or(&instruction.operands[0])?,
-            OpCode::Pop => self.pop(&instruction.operands[0])?,
-            OpCode::Prefix => unreachable!(),
-            OpCode::Push => self.push(&instruction.operands[0])?,
-            OpCode::Res => self.clear_bit(&instruction.operands[0], &instruction.operands[1])?,
-            OpCode::Ret => self.ret()?,
-            OpCode::Reti => self.return_from_interrupt()?,
-            OpCode::Rl => self.rotate_left_through_carry(&instruction.operands[0])?,
-            OpCode::Rla => self.rotate_left_through_carry(&Operand::A)?,
-            OpCode::Rlc => self.rotate_left(&instruction.operands[0])?,
-            OpCode::Rlca => self.rotate_left(&Operand::A)?,
-            OpCode::Rr => self.rotate_right_through_carry(&instruction.operands[0])?,
-            OpCode::Rra => self.rotate_right_through_carry(&Operand::A)?,
-            OpCode::Rrc => self.rotate_right(&instruction.operands[0])?,
-            OpCode::Rrca => self.rotate_right(&Operand::A)?,
-            OpCode::Rst => self.call_vector(&instruction.operands[0])?,
-            OpCode::Sbc => self.subtract_with_carry(&instruction.operands[0])?,
-            OpCode::Scf => self.set_carry_flag()?,
-            OpCode::Set => self.set_bit(&instruction.operands[0], &instruction.operands[1])?,
-            OpCode::Sla => self.shift_left_arithmetic(&instruction.operands[0])?,
-            OpCode::Sra => self.shift_right_artithmetic(&instruction.operands[0])?,
-            OpCode::Srl => self.shift_right_logical(&instruction.operands[0])?,
-            OpCode::Stop => self.stop()?,
-            OpCode::Sub => self.subtract(&instruction.operands[0])?,
-            OpCode::Swap => self.swap(&instruction.operands[0])?,
-            OpCode::Xor => self.xor(&instruction.operands[0])?,
-            OpCode::JpConditional => self.jump_conditional(&instruction.operands[0], &instruction.operands[1])?,
-            OpCode::JrConditional => {
-                self.jump_relative_conditional(&instruction.operands[0], &instruction.operands[1])?
+    fn get_u8_operand(&mut self, operand: &EightBitOperand) -> MemoryAccessResult<u8> {
+        match operand {
+            EightBitOperand::A => Ok(self.cpu.get_a()),
+            EightBitOperand::B => Ok(self.cpu.get_b()),
+            EightBitOperand::L => Ok(self.cpu.get_l()),
+            EightBitOperand::C => Ok(self.cpu.get_c()),
+            EightBitOperand::D => Ok(self.cpu.get_d()),
+            EightBitOperand::E => Ok(self.cpu.get_e()),
+            EightBitOperand::H => Ok(self.cpu.get_h()),
+            EightBitOperand::HLPointer => Ok(self.bus.read(self.cpu.get_hl())?),
+            EightBitOperand::BCPointer => Ok(self.bus.read(self.cpu.get_bc())?),
+            EightBitOperand::DEPointer => Ok(self.bus.read(self.cpu.get_de())?),
+            EightBitOperand::A16Pointer => Ok(self.bus.read(concat_2_bytes(self.bytes[1], self.bytes[2]))?),
+            EightBitOperand::FF00OffsetByA => Ok(self.bus.read(0xFF00 + self.cpu.get_a() as u16)?),
+            EightBitOperand::FF00OffsetByC => Ok(self.bus.read(0xFF00 + self.cpu.get_c() as u16)?),
+            EightBitOperand::N8 => Ok(self.bytes[1]),
+            EightBitOperand::Immediate(val) => Ok(*val),
+            EightBitOperand::HLIPointer => {
+                let hl = self.cpu.get_hl();
+                self.cpu.set_hl(hl.wrapping_add(1));
+                Ok(self.bus.read(hl)?)
             },
-            OpCode::CallConditional => self.call_conditional(&instruction.operands[0], &instruction.operands[1])?,
-            OpCode::RetConditional => self.return_conditional(&instruction.operands[0])?,
-        };
-
-        Ok(())
-    }
-
-    fn load(&mut self, operand0: &Operand, operand1: &Operand) -> InstructionResult<u16> {
-        let value = self.get_operand(operand1)?;
-        self.set_operand(operand0, value);
-
-        Ok(value)
-    }
-
-    fn load_high(&mut self, operand0: &Operand, operand1: &Operand) -> InstructionResult<u16> {
-        let value = self.get_operand(operand1)?;
-
-        if value < 0xFF00 {
-            return Err(InstructionError::LdhLowValue(value));
+            EightBitOperand::HLDPointer => {
+                let hl = self.cpu.get_hl();
+                self.cpu.set_hl(hl.wrapping_sub(1));
+                Ok(self.bus.read(hl)?)
+            },
         }
-        self.set_operand(operand0, value);
-
-        Ok(value)
     }
 
-    fn add_with_carry(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let carry = self.cpu.get_flag(Flag::Carry) as u16;
-        let operand_value = self.get_operand(operand)?;
-        let a = self.get_a() as u16;
-
-        let result = operand_value + a + carry;
-        self.set_a(result as u8);
-
-        Ok(result)
+    fn set_u8_operand(&mut self, operand: &EightBitOperand, value: u8) -> InstructionResult<()> {
+        match operand {
+            EightBitOperand::A => Ok(self.cpu.set_a(value)),
+            EightBitOperand::A16Pointer => todo!(),
+            EightBitOperand::B => Ok(self.cpu.set_b(value)),
+            EightBitOperand::HLIPointer => {
+                let hl = self.cpu.get_hl();
+                self.cpu.set_hl(hl.wrapping_add(1));
+                Ok(self.bus.write(hl, value)?)
+            },
+            EightBitOperand::HLDPointer => {
+                let hl = self.cpu.get_hl();
+                self.cpu.set_hl(hl.wrapping_sub(1));
+                Ok(self.bus.write(hl, value)?)
+            },
+            EightBitOperand::HLPointer => Ok(self.bus.write(self.cpu.get_hl(), value)?),
+            EightBitOperand::DEPointer => Ok(self.bus.write(self.cpu.get_de(), value)?),
+            EightBitOperand::BCPointer => Ok(self.bus.write(self.cpu.get_bc(), value)?),
+            EightBitOperand::L => Ok(self.cpu.set_l(value)),
+            EightBitOperand::C => Ok(self.cpu.set_c(value)),
+            EightBitOperand::D => Ok(self.cpu.set_d(value)),
+            EightBitOperand::E => Ok(self.cpu.set_e(value)),
+            EightBitOperand::FF00OffsetByA => Ok(self.bus.write(0xFF00 + self.cpu.get_a() as u16, value)?),
+            EightBitOperand::FF00OffsetByC => Ok(self.bus.write(0xFF00 + self.cpu.get_c() as u16, value)?),
+            EightBitOperand::H => Ok(self.cpu.set_h(value)),
+            _ => Err(InstructionError::InvalidOperand),
+        }
     }
 
-    fn add(&mut self, operand0: &Operand, operand1: &Operand) -> InstructionResult<u16> {
-        let operand0_val = self.get_operand(operand0)?;
-        let operand1_val = self.get_operand(operand1)?;
-
-        let result = operand0_val + operand1_val;
-        self.set_operand(operand0, result);
-
-        Ok(result)
+    fn get_u16_operand(&mut self, operand: &SixteenBitOperand) -> u16 {
+        match operand {
+            SixteenBitOperand::BC => self.cpu.get_bc(),
+            SixteenBitOperand::DE => self.cpu.get_de(),
+            SixteenBitOperand::HL => self.cpu.get_hl(),
+            SixteenBitOperand::AF => self.cpu.get_af(),
+            SixteenBitOperand::SP => self.cpu.get_sp(),
+            SixteenBitOperand::A16 => concat_2_bytes(self.bytes[1], self.bytes[2]),
+            SixteenBitOperand::N16 => concat_2_bytes(self.bytes[1], self.bytes[2]),
+            SixteenBitOperand::Immediate(imm) => *imm,
+        }
     }
 
-    fn compare(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let operand_value = self.get_operand(operand)?;
-        let a = self.get_a() as u16;
-
-        let result = a.wrapping_sub(operand_value);
-
-        Ok(result)
+    fn set_u16_operand(&mut self, operand: &SixteenBitOperand, value: u16) -> InstructionResult<()> {
+        match operand {
+            SixteenBitOperand::BC => Ok(self.cpu.set_bc(value)),
+            SixteenBitOperand::DE => Ok(self.cpu.set_de(value)),
+            SixteenBitOperand::HL => Ok(self.cpu.set_hl(value)),
+            SixteenBitOperand::AF => Ok(self.cpu.set_af(value)),
+            SixteenBitOperand::SP => Ok(self.cpu.set_sp(value)),
+            SixteenBitOperand::N16 => Err(InstructionError::InvalidOperand),
+            SixteenBitOperand::A16 => Err(InstructionError::InvalidOperand),
+            SixteenBitOperand::Immediate(_) => Err(InstructionError::InvalidOperand),
+        }
     }
 
-    fn decrement(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let operand_value = self.get_operand(operand)?;
-
-        let result = operand_value - 1;
-        self.set_operand(operand, result);
-
-        Ok(result)
+    pub fn perform_instruction(&mut self, instruction: &Instruction) -> InstructionResult<InstructionOutcome> {
+        match instruction.op_code {
+            OpCode::Adc => self.add_with_carry(&EightBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Add => match OperandType::from(instruction.operands[0]) {
+                OperandType::EightBitOperand => {
+                    self.add_8_bit(&EightBitOperand::try_from(instruction.operands[0]).unwrap())
+                },
+                OperandType::SixteenBitOperand => self.add_16_bit(
+                    &SixteenBitOperand::try_from(instruction.operands[0]).unwrap(),
+                    &SixteenBitOperand::try_from(instruction.operands[1]).unwrap(),
+                ),
+                _ => return Err(InstructionError::InvalidOperand),
+            },
+            OpCode::And => self.and(&EightBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Bit => self.bit(
+                &&EightBitOperand::try_from(instruction.operands[0])?,
+                &&EightBitOperand::try_from(instruction.operands[1])?,
+            ),
+            OpCode::Call => self.call(&SixteenBitOperand::try_from(instruction.operands[0])?),
+            OpCode::CallConditional => self.call_conditional(
+                &Condition::try_from(instruction.operands[0])?,
+                &SixteenBitOperand::try_from(instruction.operands[1])?,
+            ),
+            OpCode::Ccf => self.complement_carry_flag(),
+            OpCode::Cp => self.compare(&EightBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Cpl => self.complement(),
+            OpCode::Daa => self.decimal_adjust_accumulator(),
+            OpCode::Dec => match OperandType::from(instruction.operands[0]) {
+                OperandType::EightBitOperand => {
+                    self.decrement_8_bit(&EightBitOperand::try_from(instruction.operands[0])?)
+                },
+                OperandType::SixteenBitOperand => {
+                    self.decrement_16_bit(&SixteenBitOperand::try_from(instruction.operands[0])?)
+                },
+                _ => return Err(InstructionError::InvalidOperand),
+            },
+            OpCode::Di => self.disable_interrupts(),
+            OpCode::Ei => self.enable_interrupts(),
+            OpCode::Halt => self.halt(),
+            OpCode::Illegal => unreachable!("We should have caught this before here."),
+            OpCode::Inc => match OperandType::from(instruction.operands[0]) {
+                OperandType::EightBitOperand => {
+                    self.increment_8_bit(&EightBitOperand::try_from(instruction.operands[0])?)
+                },
+                OperandType::SixteenBitOperand => {
+                    self.increment_16_bit(&SixteenBitOperand::try_from(instruction.operands[0])?)
+                },
+                _ => return Err(InstructionError::InvalidOperand),
+            },
+            OpCode::Jp => self.jump(&SixteenBitOperand::try_from(instruction.operands[0])?),
+            OpCode::JpConditional => self.jump_conditional(
+                &Condition::try_from(instruction.operands[0])?,
+                &SixteenBitOperand::try_from(instruction.operands[1])?,
+            ),
+            OpCode::Jr => self.jump_relative(self.bytes[1] as i8),
+            OpCode::JrConditional => {
+                self.jump_relative_conditional(&Condition::try_from(instruction.operands[0])?, self.bytes[1] as i8)
+            },
+            OpCode::Ld => match OperandType::from(instruction.operands[0]) {
+                OperandType::EightBitOperand => self.load_8_bit(
+                    &EightBitOperand::try_from(instruction.operands[0])?,
+                    &EightBitOperand::try_from(instruction.operands[1])?,
+                ),
+                OperandType::SixteenBitOperand => self.load_16_bit(
+                    &SixteenBitOperand::try_from(instruction.operands[0])?,
+                    &&SixteenBitOperand::try_from(instruction.operands[1])?,
+                ),
+                _ => return Err(InstructionError::InvalidOperand),
+            },
+            OpCode::Ldh => self.load_high(
+                &EightBitOperand::try_from(instruction.operands[0])?,
+                &EightBitOperand::try_from(instruction.operands[1])?,
+            ),
+            OpCode::Nop => self.nop(),
+            OpCode::Or => self.or(&EightBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Pop => self.pop(&SixteenBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Prefix => unreachable!("This should have been caught prior"),
+            OpCode::Push => self.push(&SixteenBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Res => self.clear_bit(
+                &EightBitOperand::try_from(instruction.operands[0])?,
+                &EightBitOperand::try_from(instruction.operands[1])?,
+            ),
+            OpCode::Ret => self.ret(),
+            OpCode::RetConditional => self.return_conditional(&Condition::try_from(instruction.operands[0])?),
+            OpCode::Reti => self.return_from_interrupt(),
+            OpCode::Rl => self.rotate_left_through_carry(&EightBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Rla => self.rotate_left_through_carry_a(),
+            OpCode::Rlc => self.rotate_left_into_carry(&EightBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Rlca => self.rotate_left_into_carry_a(),
+            OpCode::Rr => self.rotate_right_through_carry(&EightBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Rra => self.rotate_right_through_carry_a(),
+            OpCode::Rrc => self.rotate_right_into_carry(&EightBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Rrca => self.rotate_right_into_carry_a(),
+            OpCode::Rst => self.call_vector(&EightBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Sbc => self.subtract_with_carry(&EightBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Scf => self.set_carry_flag(),
+            OpCode::Set => self.set_bit(
+                &EightBitOperand::try_from(instruction.operands[0])?,
+                &EightBitOperand::try_from(instruction.operands[1])?,
+            ),
+            OpCode::Sla => self.shift_left_arithmetically(&EightBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Sra => self.shift_right_arithmetically(&EightBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Srl => self.shift_right_logically(&EightBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Stop => self.stop(),
+            OpCode::Sub => self.subtract(&EightBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Swap => self.swap(&EightBitOperand::try_from(instruction.operands[0])?),
+            OpCode::Xor => self.xor(&EightBitOperand::try_from(instruction.operands[0])?),
+        }
     }
 
-    fn increment(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let operand_value = self.get_operand(operand)?;
+    fn add_with_carry(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let a = self.get_a();
+        let operand_value = self.get_u8_operand(operand)?;
+        let carry = self.cpu.get_flag(Flag::Carry);
 
-        let result = operand_value + 1;
-        self.set_operand(operand, result);
+        let (middle_result, overflowed_middle) = a.overflowing_add(operand_value);
+        let (result, overflowed_end) = middle_result.overflowing_add(carry as u8);
 
-        Ok(result)
+        self.set_a(result);
+        self.set_flags(
+            result == 0,
+            false,
+            bit_3_overflow(vec![a, operand_value, carry as u8]),
+            overflowed_middle | overflowed_end,
+        );
+
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn subtract_with_carry(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let operand_value = self.get_operand(operand)?;
-        let a = self.get_a() as u16;
-        let carry = self.cpu.get_flag(Flag::Carry) as u16;
+    fn add_8_bit(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let a = self.get_a();
+        let operand_value = self.get_u8_operand(operand)?;
 
-        let result = a - carry - operand_value;
-        self.set_a(result as u8);
+        let (result, overflowed) = a.overflowing_add(operand_value);
 
-        Ok(result)
+        self.set_a(result);
+        self.set_flags(result == 0, false, bit_3_overflow(vec![a, operand_value]), overflowed);
+
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn subtract(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let operand_value = self.get_operand(operand)?;
-        let a = self.get_a() as u16;
+    fn add_16_bit(
+        &mut self,
+        operand0: &SixteenBitOperand,
+        operand1: &SixteenBitOperand,
+    ) -> InstructionResult<InstructionOutcome> {
+        let operand0_value = self.get_u16_operand(operand0);
+        let operand1_value = self.get_u16_operand(operand1);
 
-        let result = a - operand_value;
-        self.set_a(result as u8);
+        let (result, overflowed) = operand0_value.overflowing_add(operand1_value);
 
-        Ok(result)
+        self.set_u16_operand(operand0, result)?;
+        self.set_flags(
+            self.cpu.get_flag(Flag::Zero),
+            false,
+            bit_7_overflow(vec![operand0_value, operand1_value]),
+            overflowed,
+        );
+
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn and(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let operand_value = self.get_operand(operand)?;
-        let a = self.get_a() as u16;
+    fn and(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let operand_value = self.get_u8_operand(&operand)?;
+        let a = self.get_a();
 
-        let result = a & operand_value;
-        self.set_a(result as u8);
+        let result = operand_value & a;
 
-        Ok(result)
+        self.set_a(result);
+        self.set_flags(result == 0, false, true, false);
+
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn complement(&mut self) -> InstructionResult<u16> {
+    fn bit(&mut self, operand0: &EightBitOperand, operand1: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let test_bit = self.get_u8_operand(operand0)?;
+        let byte = self.get_u8_operand(operand1)?;
+
+        let result = (byte >> test_bit) & 0b1;
+
+        self.set_flags(result == 0, false, true, self.cpu.get_flag(Flag::Carry));
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn call(&mut self, address: &SixteenBitOperand) -> InstructionResult<InstructionOutcome> {
+        let next_address = self.cpu.get_pc() + 3;
+        self.push_to_stack(next_address)?;
+
+        self.jump(address)
+    }
+
+    fn call_conditional(
+        &mut self,
+        condition: &Condition,
+        address: &SixteenBitOperand,
+    ) -> InstructionResult<InstructionOutcome> {
+        if self.check_condition(condition) {
+            self.call(address)?;
+            Ok(InstructionOutcome::ExtraCycles(3))
+        } else {
+            Ok(InstructionOutcome::Ok)
+        }
+    }
+
+    fn complement_carry_flag(&mut self) -> InstructionResult<InstructionOutcome> {
+        let carry = self.cpu.get_flag(Flag::Carry);
+        self.cpu.set_flag(Flag::Carry, !carry);
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn compare(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let operand_value = self.get_u8_operand(&operand)?;
+        let a = self.get_a();
+
+        self.set_flags(
+            a == operand_value,
+            true,
+            bit_4_borrow(a, operand_value, false),
+            a < operand_value,
+        );
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn complement(&mut self) -> InstructionResult<InstructionOutcome> {
         let a = self.get_a();
         self.set_a(!a);
 
-        Ok(!a as u16)
+        self.set_flags(
+            self.cpu.get_flag(Flag::Zero),
+            true,
+            true,
+            self.cpu.get_flag(Flag::Carry),
+        );
+
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn or(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let operand_value = self.get_operand(operand)?;
-        let a = self.get_a() as u16;
-
-        let result = a | operand_value;
-        self.set_a(result as u8);
-
-        Ok(result)
-    }
-
-    fn xor(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let operand_value = self.get_operand(operand)?;
-        let a = self.get_a() as u16;
-
-        let result = a ^ operand_value;
-        self.set_a(result as u8);
-
-        Ok(result)
-    }
-
-    fn test_bit(&mut self, operand0: &Operand, operand1: &Operand) -> InstructionResult<u16> {
-        let index = self.get_operand(operand0)?;
-        let test_value = self.get_operand(operand1)?;
-
-        let result = (test_value >> index) & 0b1;
-
-        Ok(result)
-    }
-
-    fn clear_bit(&mut self, operand0: &Operand, operand1: &Operand) -> InstructionResult<u16> {
-        let index = self.get_operand(operand0)?;
-        let mask = !(0b1 << index);
-        let operand_value = self.get_operand(operand1)?;
-
-        let result = operand_value & mask;
-        self.set_operand(operand1, result);
-
-        Ok(result)
-    }
-
-    fn set_bit(&mut self, operand0: &Operand, operand1: &Operand) -> InstructionResult<u16> {
-        let index = self.get_operand(operand0)?;
-        let mask = 0b1 << index;
-        let operand_value = self.get_operand(operand1)?;
-
-        let result = operand_value | mask;
-        self.set_operand(operand1, result);
-
-        Ok(result)
-    }
-
-    fn rotate_left_through_carry(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let mut operand_value = self.get_operand(operand)?;
-        let mut carry = self.cpu.get_flag(Flag::Carry) as u16;
-
-        operand_value <<= 1;
-        operand_value |= carry;
-        carry = operand_value >> 8;
-
-        self.set_operand(operand, operand_value);
-
-        Ok(carry)
-    }
-
-    fn rotate_left(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let operand_value = self.get_operand(operand)? as u8;
-
-        let result = operand_value.wrapping_shl(1);
-        let carry = result & 0b1;
-
-        self.set_operand(operand, result as u16);
-
-        Ok(carry as u16)
-    }
-
-    fn rotate_right_through_carry(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let mut operand_value = self.get_operand(operand)?;
-        let mut carry = self.cpu.get_flag(Flag::Carry) as u16;
-
-        operand_value |= carry << 8;
-        carry = operand_value & 0b1;
-        operand_value >>= 1;
-
-        self.set_operand(operand, operand_value);
-
-        Ok(carry)
-    }
-
-    fn rotate_right(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let operand_value = self.get_operand(operand)? as u8;
-
-        let carry = operand_value & 0b1;
-        let result = operand_value.wrapping_shr(1);
-
-        self.set_operand(operand, result as u16);
-
-        Ok(carry as u16)
-    }
-
-    fn shift_left_arithmetic(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let operand_value = self.get_operand(operand)? as u8;
-
-        let result = operand_value.shl(1);
-        let carry = result & 0b1u8;
-
-        self.set_operand(operand, result as u16);
-
-        Ok(carry as u16)
-    }
-
-    fn shift_right_artithmetic(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let operand_value = self.get_operand(operand)? as i8;
-
-        let carry = operand_value & 0b1;
-        let result = operand_value.shr(1);
-
-        self.set_operand(operand, result as u16);
-
-        Ok(carry as u16)
-    }
-
-    fn shift_right_logical(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let operand_value = self.get_operand(operand)? as u8;
-
-        let carry = operand_value & 0b1;
-        let result = operand_value.shr(1);
-
-        self.set_operand(operand, result as u16);
-
-        Ok(carry as u16)
-    }
-
-    fn swap(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let operand_value = self.get_operand(operand)?;
-
-        let result = operand_value.wrapping_shl(4);
-
-        self.set_operand(operand, result);
-
-        Ok(result)
-    }
-
-    fn call(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let next_instruction_address = self.cpu.get_pc() + 3;
-        let call_address = self.get_operand(operand)?;
-
-        self.push_to_stack(next_instruction_address);
-        self.cpu.set_pc(call_address);
-
-        Ok(next_instruction_address)
-    }
-
-    fn call_conditional(&mut self, operand0: &Operand, operand1: &Operand) -> InstructionResult<u16> {
-        let condition: Condition = self.get_condition(operand0)?;
-        if self.check_condition(&condition) {
-            self.call(operand1)
-        } else {
-            todo!("Adjust number of cycles taken")
+    fn decimal_adjust_accumulator(&mut self) -> InstructionResult<InstructionOutcome> {
+        let mut adjustment = 0;
+        match self.cpu.get_flag(Flag::Subtraction) {
+            true => {
+                if self.cpu.get_flag(Flag::HalfCarry) {
+                    adjustment += 0x6;
+                }
+                if self.cpu.get_flag(Flag::Carry) {
+                    adjustment += 0x60;
+                }
+                self.subtract(&EightBitOperand::Immediate(adjustment))
+            },
+            false => {
+                let a = self.get_a();
+                if self.cpu.get_flag(Flag::HalfCarry) || a & 0xF > 0x9 {
+                    adjustment += 0x6;
+                }
+                if self.cpu.get_flag(Flag::Carry) || a > 0x99 {
+                    adjustment += 0x60;
+                }
+                self.add_8_bit(&EightBitOperand::Immediate(adjustment))
+            },
         }
     }
 
-    fn jump(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let address = self.get_operand(operand)?;
+    fn decrement_8_bit(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let operand_value = self.get_u8_operand(operand)?;
 
+        let result = operand_value.wrapping_sub(1);
+
+        self.set_u8_operand(operand, result)?;
+        self.set_flags(
+            result == 0,
+            true,
+            bit_4_borrow(operand_value, 1, false),
+            self.cpu.get_flag(Flag::Carry),
+        );
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn decrement_16_bit(&mut self, operand: &SixteenBitOperand) -> InstructionResult<InstructionOutcome> {
+        let operand_value = self.get_u16_operand(operand);
+
+        let result = operand_value.wrapping_sub(1);
+
+        self.set_u16_operand(operand, result)?;
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn increment_8_bit(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let operand_value = self.get_u8_operand(operand)?;
+
+        let result = operand_value.wrapping_add(1);
+
+        self.set_u8_operand(operand, result)?;
+        self.set_flags(
+            result == 0,
+            false,
+            bit_3_overflow(vec![operand_value, 1]),
+            self.cpu.get_flag(Flag::Carry),
+        );
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn increment_16_bit(&mut self, operand: &SixteenBitOperand) -> InstructionResult<InstructionOutcome> {
+        let operand_value = self.get_u16_operand(operand);
+
+        let result = operand_value.wrapping_add(1);
+
+        self.set_u16_operand(operand, result)?;
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn jump(&mut self, operand: &SixteenBitOperand) -> InstructionResult<InstructionOutcome> {
+        let address = self.get_u16_operand(operand);
         self.cpu.set_pc(address);
 
-        Ok(address)
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn jump_conditional(&mut self, operand0: &Operand, operand1: &Operand) -> InstructionResult<u16> {
-        let condition: Condition = self.get_condition(operand0)?;
-        if self.check_condition(&condition) {
-            self.jump(operand1)
+    fn jump_conditional(
+        &mut self,
+        condition: &Condition,
+        address: &SixteenBitOperand,
+    ) -> InstructionResult<InstructionOutcome> {
+        if self.check_condition(condition) {
+            self.jump(address)?;
+            Ok(InstructionOutcome::ExtraCycles(1))
         } else {
-            Ok(self.cpu.get_pc())
+            Ok(InstructionOutcome::Ok)
         }
     }
 
-    fn jump_relative(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let operand_value = self.get_operand(operand)?;
-        let pc = self.cpu.get_pc();
+    fn jump_relative(&mut self, offset: i8) -> InstructionResult<InstructionOutcome> {
+        let offset = offset as i16;
+        let next_address = (self.cpu.get_pc() + 2) as i16;
 
-        let result = operand_value + pc;
-        self.cpu.set_pc(result);
+        let jump_address = offset + next_address;
 
-        Ok(result)
+        self.cpu.set_pc(jump_address as u16);
+
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn jump_relative_conditional(&mut self, operand0: &Operand, operand1: &Operand) -> InstructionResult<u16> {
-        let condition = self.get_condition(operand0)?;
-        if self.check_condition(&condition) {
-            self.jump_relative(operand1)
+    fn jump_relative_conditional(
+        &mut self,
+        condition: &Condition,
+        offset: i8,
+    ) -> InstructionResult<InstructionOutcome> {
+        if self.check_condition(condition) {
+            self.jump_relative(offset)?;
+            Ok(InstructionOutcome::ExtraCycles(1))
         } else {
-            Ok(self.cpu.get_pc())
+            Ok(InstructionOutcome::Ok)
         }
     }
 
-    fn return_conditional(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let condition = self.get_condition(operand)?;
-        if self.check_condition(&condition) {
-            self.ret()
-        } else {
-            todo!("Change cycles")
-        }
+    fn load_8_bit(
+        &mut self,
+        operand0: &EightBitOperand,
+        operand1: &EightBitOperand,
+    ) -> InstructionResult<InstructionOutcome> {
+        let value = self.get_u8_operand(operand1)?;
+        self.set_u8_operand(operand0, value)?;
+
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn call_vector(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        self.call(operand)
+    fn load_16_bit(
+        &mut self,
+        operand0: &SixteenBitOperand,
+        operand1: &SixteenBitOperand,
+    ) -> InstructionResult<InstructionOutcome> {
+        let value = self.get_u16_operand(operand1);
+        self.set_u16_operand(operand0, value)?;
+
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn ret(&mut self) -> InstructionResult<u16> {
-        let new_pc = self.pop_from_stack();
+    fn load_high(
+        &mut self,
+        operand0: &EightBitOperand,
+        operand1: &EightBitOperand,
+    ) -> InstructionResult<InstructionOutcome> {
+        let value = self.get_u8_operand(operand1)?;
+        self.set_u8_operand(operand0, value)?;
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn or(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let value = self.get_u8_operand(operand)?;
+        let a = self.get_a();
+
+        let result = value | a;
+
+        self.set_a(result);
+        self.cpu.set_flags(result == 0, false, false, false);
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn pop(&mut self, operand: &SixteenBitOperand) -> InstructionResult<InstructionOutcome> {
+        let value = self.pop_from_stack()?;
+
+        self.set_u16_operand(operand, value)?;
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn push(&mut self, operand: &SixteenBitOperand) -> InstructionResult<InstructionOutcome> {
+        let value = self.get_u16_operand(operand);
+
+        self.push_to_stack(value)?;
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn clear_bit(
+        &mut self,
+        operand0: &EightBitOperand,
+        operand1: &EightBitOperand,
+    ) -> InstructionResult<InstructionOutcome> {
+        let bit_number = self.get_u8_operand(operand0)?;
+        let byte = self.get_u8_operand(operand1)?;
+
+        let mask = !(1 << bit_number);
+        let result = byte & mask;
+
+        self.set_u8_operand(operand1, result)?;
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn ret(&mut self) -> InstructionResult<InstructionOutcome> {
+        let new_pc = self.pop_from_stack()?;
         self.cpu.set_pc(new_pc);
 
-        Ok(new_pc)
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn return_from_interrupt(&mut self) -> InstructionResult<u16> {
+    fn return_conditional(&mut self, condition: &Condition) -> InstructionResult<InstructionOutcome> {
+        if self.check_condition(condition) {
+            self.ret()?;
+            Ok(InstructionOutcome::ExtraCycles(3))
+        } else {
+            Ok(InstructionOutcome::Ok)
+        }
+    }
+
+    fn return_from_interrupt(&mut self) -> InstructionResult<InstructionOutcome> {
         self.enable_interrupts()?;
         self.ret()
     }
 
-    fn complement_carry_flag(&mut self) -> InstructionResult<u16> {
+    fn rotate_left_through_carry(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let value = self.get_u8_operand(operand)?;
         let carry = self.cpu.get_flag(Flag::Carry);
-        self.cpu.set_flag(Flag::Carry, !(carry != 0));
 
-        Ok(0)
+        let new_carry = (value >> 7) == 1;
+        let result = (value << 1) | carry as u8;
+
+        self.set_u8_operand(operand, result)?;
+
+        self.cpu.set_flags(result == 0, false, false, new_carry);
+
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn set_carry_flag(&mut self) -> InstructionResult<u16> {
+    fn rotate_left_through_carry_a(&mut self) -> InstructionResult<InstructionOutcome> {
+        self.rotate_left_through_carry(&EightBitOperand::A)?;
+
+        self.cpu.set_flag(Flag::Zero, false);
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn rotate_left_into_carry(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let value = self.get_u8_operand(operand)?;
+
+        let new_carry = value >> 7;
+        let result = (value << 1) | new_carry;
+
+        self.set_u8_operand(operand, result)?;
+
+        self.cpu.set_flags(result == 0, false, false, new_carry == 1);
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn rotate_left_into_carry_a(&mut self) -> InstructionResult<InstructionOutcome> {
+        self.rotate_left_into_carry(&EightBitOperand::A)?;
+
+        self.cpu.set_flag(Flag::Zero, false);
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn rotate_right_through_carry(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let value = self.get_u8_operand(operand)?;
+        let carry = (self.cpu.get_flag(Flag::Carry) as u8) << 7;
+
+        let new_carry = (value & 1) == 1;
+        let result = (value >> 1) | carry;
+
+        self.set_u8_operand(operand, result)?;
+
+        self.cpu.set_flags(result == 0, false, false, new_carry);
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn rotate_right_through_carry_a(&mut self) -> InstructionResult<InstructionOutcome> {
+        self.rotate_right_through_carry(&EightBitOperand::A)?;
+
+        self.cpu.set_flag(Flag::Zero, false);
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn rotate_right_into_carry(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let value = self.get_u8_operand(operand)?;
+
+        let new_carry = value << 7;
+        let result = (value >> 1) | new_carry;
+
+        self.set_u8_operand(operand, result)?;
+
+        self.cpu.set_flags(result == 0, false, false, new_carry != 0);
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn rotate_right_into_carry_a(&mut self) -> InstructionResult<InstructionOutcome> {
+        self.rotate_right_into_carry(&EightBitOperand::A)?;
+
+        self.cpu.set_flag(Flag::Zero, false);
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn call_vector(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let value = self.get_u8_operand(operand)? as u16;
+        self.call(&SixteenBitOperand::Immediate(value))
+    }
+
+    fn subtract_with_carry(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let a = self.get_a();
+        let operand_value = self.get_u8_operand(operand)?;
+        let carry = self.cpu.get_flag(Flag::Carry);
+
+        let (middle_result, overflowed_middle) = a.overflowing_sub(operand_value);
+        let (result, overflowed_end) = middle_result.overflowing_sub(carry as u8);
+
+        self.set_a(result);
+        self.set_flags(
+            result == 0,
+            true,
+            bit_4_borrow(a, operand_value, carry),
+            overflowed_middle | overflowed_end,
+        );
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn set_carry_flag(&mut self) -> InstructionResult<InstructionOutcome> {
         self.cpu.set_flag(Flag::Carry, true);
 
-        Ok(0)
+        self.set_flags(self.cpu.get_flag(Flag::Zero), false, false, true);
+
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn pop(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let stack_value = self.pop_from_stack();
+    fn set_bit(
+        &mut self,
+        operand0: &EightBitOperand,
+        operand1: &EightBitOperand,
+    ) -> InstructionResult<InstructionOutcome> {
+        let bit_number = self.get_u8_operand(operand0)?;
+        let byte = self.get_u8_operand(operand1)?;
 
-        self.set_operand(operand, stack_value);
+        let mask = 1 << bit_number;
+        let result = byte | mask;
 
-        Ok(stack_value)
+        self.set_u8_operand(operand1, result)?;
+
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn push(&mut self, operand: &Operand) -> InstructionResult<u16> {
-        let operand_value = self.get_operand(operand)?;
+    fn shift_left_arithmetically(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let value = self.get_u8_operand(operand)?;
 
-        self.push_to_stack(operand_value);
+        let new_carry = value >> 7 == 1;
+        let result = value << 1;
 
-        Ok(operand_value)
+        self.set_u8_operand(operand, result)?;
+        self.cpu.set_flags(result == 0, false, false, new_carry);
+
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn disable_interrupts(&mut self) -> InstructionResult<u16> {
+    fn shift_right_arithmetically(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let value = self.get_u8_operand(operand)?;
+        let sign = value >> 7;
+
+        let new_carry = value & 1 == 1;
+        let result = (value >> 1) | sign;
+
+        self.set_u8_operand(operand, result)?;
+        self.cpu.set_flags(result == 0, false, false, new_carry);
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn shift_right_logically(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let value = self.get_u8_operand(operand)?;
+
+        let new_carry = value & 1 == 1;
+        let result = value >> 1;
+
+        self.set_u8_operand(operand, result)?;
+        self.cpu.set_flags(result == 0, false, false, new_carry);
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn subtract(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let a = self.get_a();
+        let operand_value = self.get_u8_operand(operand)?;
+
+        let (result, borrowed) = a.overflowing_sub(operand_value);
+
+        self.set_a(result);
+        self.set_flags(result == 0, true, bit_4_borrow(a, operand_value, false), borrowed);
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn swap(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let operand_value = self.get_u8_operand(operand)?;
+
+        let result = operand_value.rotate_left(4);
+
+        self.set_u8_operand(operand, result)?;
+        self.set_flags(result == 0, false, false, false);
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn xor(&mut self, operand: &EightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let operand_value = self.get_u8_operand(operand)?;
+        let a = self.get_a();
+
+        let result = a ^ operand_value;
+
+        self.set_a(result);
+        self.cpu.set_flags(result == 0, false, false, false);
+
+        Ok(InstructionOutcome::Ok)
+    }
+
+    fn disable_interrupts(&mut self) -> InstructionResult<InstructionOutcome> {
         self.cpu.set_flag(Flag::InterruptMasterEnable, false);
 
-        Ok(0)
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn enable_interrupts(&mut self) -> InstructionResult<u16> {
+    fn enable_interrupts(&mut self) -> InstructionResult<InstructionOutcome> {
         self.cpu.set_flag(Flag::InterruptMasterEnable, true);
 
-        Ok(0)
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn halt(&mut self) -> InstructionResult<u16> {
-        todo!()
+    fn halt(&mut self) -> InstructionResult<InstructionOutcome> {
+        Ok(InstructionOutcome::Halt)
     }
 
-    fn decimal_adjust_accumulator(&mut self) -> InstructionResult<u16> {
-        let mut adjustment = 0;
-        match self.cpu.get_flag(Flag::Zero) {
-            1 => {
-                if self.cpu.get_flag(Flag::HalfCarry) == 1 {
-                    adjustment += 0x6;
-                }
-                if self.cpu.get_flag(Flag::Carry) == 1 {
-                    adjustment += 0x60;
-                }
-                self.subtract(&Operand::Immediate(adjustment))
-            },
-            _ => {
-                let a = self.get_a();
-                if self.cpu.get_flag(Flag::HalfCarry) == 1 || a & 0xF > 0x9 {
-                    adjustment += 0x6;
-                }
-                if self.cpu.get_flag(Flag::Carry) == 1 || a > 0x99 {
-                    adjustment += 0x60;
-                }
-                self.add(&Operand::A, &Operand::Immediate(adjustment))
-            },
-        }
+    fn nop(&self) -> InstructionResult<InstructionOutcome> {
+        Ok(InstructionOutcome::Ok)
     }
 
-    fn nop(&mut self) -> InstructionResult<u16> {
-        Ok(0)
+    fn stop(&mut self) -> InstructionResult<InstructionOutcome> {
+        Ok(InstructionOutcome::Stop)
     }
+}
 
-    fn stop(&mut self) -> InstructionResult<u16> {
-        todo!()
-    }
+fn bit_4_borrow(operand0: u8, operand1: u8, carry: bool) -> bool {
+    (operand0 & 0x0F) < ((operand1 & 0x0F) + carry as u8)
+}
+
+fn bit_3_overflow(operands: Vec<u8>) -> bool {
+    let mut result = 0;
+    operands.iter().for_each(|o| result += o & 0x0F);
+    result > 0x0F
+}
+
+fn bit_7_overflow(operands: Vec<u16>) -> bool {
+    let mut result = 0;
+    operands.iter().for_each(|o| result += o & 0xFF);
+    result > 0xFF
 }
 
 #[cfg(test)]

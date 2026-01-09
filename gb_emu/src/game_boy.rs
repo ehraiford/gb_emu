@@ -1,7 +1,5 @@
-use std::path::PathBuf;
-
 use crate::{
-    bus::{Bus, BusAccessible, MMDevice},
+    bus::Bus,
     cpu::{Cpu, OperationContext},
     instructions::*,
 };

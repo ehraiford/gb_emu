@@ -6,6 +6,7 @@ mod game_boy;
 mod helper_functions;
 mod instruction_tables;
 mod instructions;
+mod rom_bank;
 
 fn main() {
     let mut game_boy = GameBoy::new();

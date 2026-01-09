@@ -8,12 +8,11 @@ pub struct Instruction {
     pub operands: &'static [Operand],
     pub cycles: u8,
     pub bytes: u8,
-    pub flags: FlagChecks,
 }
 
 impl Instruction {
-    pub const fn new(op_code: OpCode, operands: &'static [Operand], cycles: u8, bytes: u8, flags: FlagChecks) -> Self {
-        Self { op_code, operands, cycles, bytes, flags }
+    pub const fn new(op_code: OpCode, operands: &'static [Operand], cycles: u8, bytes: u8) -> Self {
+        Self { op_code, operands, cycles, bytes }
     }
 }
 
@@ -80,6 +79,8 @@ pub enum OpCode {
     CallConditional,
     RetConditional,
 }
+
+#[derive(Copy, Clone, Debug)]
 pub enum Operand {
     A,
     A16,
@@ -94,7 +95,7 @@ pub enum Operand {
     DEPointer,
     E,
     E8,
-    FF00OffsetByA,
+    FF00OffsetByA8,
     FF00OffsetByC,
     H,
     HL,
@@ -105,11 +106,54 @@ pub enum Operand {
     L,
     N16,
     N8,
-    NC,
-    NZ,
+    Carry,
+    NotCarry,
+    NotZero,
     SP,
-    SPAndE8,
-    Z,
+    Zero,
+}
+
+pub enum OperandType {
+    EightBitOperand,
+    SixteenBitOperand,
+    SignedEightBit,
+    Condition,
+}
+
+impl From<Operand> for OperandType {
+    fn from(value: Operand) -> Self {
+        match value {
+            Operand::A => Self::EightBitOperand,
+            Operand::A16Pointer => Self::EightBitOperand,
+            Operand::B => Self::EightBitOperand,
+            Operand::N8 => Self::EightBitOperand,
+            Operand::BCPointer => Self::EightBitOperand,
+            Operand::C => Self::EightBitOperand,
+            Operand::D => Self::EightBitOperand,
+            Operand::DEPointer => Self::EightBitOperand,
+            Operand::E => Self::EightBitOperand,
+            Operand::FF00OffsetByA8 => Self::EightBitOperand,
+            Operand::FF00OffsetByC => Self::EightBitOperand,
+            Operand::H => Self::EightBitOperand,
+            Operand::HLD => Self::EightBitOperand,
+            Operand::HLI => Self::EightBitOperand,
+            Operand::HLPointer => Self::EightBitOperand,
+            Operand::Immediate(_) => Self::EightBitOperand,
+            Operand::L => Self::EightBitOperand,
+            Operand::HL => Self::SixteenBitOperand,
+            Operand::AF => Self::SixteenBitOperand,
+            Operand::BC => Self::SixteenBitOperand,
+            Operand::DE => Self::SixteenBitOperand,
+            Operand::SP => Self::SixteenBitOperand,
+            Operand::A16 => Self::SixteenBitOperand,
+            Operand::N16 => Self::SixteenBitOperand,
+            Operand::Carry => Self::Condition,
+            Operand::NotCarry => Self::Condition,
+            Operand::NotZero => Self::Condition,
+            Operand::Zero => Self::Condition,
+            Operand::E8 => Self::SignedEightBit,
+        }
+    }
 }
 
 pub struct FlagChecks {
@@ -141,6 +185,7 @@ pub type InstructionResult<T> = Result<T, InstructionError>;
 #[derive(Debug, Clone, Copy)]
 pub enum InstructionError {
     InvalidOperation(u8),
+    InvalidOperand,
     LdhLowValue(u16),
     MemoryAccessError(u16),
     OperandCannotBeSet,
@@ -153,4 +198,88 @@ impl From<MemoryAccessError> for InstructionError {
             MemoryAccessError::FailedToReadAddress => todo!(),
         }
     }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum EightBitOperand {
+    A,
+    A16Pointer,
+    B,
+    HLPointer,
+    HLIPointer,
+    HLDPointer,
+    BCPointer,
+    L,
+    C,
+    D,
+    DEPointer,
+    E,
+    FF00OffsetByA,
+    FF00OffsetByC,
+    H,
+    N8,
+    Immediate(u8),
+}
+
+impl TryFrom<Operand> for EightBitOperand {
+    type Error = InstructionError;
+
+    fn try_from(value: Operand) -> Result<Self, Self::Error> {
+        match value {
+            Operand::A => Ok(Self::A),
+            Operand::A16Pointer => Ok(Self::A16Pointer),
+            Operand::B => Ok(Self::B),
+            Operand::HLPointer => Ok(Self::HLPointer),
+            Operand::BCPointer => Ok(Self::BCPointer),
+            Operand::L => Ok(Self::L),
+            Operand::C => Ok(Self::C),
+            Operand::D => Ok(Self::D),
+            Operand::DEPointer => Ok(Self::DEPointer),
+            Operand::E => Ok(Self::E),
+            Operand::FF00OffsetByA8 => Ok(Self::FF00OffsetByA),
+            Operand::FF00OffsetByC => Ok(Self::FF00OffsetByC),
+            Operand::H => Ok(Self::H),
+            Operand::N8 => Ok(Self::N8),
+            Operand::Immediate(val) => Ok(Self::Immediate(val)),
+            Operand::HLD => Ok(Self::HLDPointer),
+            Operand::HLI => Ok(Self::HLDPointer),
+            _ => Err(InstructionError::InvalidOperand),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum SixteenBitOperand {
+    BC,
+    DE,
+    HL,
+    AF,
+    A16,
+    N16,
+    SP,
+    Immediate(u16),
+}
+
+impl TryFrom<Operand> for SixteenBitOperand {
+    type Error = InstructionError;
+
+    fn try_from(value: Operand) -> Result<Self, Self::Error> {
+        match value {
+            Operand::BC => Ok(Self::BC),
+            Operand::DE => Ok(Self::DE),
+            Operand::HL => Ok(Self::HL),
+            Operand::AF => Ok(Self::AF),
+            Operand::A16 => Ok(Self::A16),
+            Operand::N16 => Ok(Self::N16),
+            Operand::SP => Ok(Self::SP),
+            _ => Err(InstructionError::InvalidOperand),
+        }
+    }
+}
+
+pub enum InstructionOutcome {
+    ExtraCycles(u8),
+    Ok,
+    Halt,
+    Stop,
 }
