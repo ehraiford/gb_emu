@@ -29,16 +29,16 @@ impl Bus {
         Ok([self.peek(address)?, self.peek(address + 1)?, self.peek(address + 2)?])
     }
 
-    pub fn read_next_instruction(&mut self, pc: u16) -> MemoryAccessResult<Instruction> {
+    pub fn read_next_instruction(&mut self, pc: u16) -> MemoryAccessResult<(&'static Instruction, [u8; 3])> {
         let bytes = self.peek_3_byte_slice(pc)?;
-        let instruction = Instruction::try_from(bytes)?;
+        let instruction = <&Instruction>::try_from(bytes)?;
 
-        for i in 0..instruction.get_length() {
+        for i in 0..instruction.bytes {
             // go ahead and mutably access the bytes now that we know how many are in the instruction
             self.read(pc + i as u16)?;
         }
 
-        Ok(instruction)
+        Ok((instruction, bytes))
     }
 }
 
@@ -107,15 +107,18 @@ pub trait BusAccessible {
 #[derive(Debug)]
 pub enum MemoryAccessError {
     NotAnOperation(u8),
+    FailedToReadAddress,
 }
 
 impl From<InstructionError> for MemoryAccessError {
     fn from(value: InstructionError) -> Self {
         match value {
-            InstructionError::InvalidOperandType { expected: _, received: _ } | InstructionError::LdhLowValue(_) => {
+            InstructionError::LdhLowValue(_) => {
                 unreachable!("There shouldn't be any place this conversion happens")
             },
             InstructionError::InvalidOperation(byte) => Self::NotAnOperation(byte),
+            InstructionError::MemoryAccessError(_) => todo!(),
+            InstructionError::OperandCannotBeSet => todo!(),
         }
     }
 }

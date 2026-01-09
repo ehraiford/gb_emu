@@ -4,6 +4,7 @@ mod bus;
 mod cpu;
 mod game_boy;
 mod helper_functions;
+mod instruction_tables;
 mod instructions;
 
 fn main() {

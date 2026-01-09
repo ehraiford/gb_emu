@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::{
     bus::{Bus, BusAccessible, MMDevice},
-    cpu::Cpu,
+    cpu::{Cpu, OperationContext},
     instructions::*,
 };
 
@@ -24,11 +24,13 @@ impl GameBoy {
     }
 
     fn tick_cpu_execution(&mut self) {
-        let instruction = self.read_next_instruction();
-        OperationContext::new(&mut self.cpu, &mut self.bus).perform_instruction(&instruction);
+        let (instruction, bytes) = self.read_next_instruction();
+        OperationContext::new(&mut self.cpu, &mut self.bus, bytes)
+            .perform_instruction(instruction)
+            .unwrap();
     }
 
-    fn read_next_instruction(&mut self) -> Instruction {
+    fn read_next_instruction(&mut self) -> (&'static Instruction, [u8; 3]) {
         let pc = self.cpu.get_pc();
         self.bus
             .read_next_instruction(pc)
