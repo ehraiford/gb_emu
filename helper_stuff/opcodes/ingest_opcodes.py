@@ -1,3 +1,4 @@
+#ingests the opcodes json object available at https://gbdev.io/gb-opcodes/optables/
 import json
 
 def to_upper_camel_case(s: str) -> str:

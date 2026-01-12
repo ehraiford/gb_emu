@@ -1,5 +1,6 @@
 use crate::{
     bus::MemoryAccessError,
+    game_boy::Mode,
     instruction_tables::{CBPREFIXED, UNPREFIXED},
 };
 
@@ -7,11 +8,11 @@ pub struct Instruction {
     pub op_code: OpCode,
     pub operands: &'static [Operand],
     pub cycles: u8,
-    pub bytes: u8,
+    pub bytes: u16,
 }
 
 impl Instruction {
-    pub const fn new(op_code: OpCode, operands: &'static [Operand], cycles: u8, bytes: u8) -> Self {
+    pub const fn new(op_code: OpCode, operands: &'static [Operand], cycles: u8, bytes: u16) -> Self {
         Self { op_code, operands, cycles, bytes }
     }
 }
@@ -27,6 +28,8 @@ impl TryFrom<[u8; 3]> for &Instruction {
         }
     }
 }
+
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum OpCode {
     Adc,
     Add,
@@ -80,7 +83,7 @@ pub enum OpCode {
     RetConditional,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Operand {
     A,
     A16,
@@ -113,6 +116,7 @@ pub enum Operand {
     Zero,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OperandType {
     EightBitOperand,
     SixteenBitOperand,
@@ -276,10 +280,27 @@ impl TryFrom<Operand> for SixteenBitOperand {
         }
     }
 }
+/// It feels silly to have this for just one type but it keeps format consistent.
+/// Plus, Rust Enums are Zero-Cost Abstractions, right?
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SignedEightBitOperand {
+    I8,
+}
+
+impl TryFrom<Operand> for SignedEightBitOperand {
+    type Error = InstructionError;
+
+    fn try_from(value: Operand) -> Result<Self, Self::Error> {
+        if value == Operand::E8 {
+            Ok(SignedEightBitOperand::I8)
+        } else {
+            Err(InstructionError::InvalidOperand)
+        }
+    }
+}
 
 pub enum InstructionOutcome {
-    ExtraCycles(u8),
+    ExtraCycles(u16),
     Ok,
-    Halt,
-    Stop,
+    ChangeGameBoyMode(Mode),
 }

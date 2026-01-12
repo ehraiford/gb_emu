@@ -1,9 +1,10 @@
 use crate::{
     bus::{Bus, MemoryAccessResult},
+    game_boy::Mode,
     helper_functions::concat_2_bytes,
     instructions::{
         EightBitOperand, Instruction, InstructionError, InstructionOutcome, InstructionResult, OpCode, Operand,
-        OperandType, SixteenBitOperand,
+        OperandType, SignedEightBitOperand, SixteenBitOperand,
     },
 };
 
@@ -201,12 +202,11 @@ impl TryFrom<Operand> for Condition {
 pub struct OperationContext<'a, 'b> {
     cpu: &'a mut Cpu,
     bus: &'b mut Bus,
-    bytes: [u8; 3],
 }
 
 impl<'a, 'b> OperationContext<'a, 'b> {
-    pub fn new(cpu: &'a mut Cpu, bus: &'b mut Bus, bytes: [u8; 3]) -> Self {
-        Self { cpu, bus, bytes }
+    pub fn new(cpu: &'a mut Cpu, bus: &'b mut Bus) -> Self {
+        Self { cpu, bus }
     }
 
     fn push_to_stack(&mut self, value: u16) -> MemoryAccessResult<()> {
@@ -250,10 +250,13 @@ impl<'a, 'b> OperationContext<'a, 'b> {
             EightBitOperand::HLPointer => Ok(self.bus.read(self.cpu.get_hl())?),
             EightBitOperand::BCPointer => Ok(self.bus.read(self.cpu.get_bc())?),
             EightBitOperand::DEPointer => Ok(self.bus.read(self.cpu.get_de())?),
-            EightBitOperand::A16Pointer => Ok(self.bus.read(concat_2_bytes(self.bytes[1], self.bytes[2]))?),
+            EightBitOperand::A16Pointer => {
+                let pointer = self.bus.read_u16(self.cpu.get_pc() + 1)?;
+                Ok(self.bus.read(pointer)?)
+            },
             EightBitOperand::FF00OffsetByA => Ok(self.bus.read(0xFF00 + self.cpu.get_a() as u16)?),
             EightBitOperand::FF00OffsetByC => Ok(self.bus.read(0xFF00 + self.cpu.get_c() as u16)?),
-            EightBitOperand::N8 => Ok(self.bytes[1]),
+            EightBitOperand::N8 => Ok(self.bus.read(self.cpu.get_pc() + 1)?),
             EightBitOperand::Immediate(val) => Ok(*val),
             EightBitOperand::HLIPointer => {
                 let hl = self.cpu.get_hl();
@@ -297,16 +300,20 @@ impl<'a, 'b> OperationContext<'a, 'b> {
         }
     }
 
-    fn get_u16_operand(&mut self, operand: &SixteenBitOperand) -> u16 {
+    fn get_i8_operand(&mut self) -> InstructionResult<i8> {
+        Ok(self.bus.read(self.cpu.get_pc() + 1)? as i8)
+    }
+
+    fn get_u16_operand(&mut self, operand: &SixteenBitOperand) -> InstructionResult<u16> {
         match operand {
-            SixteenBitOperand::BC => self.cpu.get_bc(),
-            SixteenBitOperand::DE => self.cpu.get_de(),
-            SixteenBitOperand::HL => self.cpu.get_hl(),
-            SixteenBitOperand::AF => self.cpu.get_af(),
-            SixteenBitOperand::SP => self.cpu.get_sp(),
-            SixteenBitOperand::A16 => concat_2_bytes(self.bytes[1], self.bytes[2]),
-            SixteenBitOperand::N16 => concat_2_bytes(self.bytes[1], self.bytes[2]),
-            SixteenBitOperand::Immediate(imm) => *imm,
+            SixteenBitOperand::BC => Ok(self.cpu.get_bc()),
+            SixteenBitOperand::DE => Ok(self.cpu.get_de()),
+            SixteenBitOperand::HL => Ok(self.cpu.get_hl()),
+            SixteenBitOperand::AF => Ok(self.cpu.get_af()),
+            SixteenBitOperand::SP => Ok(self.cpu.get_sp()),
+            SixteenBitOperand::A16 => Ok(self.bus.read_u16(self.cpu.get_pc())?),
+            SixteenBitOperand::N16 => Ok(self.bus.read_u16(self.cpu.get_pc())?),
+            SixteenBitOperand::Immediate(imm) => Ok(*imm),
         }
     }
 
@@ -377,10 +384,11 @@ impl<'a, 'b> OperationContext<'a, 'b> {
                 &Condition::try_from(instruction.operands[0])?,
                 &SixteenBitOperand::try_from(instruction.operands[1])?,
             ),
-            OpCode::Jr => self.jump_relative(self.bytes[1] as i8),
-            OpCode::JrConditional => {
-                self.jump_relative_conditional(&Condition::try_from(instruction.operands[0])?, self.bytes[1] as i8)
-            },
+            OpCode::Jr => self.jump_relative(&SignedEightBitOperand::try_from(instruction.operands[0])?),
+            OpCode::JrConditional => self.jump_relative_conditional(
+                &Condition::try_from(instruction.operands[0])?,
+                &SignedEightBitOperand::try_from(instruction.operands[1])?,
+            ),
             OpCode::Ld => match OperandType::from(instruction.operands[0]) {
                 OperandType::EightBitOperand => self.load_8_bit(
                     &EightBitOperand::try_from(instruction.operands[0])?,
@@ -388,7 +396,7 @@ impl<'a, 'b> OperationContext<'a, 'b> {
                 ),
                 OperandType::SixteenBitOperand => self.load_16_bit(
                     &SixteenBitOperand::try_from(instruction.operands[0])?,
-                    &&SixteenBitOperand::try_from(instruction.operands[1])?,
+                    &SixteenBitOperand::try_from(instruction.operands[1])?,
                 ),
                 _ => return Err(InstructionError::InvalidOperand),
             },
@@ -469,8 +477,8 @@ impl<'a, 'b> OperationContext<'a, 'b> {
         operand0: &SixteenBitOperand,
         operand1: &SixteenBitOperand,
     ) -> InstructionResult<InstructionOutcome> {
-        let operand0_value = self.get_u16_operand(operand0);
-        let operand1_value = self.get_u16_operand(operand1);
+        let operand0_value = self.get_u16_operand(operand0)?;
+        let operand1_value = self.get_u16_operand(operand1)?;
 
         let (result, overflowed) = operand0_value.overflowing_add(operand1_value);
 
@@ -605,7 +613,7 @@ impl<'a, 'b> OperationContext<'a, 'b> {
     }
 
     fn decrement_16_bit(&mut self, operand: &SixteenBitOperand) -> InstructionResult<InstructionOutcome> {
-        let operand_value = self.get_u16_operand(operand);
+        let operand_value = self.get_u16_operand(operand)?;
 
         let result = operand_value.wrapping_sub(1);
 
@@ -631,7 +639,7 @@ impl<'a, 'b> OperationContext<'a, 'b> {
     }
 
     fn increment_16_bit(&mut self, operand: &SixteenBitOperand) -> InstructionResult<InstructionOutcome> {
-        let operand_value = self.get_u16_operand(operand);
+        let operand_value = self.get_u16_operand(operand)?;
 
         let result = operand_value.wrapping_add(1);
 
@@ -641,7 +649,7 @@ impl<'a, 'b> OperationContext<'a, 'b> {
     }
 
     fn jump(&mut self, operand: &SixteenBitOperand) -> InstructionResult<InstructionOutcome> {
-        let address = self.get_u16_operand(operand);
+        let address = self.get_u16_operand(operand)?;
         self.cpu.set_pc(address);
 
         Ok(InstructionOutcome::Ok)
@@ -660,8 +668,8 @@ impl<'a, 'b> OperationContext<'a, 'b> {
         }
     }
 
-    fn jump_relative(&mut self, offset: i8) -> InstructionResult<InstructionOutcome> {
-        let offset = offset as i16;
+    fn jump_relative(&mut self, _operand: &SignedEightBitOperand) -> InstructionResult<InstructionOutcome> {
+        let offset = self.get_i8_operand()? as i16;
         let next_address = (self.cpu.get_pc() + 2) as i16;
 
         let jump_address = offset + next_address;
@@ -674,10 +682,10 @@ impl<'a, 'b> OperationContext<'a, 'b> {
     fn jump_relative_conditional(
         &mut self,
         condition: &Condition,
-        offset: i8,
+        _operand: &SignedEightBitOperand,
     ) -> InstructionResult<InstructionOutcome> {
         if self.check_condition(condition) {
-            self.jump_relative(offset)?;
+            self.jump_relative(_operand)?;
             Ok(InstructionOutcome::ExtraCycles(1))
         } else {
             Ok(InstructionOutcome::Ok)
@@ -700,7 +708,7 @@ impl<'a, 'b> OperationContext<'a, 'b> {
         operand0: &SixteenBitOperand,
         operand1: &SixteenBitOperand,
     ) -> InstructionResult<InstructionOutcome> {
-        let value = self.get_u16_operand(operand1);
+        let value = self.get_u16_operand(operand1)?;
         self.set_u16_operand(operand0, value)?;
 
         Ok(InstructionOutcome::Ok)
@@ -738,7 +746,7 @@ impl<'a, 'b> OperationContext<'a, 'b> {
     }
 
     fn push(&mut self, operand: &SixteenBitOperand) -> InstructionResult<InstructionOutcome> {
-        let value = self.get_u16_operand(operand);
+        let value = self.get_u16_operand(operand)?;
 
         self.push_to_stack(value)?;
 
@@ -1001,7 +1009,7 @@ impl<'a, 'b> OperationContext<'a, 'b> {
     }
 
     fn halt(&mut self) -> InstructionResult<InstructionOutcome> {
-        Ok(InstructionOutcome::Halt)
+        Ok(InstructionOutcome::ChangeGameBoyMode(Mode::Halted))
     }
 
     fn nop(&self) -> InstructionResult<InstructionOutcome> {
@@ -1009,7 +1017,7 @@ impl<'a, 'b> OperationContext<'a, 'b> {
     }
 
     fn stop(&mut self) -> InstructionResult<InstructionOutcome> {
-        Ok(InstructionOutcome::Stop)
+        Ok(InstructionOutcome::ChangeGameBoyMode(Mode::Stopped))
     }
 }
 

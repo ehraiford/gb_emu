@@ -1,6 +1,7 @@
 use crate::{
-    instructions::{Instruction, InstructionError},
-    rom_bank::RomBank00,
+    cartridge::rom_bank::RomBank00,
+    instruction_tables::{CBPREFIXED, UNPREFIXED},
+    instructions::{Instruction, InstructionError, OpCode},
 };
 
 pub type MemoryAccessResult<T> = Result<T, MemoryAccessError>;
@@ -8,17 +9,31 @@ pub type MemoryAccessResult<T> = Result<T, MemoryAccessError>;
 #[derive(Default)]
 pub struct Bus {
     rom_bank_00: RomBank00,
+    temp_memory: Vec<u8>,
 }
 
 impl Bus {
-    pub fn read(&mut self, address: u16) -> MemoryAccessResult<u8> {
-        self.get_mut_device_from_address(address).read(address)
+    // pub fn read(&mut self, address: u16) -> MemoryAccessResult<u8> {
+    //     self.get_mut_device_from_address(address).read(address)
+    // }
+    // pub fn write(&mut self, address: u16, value: u8) -> MemoryAccessResult<()> {
+    //     self.get_mut_device_from_address(address).write(address, value)
+    // }
+
+    pub fn new_temp(data: Vec<u8>) -> Self {
+        Self { temp_memory: data, ..Default::default() }
     }
-    pub fn read_u16(&mut self, address: u16) -> MemoryAccessResult<u16> {
-        Ok((((self.read(address + 1)?) as u16) << 8) | self.read(address)? as u16)
+
+    pub fn read(&mut self, address: u16) -> MemoryAccessResult<u8> {
+        Ok(self.temp_memory[address as usize])
     }
     pub fn write(&mut self, address: u16, value: u8) -> MemoryAccessResult<()> {
-        self.get_mut_device_from_address(address).write(address, value)
+        self.temp_memory[address as usize] = value;
+        Ok(())
+    }
+
+    pub fn read_u16(&mut self, address: u16) -> MemoryAccessResult<u16> {
+        Ok((((self.read(address + 1)?) as u16) << 8) | self.read(address)? as u16)
     }
     pub fn write_u16(&mut self, address: u16, value: u16) -> MemoryAccessResult<()> {
         self.get_mut_device_from_address(address).write(address, value as u8)?;
@@ -29,22 +44,17 @@ impl Bus {
         self.get_device_from_address(address).peek(address)
     }
 
-    /// Peeks the three bytes starting at a given address.
-    /// A convenient way to get all the bytes we might need when decoding an instruction.
-    fn peek_3_byte_slice(&self, address: u16) -> MemoryAccessResult<[u8; 3]> {
-        Ok([self.peek(address)?, self.peek(address + 1)?, self.peek(address + 2)?])
-    }
+    pub fn read_next_instruction(&mut self, pc: u16) -> MemoryAccessResult<&'static Instruction> {
+        let first_byte = self.read(pc)?;
 
-    pub fn read_next_instruction(&mut self, pc: u16) -> MemoryAccessResult<(&'static Instruction, [u8; 3])> {
-        let bytes = self.peek_3_byte_slice(pc)?;
-        let instruction = <&Instruction>::try_from(bytes)?;
+        let unprefixed_instruction = &UNPREFIXED[first_byte as usize];
+        let instruction = match unprefixed_instruction.op_code {
+            OpCode::Prefix => &CBPREFIXED[self.read(pc + 1)? as usize],
+            OpCode::Illegal => return Err(MemoryAccessError::NotAnOperation(first_byte)),
+            _ => unprefixed_instruction,
+        };
 
-        for i in 0..instruction.bytes {
-            // go ahead and mutably access the bytes now that we know how many are in the instruction
-            self.read(pc + i as u16)?;
-        }
-
-        Ok((instruction, bytes))
+        Ok(instruction)
     }
 
     fn get_mut_device_from_address(&mut self, address: u16) -> &mut dyn BusAccessible {
@@ -133,7 +143,7 @@ pub enum MMDevice {
 
 pub trait BusAccessible {
     // This would be better as a const but you can't make trait objects of traits with associated consts
-    fn _get_enum_device(&self) -> MMDevice;
+    fn get_enum_device(&self) -> MMDevice;
     fn read(&mut self, address: u16) -> MemoryAccessResult<u8>;
     fn write(&mut self, address: u16, value: u8) -> MemoryAccessResult<()>;
     fn peek(&self, address: u16) -> MemoryAccessResult<u8>;
