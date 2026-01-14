@@ -1,29 +1,217 @@
 use crate::{
-    bus::{BusAccessible, MemoryAccessResult},
-    cartridge::{header::Header, rom_bank::RomBank00},
+    bus::{BusAccessible, MMDevice, MemoryAccessResult},
+    cartridge::{
+        external_ram::ExternalRam,
+        header::{CartridgeElement, CartridgeType, Header},
+        rom_banks::{BankableRoms, RomBank00},
+    },
 };
 
+pub const ROM_BANK_SIZE: usize = 16 * 1024;
+pub const RAM_BANK_SIZE: usize = 8 * 1024;
+
 pub struct Cartridge {
-    header: Header,
-    rom_bank00: RomBank00,
+    rom_bank_00: RomBank00,
+    controlled_memory: ControlledMemory,
 }
 
 impl Cartridge {
-    pub fn new(data: &[u8]) -> Self {
+    pub fn new(data: &[u8]) -> CartridgeResult<Self> {
         let header = Header::new(&data[0x100..0x150]);
-        todo!()
+        let controlled_memory = header.get_header_defined_structures();
+        let mut this = Self { rom_bank_00: RomBank00::default(), controlled_memory };
+
+        this.initialize_cartridge_data(data, header)?;
+
+        Ok(this)
+    }
+
+    pub fn empty_cartridge() -> Self {
+        Cartridge {
+            rom_bank_00: Default::default(),
+            controlled_memory: Default::default(),
+        }
+    }
+
+    fn _get_header(&self) -> Header {
+        Header::new(&self.rom_bank_00.get_bank_data()[0x100..0x150])
+    }
+
+    /// Sets the ROM and RAM data to the values provided
+    fn initialize_cartridge_data(&mut self, data: &[u8], header: Header) -> CartridgeResult<()> {
+        if header.get_expected_bank_size_in_kb() != data.len() / 1024 {
+            return Err(CartridgeError::DataSizeBankMismatch);
+        }
+
+        let rom_size = header.get_num_rom_banks() * ROM_BANK_SIZE;
+        let mut rom_chunks = data[0..rom_size].chunks_exact(ROM_BANK_SIZE);
+        let first_chunk = rom_chunks.next().unwrap().chunks_exact(ROM_BANK_SIZE);
+
+        self.rom_bank_00.load_from_cartridge(first_chunk).unwrap();
+        self.controlled_memory.bankable_roms.load_from_cartridge(rom_chunks)?;
+
+        Ok(())
+    }
+
+    pub fn read(&mut self, address: u16, device: CartridgeDevice) -> MemoryAccessResult<u8> {
+        match device {
+            CartridgeDevice::RomBank00 => self
+                .rom_bank_00
+                .read(address - CartridgeDevice::RomBank00.get_starting_address()),
+            CartridgeDevice::BankableRom => self
+                .controlled_memory
+                .read(address, ControlledMemoryDevice::BankableRom),
+            CartridgeDevice::ExternalRam => self
+                .controlled_memory
+                .read(address, ControlledMemoryDevice::ExternalRam),
+        }
+    }
+    pub fn write(&mut self, address: u16, device: CartridgeDevice, value: u8) -> MemoryAccessResult<()> {
+        match device {
+            CartridgeDevice::RomBank00 => self
+                .rom_bank_00
+                .write(address - CartridgeDevice::RomBank00.get_starting_address(), value),
+            CartridgeDevice::BankableRom => {
+                self.controlled_memory
+                    .write(address, ControlledMemoryDevice::BankableRom, value)
+            },
+            CartridgeDevice::ExternalRam => {
+                self.controlled_memory
+                    .write(address, ControlledMemoryDevice::ExternalRam, value)
+            },
+        }
+    }
+    pub fn peek(&self, address: u16, device: CartridgeDevice) -> MemoryAccessResult<u8> {
+        match device {
+            CartridgeDevice::RomBank00 => self
+                .rom_bank_00
+                .peek(address - CartridgeDevice::RomBank00.get_starting_address()),
+            CartridgeDevice::BankableRom => self
+                .controlled_memory
+                .peek(address, ControlledMemoryDevice::BankableRom),
+            CartridgeDevice::ExternalRam => self
+                .controlled_memory
+                .peek(address, ControlledMemoryDevice::ExternalRam),
+        }
+    }
+}
+
+impl Default for Cartridge {
+    fn default() -> Self {
+        Self::empty_cartridge()
+    }
+}
+
+pub enum CartridgeDevice {
+    RomBank00,
+    BankableRom,
+    ExternalRam,
+}
+
+impl CartridgeDevice {
+    const fn get_starting_address(&self) -> u16 {
+        match self {
+            CartridgeDevice::RomBank00 => MMDevice::RomBank00.get_base_address(),
+            CartridgeDevice::BankableRom => MMDevice::BankableRom.get_base_address(),
+            CartridgeDevice::ExternalRam => MMDevice::ExternalRam.get_base_address(),
+        }
     }
 }
 
 // A trait that all items on the bus that come from the cartridge should implement
-pub trait PartOfCartridge: BusAccessible + Default {
-    fn load_from_cartridge(&mut self, data_chunk: &[u8]) -> MemoryAccessResult<()> {
+pub trait PartOfCartridge: Default {
+    fn load_from_cartridge(&mut self, data: std::slice::ChunksExact<'_, u8>) -> CartridgeResult<()> {
         *self = Self::default();
 
-        for (i, byte) in data_chunk.iter().enumerate() {
-            self.write(i as u16, *byte)?;
+        for (chunk, bank) in data.zip(self.banks_mut()) {
+            bank.copy_from_slice(chunk);
         }
 
         Ok(())
     }
+
+    fn get_number_of_banks(&self) -> usize;
+
+    fn banks_mut(&mut self) -> impl Iterator<Item = &mut [u8]>;
+}
+
+pub struct MemoryBankController {
+    mbc_type: MBCType,
+}
+
+impl MemoryBankController {
+    fn new(mbc_type: MBCType) -> Self {
+        Self { mbc_type }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MBCType {
+    MBC1,
+    MBC2,
+    MBC3,
+    MBC5,
+    MBC6,
+    MBC7,
+}
+
+#[derive(Default)]
+pub struct ControlledMemory {
+    memory_bank_controller: Option<MemoryBankController>,
+    bankable_roms: BankableRoms,
+    external_ram: ExternalRam,
+}
+
+impl ControlledMemory {
+    pub fn new(mbc_type: Option<MBCType>, num_rom_banks: usize, num_ram_banks: usize) -> Self {
+        let memory_bank_controller = mbc_type.map(|t| MemoryBankController::new(t));
+        Self {
+            memory_bank_controller,
+            bankable_roms: BankableRoms::new(num_rom_banks - 1),
+            external_ram: ExternalRam::new(num_ram_banks),
+        }
+    }
+
+    pub fn read(&mut self, address: u16, device: ControlledMemoryDevice) -> MemoryAccessResult<u8> {
+        match device {
+            ControlledMemoryDevice::BankableRom => self
+                .bankable_roms
+                .read(address - MMDevice::BankableRom.get_base_address()),
+            ControlledMemoryDevice::ExternalRam => self
+                .external_ram
+                .read(address - MMDevice::ExternalRam.get_base_address()),
+        }
+    }
+    pub fn write(&mut self, address: u16, device: ControlledMemoryDevice, value: u8) -> MemoryAccessResult<()> {
+        match device {
+            ControlledMemoryDevice::BankableRom => self
+                .bankable_roms
+                .write(address - MMDevice::BankableRom.get_base_address(), value),
+            ControlledMemoryDevice::ExternalRam => self
+                .external_ram
+                .write(address - MMDevice::ExternalRam.get_base_address(), value),
+        }
+    }
+    pub fn peek(&self, address: u16, device: ControlledMemoryDevice) -> MemoryAccessResult<u8> {
+        match device {
+            ControlledMemoryDevice::BankableRom => self
+                .bankable_roms
+                .peek(address - MMDevice::BankableRom.get_base_address()),
+            ControlledMemoryDevice::ExternalRam => self
+                .external_ram
+                .peek(address - MMDevice::ExternalRam.get_base_address()),
+        }
+    }
+}
+
+pub enum ControlledMemoryDevice {
+    BankableRom,
+    ExternalRam,
+}
+
+pub type CartridgeResult<T> = Result<T, CartridgeError>;
+
+#[derive(Debug)]
+pub enum CartridgeError {
+    DataSizeBankMismatch,
 }
