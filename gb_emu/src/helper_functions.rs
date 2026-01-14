@@ -9,6 +9,11 @@ pub fn get_bitfield(mut byte: u8, left: u8, right: u8) -> u8 {
     byte
 }
 
+/// Maybe we'll make this into an actual log some day but for now, we'll just print it out.
+pub fn log(message: &str) {
+    println!("Log Message: {message}")
+}
+
 #[cfg(test)]
 mod test {
     use crate::helper_functions::get_bitfield;

@@ -1,7 +1,4 @@
-use crate::{
-    bus::{BusAccessible, MMDevice},
-    cartridge::cartridge::PartOfCartridge,
-};
+use crate::bus::{BusAccessible, MMDevice};
 
 #[derive(Default)]
 pub struct VideoRam {
@@ -38,9 +35,7 @@ impl VideoRam {
 }
 
 impl BusAccessible for VideoRam {
-    fn get_enum_device(&self) -> MMDevice {
-        MMDevice::VideoRam
-    }
+    const MM_DEVICE: MMDevice = MMDevice::VideoRam;
 
     fn read(&mut self, address: u16) -> crate::bus::MemoryAccessResult<u8> {
         todo!()
@@ -54,8 +49,6 @@ impl BusAccessible for VideoRam {
         todo!()
     }
 }
-
-impl PartOfCartridge for VideoRam {}
 
 #[derive(Clone, Copy)]
 struct VideoRamBank {

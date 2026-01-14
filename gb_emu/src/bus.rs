@@ -1,49 +1,30 @@
 use crate::{
-    cartridge::rom_bank::RomBank00,
+    cartridge::cartridge::{Cartridge, CartridgeDevice},
     instruction_tables::{CBPREFIXED, UNPREFIXED},
     instructions::{Instruction, InstructionError, OpCode},
+    work_ram::{BankableWorkRam, WorkRam00},
 };
 
 pub type MemoryAccessResult<T> = Result<T, MemoryAccessError>;
 
 #[derive(Default)]
 pub struct Bus {
-    rom_bank_00: RomBank00,
-    temp_memory: Vec<u8>,
+    cartridge: Cartridge,
+    work_ram_00: WorkRam00,
+    bankable_work_ram: BankableWorkRam,
 }
 
 impl Bus {
-    // pub fn read(&mut self, address: u16) -> MemoryAccessResult<u8> {
-    //     self.get_mut_device_from_address(address).read(address)
-    // }
-    // pub fn write(&mut self, address: u16, value: u8) -> MemoryAccessResult<()> {
-    //     self.get_mut_device_from_address(address).write(address, value)
-    // }
-
-    pub fn new_temp(data: Vec<u8>) -> Self {
-        Self { temp_memory: data, ..Default::default() }
+    pub fn load_cartridge(&mut self, cartridge: Cartridge) {
+        self.cartridge = cartridge;
     }
-
-    pub fn read(&mut self, address: u16) -> MemoryAccessResult<u8> {
-        Ok(self.temp_memory[address as usize])
-    }
-    pub fn write(&mut self, address: u16, value: u8) -> MemoryAccessResult<()> {
-        self.temp_memory[address as usize] = value;
-        Ok(())
-    }
-
     pub fn read_u16(&mut self, address: u16) -> MemoryAccessResult<u16> {
         Ok((((self.read(address + 1)?) as u16) << 8) | self.read(address)? as u16)
     }
     pub fn write_u16(&mut self, address: u16, value: u16) -> MemoryAccessResult<()> {
-        self.get_mut_device_from_address(address).write(address, value as u8)?;
-        self.get_mut_device_from_address(address)
-            .write(address + 1, (value >> 8) as u8)
+        self.write(address, value as u8)?;
+        self.write(address + 1, (value >> 8) as u8)
     }
-    pub fn peek(&self, address: u16) -> MemoryAccessResult<u8> {
-        self.get_device_from_address(address).peek(address)
-    }
-
     pub fn read_next_instruction(&mut self, pc: u16) -> MemoryAccessResult<&'static Instruction> {
         let first_byte = self.read(pc)?;
 
@@ -57,83 +38,70 @@ impl Bus {
         Ok(instruction)
     }
 
-    fn get_mut_device_from_address(&mut self, address: u16) -> &mut dyn BusAccessible {
-        self.get_mut_device(get_table_entry_for_address(address).device)
-    }
-
-    fn get_device_from_address(&self, address: u16) -> &dyn BusAccessible {
-        self.get_device(get_table_entry_for_address(address).device)
-    }
-
-    fn get_device(&self, device: MMDevice) -> &dyn BusAccessible {
+    pub fn read(&mut self, address: u16) -> MemoryAccessResult<u8> {
+        let device = MMDevice::get_device_from_address(address);
         match device {
-            MMDevice::RomBank00 => &self.rom_bank_00,
-            _ => todo!("Haven't done {device:?} yet"),
+            MMDevice::RomBank00 => self.cartridge.read(address, CartridgeDevice::RomBank00),
+            MMDevice::BankableRom => self.cartridge.read(address, CartridgeDevice::BankableRom),
+            MMDevice::VideoRam => todo!(),
+            MMDevice::ExternalRam => self.cartridge.read(address, CartridgeDevice::ExternalRam),
+            MMDevice::WorkRam00 => self.work_ram_00.read(address - MMDevice::WorkRam00.get_base_address()),
+            MMDevice::BankableWorkRam => self
+                .bankable_work_ram
+                .read(address - MMDevice::BankableWorkRam.get_base_address()),
+            MMDevice::EchoRam => self.read(address & 0x4FFF),
+            MMDevice::ObjectAttributeMemory => todo!(),
+            MMDevice::Unusable => todo!(),
+            MMDevice::IoRegisters => todo!(),
+            MMDevice::HighRam => todo!(),
+            MMDevice::InterruptEnableRegister => todo!(),
         }
     }
-
-    fn get_mut_device(&mut self, device: MMDevice) -> &mut dyn BusAccessible {
+    pub fn peek(&self, address: u16) -> MemoryAccessResult<u8> {
+        let device = MMDevice::get_device_from_address(address);
         match device {
-            MMDevice::RomBank00 => &mut self.rom_bank_00,
-            _ => todo!("Haven't done {device:?} yet"),
+            MMDevice::RomBank00 => self.cartridge.peek(address, CartridgeDevice::RomBank00),
+            MMDevice::BankableRom => self.cartridge.peek(address, CartridgeDevice::BankableRom),
+            MMDevice::VideoRam => todo!(),
+            MMDevice::ExternalRam => self.cartridge.peek(address, CartridgeDevice::ExternalRam),
+            MMDevice::WorkRam00 => todo!(),
+            MMDevice::BankableWorkRam => todo!(),
+            MMDevice::EchoRam => todo!(),
+            MMDevice::ObjectAttributeMemory => todo!(),
+            MMDevice::Unusable => todo!(),
+            MMDevice::IoRegisters => todo!(),
+            MMDevice::HighRam => todo!(),
+            MMDevice::InterruptEnableRegister => todo!(),
+        }
+    }
+    pub fn write(&mut self, address: u16, value: u8) -> MemoryAccessResult<()> {
+        let device = MMDevice::get_device_from_address(address);
+        match device {
+            MMDevice::RomBank00 => self.cartridge.write(address, CartridgeDevice::RomBank00, value),
+            MMDevice::BankableRom => self.cartridge.write(address, CartridgeDevice::BankableRom, value),
+            MMDevice::VideoRam => todo!(),
+            MMDevice::ExternalRam => self.cartridge.write(address, CartridgeDevice::ExternalRam, value),
+            MMDevice::WorkRam00 => todo!(),
+            MMDevice::BankableWorkRam => todo!(),
+            MMDevice::EchoRam => todo!(),
+            MMDevice::ObjectAttributeMemory => todo!(),
+            MMDevice::Unusable => todo!(),
+            MMDevice::IoRegisters => todo!(),
+            MMDevice::HighRam => todo!(),
+            MMDevice::InterruptEnableRegister => todo!(),
         }
     }
 }
 
-struct MMTableEntry {
-    device: MMDevice,
-    base_address: u16,
-    size: u16,
-}
-
-impl MMTableEntry {
-    const fn new(device: MMDevice, base_address: u16, end_address: u16) -> Self {
-        Self { device, base_address, size: end_address - base_address }
-    }
-}
-
-const MEMORY_MAP: &[MMTableEntry] = &[
-    MMTableEntry::new(MMDevice::RomBank00, 0x0000, 0x4000),
-    MMTableEntry::new(MMDevice::CartridgeRomBank, 0x4000, 0x8000),
-    MMTableEntry::new(MMDevice::VideoRam, 0x8000, 0xA000),
-    MMTableEntry::new(MMDevice::ExternalRam, 0xA000, 0xC000),
-    MMTableEntry::new(MMDevice::WorkRam00, 0xC000, 0xD000),
-    MMTableEntry::new(MMDevice::SwitchableBankWorkRam, 0xD000, 0xE000),
-    MMTableEntry::new(MMDevice::EchoRam, 0xE000, 0xFE00),
-    MMTableEntry::new(MMDevice::ObjectAttributeMemory, 0xFE00, 0xFEA0),
-    MMTableEntry::new(MMDevice::Unusable, 0xFEA0, 0xFF00),
-    MMTableEntry::new(MMDevice::IoRegisters, 0xFF00, 0xFF80),
-    MMTableEntry::new(MMDevice::HighRam, 0xFF80, 0xFFFF),
-    MMTableEntry {
-        device: MMDevice::InterruptEnableRegister,
-        base_address: 0xFFFF,
-        size: 0x1,
-    },
-];
-
-fn get_table_entry_for_address(address: u16) -> &'static MMTableEntry {
-    MEMORY_MAP
-        .iter()
-        .find(|e| address < e.base_address + e.size)
-        .expect("Every device should be accounted for in the map")
-}
-
-fn get_mm_table_entry_for_device(device: MMDevice) -> &'static MMTableEntry {
-    MEMORY_MAP
-        .iter()
-        .find(|e| e.device == device)
-        .expect("Every device should be accounted for in the map")
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MMDevice {
     RomBank00,
-    CartridgeRomBank,
+    BankableRom,
     VideoRam,
     ExternalRam,
     WorkRam00,
-    SwitchableBankWorkRam, // GameBoy Color Only
-    EchoRam,               // Mirror of C000-DDFF
+    BankableWorkRam, // GameBoy Color Only
+    EchoRam,         // Mirror of C000-DDFF
     ObjectAttributeMemory,
     Unusable,
     IoRegisters,
@@ -141,9 +109,76 @@ pub enum MMDevice {
     InterruptEnableRegister,
 }
 
+impl MMDevice {
+    pub const fn get_base_address(&self) -> u16 {
+        match self {
+            MMDevice::RomBank00 => 0x0000,
+            MMDevice::BankableRom => 0x4000,
+            MMDevice::VideoRam => 0x8000,
+            MMDevice::ExternalRam => 0xA000,
+            MMDevice::WorkRam00 => 0xC000,
+            MMDevice::BankableWorkRam => 0xD000,
+            MMDevice::EchoRam => 0xE000,
+            MMDevice::ObjectAttributeMemory => 0xFE00,
+            MMDevice::Unusable => 0xFEA0,
+            MMDevice::IoRegisters => 0xFF00,
+            MMDevice::HighRam => 0xFF80,
+            MMDevice::InterruptEnableRegister => 0xFFFF,
+        }
+    }
+    pub const fn get_end_address(&self) -> u16 {
+        match self {
+            MMDevice::RomBank00 => 0x4000,
+            MMDevice::BankableRom => 0x8000,
+            MMDevice::VideoRam => 0xA000,
+            MMDevice::ExternalRam => 0xC000,
+            MMDevice::WorkRam00 => 0xD000,
+            MMDevice::BankableWorkRam => 0xE000,
+            MMDevice::EchoRam => 0xFE00,
+            MMDevice::ObjectAttributeMemory => 0xFEA0,
+            MMDevice::Unusable => 0xFF00,
+            MMDevice::IoRegisters => 0xFF80,
+            MMDevice::HighRam => 0xFFFF,
+            MMDevice::InterruptEnableRegister => 0xFFFF,
+        }
+    }
+    pub const fn get_device_from_address(address: u16) -> Self {
+        let enumerated_devices: &[MMDevice] = &[
+            MMDevice::RomBank00,
+            MMDevice::BankableRom,
+            MMDevice::VideoRam,
+            MMDevice::ExternalRam,
+            MMDevice::WorkRam00,
+            MMDevice::BankableWorkRam, // GameBoy Color Only
+            MMDevice::EchoRam,         // Mirror of C000-DDFF
+            MMDevice::ObjectAttributeMemory,
+            MMDevice::Unusable,
+            MMDevice::IoRegisters,
+            MMDevice::HighRam,
+        ];
+
+        let mut i = 0;
+        while i < enumerated_devices.len() {
+            if enumerated_devices[i].get_end_address() > address {
+                return enumerated_devices[i];
+            }
+            i += 1;
+        }
+        // only one that doesn't fit in there is IE Register
+        MMDevice::InterruptEnableRegister
+    }
+}
+
 pub trait BusAccessible {
-    // This would be better as a const but you can't make trait objects of traits with associated consts
-    fn get_enum_device(&self) -> MMDevice;
+    const MM_DEVICE: MMDevice;
+
+    fn base_address(&self) -> u16 {
+        Self::MM_DEVICE.get_base_address()
+    }
+    fn end_address(&self) -> u16 {
+        Self::MM_DEVICE.get_end_address()
+    }
+
     fn read(&mut self, address: u16) -> MemoryAccessResult<u8>;
     fn write(&mut self, address: u16, value: u8) -> MemoryAccessResult<()>;
     fn peek(&self, address: u16) -> MemoryAccessResult<u8>;
@@ -162,7 +197,6 @@ impl From<InstructionError> for MemoryAccessError {
                 unreachable!("There shouldn't be any place this conversion happens")
             },
             InstructionError::InvalidOperation(byte) => Self::NotAnOperation(byte),
-            InstructionError::MemoryAccessError(_) => todo!(),
             InstructionError::OperandCannotBeSet => todo!(),
         }
     }

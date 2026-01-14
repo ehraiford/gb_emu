@@ -18,7 +18,7 @@ impl GameBoy {
     }
 
     pub fn load_cartridge(&mut self, cartridge: Cartridge) {
-        todo!()
+        self.bus.load_cartridge(cartridge)
     }
 
     pub fn test_looping(&mut self, cycles: usize) {

@@ -160,30 +160,6 @@ impl From<Operand> for OperandType {
     }
 }
 
-pub struct FlagChecks {
-    check_z: Option<FlagCheck>,
-    set_n: Option<FlagCheck>,
-    half_carry: Option<FlagCheck>,
-    carry: Option<FlagCheck>,
-}
-
-impl FlagChecks {
-    pub const fn new(
-        check_z: Option<FlagCheck>,
-        set_n: Option<FlagCheck>,
-        half_carry: Option<FlagCheck>,
-        carry: Option<FlagCheck>,
-    ) -> Self {
-        Self { check_z, set_n, half_carry, carry }
-    }
-}
-
-pub enum FlagCheck {
-    SetToValue(u8),
-    Check,
-    CheckOverflowAtBit(u8),
-}
-
 pub type InstructionResult<T> = Result<T, InstructionError>;
 
 #[derive(Debug, Clone, Copy)]
@@ -191,7 +167,6 @@ pub enum InstructionError {
     InvalidOperation(u8),
     InvalidOperand,
     LdhLowValue(u16),
-    MemoryAccessError(u16),
     OperandCannotBeSet,
 }
 
@@ -246,7 +221,7 @@ impl TryFrom<Operand> for EightBitOperand {
             Operand::N8 => Ok(Self::N8),
             Operand::Immediate(val) => Ok(Self::Immediate(val)),
             Operand::HLD => Ok(Self::HLDPointer),
-            Operand::HLI => Ok(Self::HLDPointer),
+            Operand::HLI => Ok(Self::HLIPointer),
             _ => Err(InstructionError::InvalidOperand),
         }
     }
