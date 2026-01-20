@@ -21,8 +21,8 @@ impl Bus {
     pub fn load_cartridge(&mut self, cartridge: Cartridge) {
         self.cartridge = cartridge;
     }
-    pub fn read_u16(&mut self, address: Address) -> MemoryAccessResult<Address> {
-        Ok((((self.read(address + 1)?) as Address) << 8) | self.read(address)? as Address)
+    pub fn read_u16(&mut self, address: Address) -> MemoryAccessResult<u16> {
+        Ok((((self.read(address + 1)?) as u16) << 8) | self.read(address)? as u16)
     }
     pub fn write_u16(&mut self, address: Address, value: Address) -> MemoryAccessResult<()> {
         self.write(address, value as u8)?;
@@ -50,10 +50,8 @@ impl Bus {
             MMDevice::BankableRom => self.cartridge.read(address, CartridgeDevice::BankableRom),
             MMDevice::VideoRam => self.video_ram.read(address),
             MMDevice::ExternalRam => self.cartridge.read(address, CartridgeDevice::ExternalRam),
-            MMDevice::WorkRam00 => self.work_ram_00.read(address - MMDevice::WorkRam00.get_base_address()),
-            MMDevice::BankableWorkRam => self
-                .bankable_work_ram
-                .read(address - MMDevice::BankableWorkRam.get_base_address()),
+            MMDevice::WorkRam00 => self.work_ram_00.read(address),
+            MMDevice::BankableWorkRam => self.bankable_work_ram.read(address),
             MMDevice::EchoRam => self.read(address & 0x4FFF),
             MMDevice::ObjectAttributeMemory => todo!(),
             MMDevice::Unusable => todo!(),
@@ -177,7 +175,7 @@ impl MMDevice {
 pub trait BusAccessible {
     const MM_DEVICE: MMDevice;
 
-    fn local_address(&self, global: Address) -> Address {
+    fn local(global: Address) -> Address {
         global - Self::MM_DEVICE.get_base_address()
     }
 

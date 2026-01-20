@@ -55,9 +55,7 @@ impl Cartridge {
 
     pub fn read(&mut self, address: Address, device: CartridgeDevice) -> MemoryAccessResult<u8> {
         match device {
-            CartridgeDevice::RomBank00 => self
-                .rom_bank_00
-                .read(address - CartridgeDevice::RomBank00.get_starting_address()),
+            CartridgeDevice::RomBank00 => self.rom_bank_00.read(address),
             CartridgeDevice::BankableRom => self
                 .controlled_memory
                 .read(address, ControlledMemoryDevice::BankableRom),
@@ -68,9 +66,7 @@ impl Cartridge {
     }
     pub fn write(&mut self, address: Address, device: CartridgeDevice, value: u8) -> MemoryAccessResult<()> {
         match device {
-            CartridgeDevice::RomBank00 => self
-                .rom_bank_00
-                .write(address - CartridgeDevice::RomBank00.get_starting_address(), value),
+            CartridgeDevice::RomBank00 => self.rom_bank_00.write(address, value),
             CartridgeDevice::BankableRom => {
                 self.controlled_memory
                     .write(address, ControlledMemoryDevice::BankableRom, value)
@@ -83,9 +79,7 @@ impl Cartridge {
     }
     pub fn peek(&self, address: Address, device: CartridgeDevice) -> MemoryAccessResult<u8> {
         match device {
-            CartridgeDevice::RomBank00 => self
-                .rom_bank_00
-                .peek(address - CartridgeDevice::RomBank00.get_starting_address()),
+            CartridgeDevice::RomBank00 => self.rom_bank_00.peek(address),
             CartridgeDevice::BankableRom => self
                 .controlled_memory
                 .peek(address, ControlledMemoryDevice::BankableRom),
@@ -172,32 +166,20 @@ impl ControlledMemory {
 
     pub fn read(&mut self, address: Address, device: ControlledMemoryDevice) -> MemoryAccessResult<u8> {
         match device {
-            ControlledMemoryDevice::BankableRom => self
-                .bankable_roms
-                .read(address - MMDevice::BankableRom.get_base_address()),
-            ControlledMemoryDevice::ExternalRam => self
-                .external_ram
-                .read(address - MMDevice::ExternalRam.get_base_address()),
+            ControlledMemoryDevice::BankableRom => self.bankable_roms.read(address),
+            ControlledMemoryDevice::ExternalRam => self.external_ram.read(address),
         }
     }
     pub fn write(&mut self, address: Address, device: ControlledMemoryDevice, value: u8) -> MemoryAccessResult<()> {
         match device {
-            ControlledMemoryDevice::BankableRom => self
-                .bankable_roms
-                .write(address - MMDevice::BankableRom.get_base_address(), value),
-            ControlledMemoryDevice::ExternalRam => self
-                .external_ram
-                .write(address - MMDevice::ExternalRam.get_base_address(), value),
+            ControlledMemoryDevice::BankableRom => self.bankable_roms.write(address, value),
+            ControlledMemoryDevice::ExternalRam => self.external_ram.write(address, value),
         }
     }
     pub fn peek(&self, address: Address, device: ControlledMemoryDevice) -> MemoryAccessResult<u8> {
         match device {
-            ControlledMemoryDevice::BankableRom => self
-                .bankable_roms
-                .peek(address - MMDevice::BankableRom.get_base_address()),
-            ControlledMemoryDevice::ExternalRam => self
-                .external_ram
-                .peek(address - MMDevice::ExternalRam.get_base_address()),
+            ControlledMemoryDevice::BankableRom => self.bankable_roms.peek(address),
+            ControlledMemoryDevice::ExternalRam => self.external_ram.peek(address),
         }
     }
 }

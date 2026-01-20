@@ -10,7 +10,7 @@ pub struct RomBank {
 }
 
 impl RomBank {
-    pub fn read(&mut self, address: Address) -> MemoryAccessResult<u8> {
+    pub fn read(&mut self, mut address: Address) -> MemoryAccessResult<u8> {
         Ok(self.data[address as usize])
     }
 

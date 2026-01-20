@@ -37,15 +37,20 @@ impl VideoRam {
 impl BusAccessible for VideoRam {
     const MM_DEVICE: MMDevice = MMDevice::VideoRam;
 
-    fn read(&mut self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
+    fn read(&mut self, mut address: Address) -> crate::bus::MemoryAccessResult<u8> {
+        address = Self::local(address);
         todo!()
     }
 
-    fn write(&mut self, address: Address, value: u8) -> crate::bus::MemoryAccessResult<()> {
+    fn write(&mut self, mut address: Address, value: u8) -> crate::bus::MemoryAccessResult<()> {
+        address = Self::local(address);
+
         todo!()
     }
 
-    fn peek(&self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
+    fn peek(&self, mut address: Address) -> crate::bus::MemoryAccessResult<u8> {
+        address = Self::local(address);
+
         todo!()
     }
 }

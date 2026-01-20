@@ -21,14 +21,14 @@ impl BusAccessible for ExternalRam {
     const MM_DEVICE: crate::bus::MMDevice = crate::bus::MMDevice::ExternalRam;
 
     fn read(&mut self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
-        self.bankable_ram.read(address)
+        self.bankable_ram.read(Self::local(address))
     }
 
     fn write(&mut self, address: Address, value: u8) -> crate::bus::MemoryAccessResult<()> {
-        self.bankable_ram.write(address, value)
+        self.bankable_ram.write(Self::local(address), value)
     }
 
     fn peek(&self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
-        self.bankable_ram.peek(address)
+        self.bankable_ram.peek(Self::local(address))
     }
 }
