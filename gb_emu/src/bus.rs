@@ -38,7 +38,7 @@ impl Bus {
             _ => unprefixed_instruction,
         };
 
-        // println!("Next instruction is: {:?}", instruction.op_code);
+        // log("Next instruction is: {:?}", instruction.op_code);
 
         Ok(instruction)
     }

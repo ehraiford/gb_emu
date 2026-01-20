@@ -1,14 +1,14 @@
 use crate::{
     bus::{Bus, MemoryAccessResult},
+    cartridge::cartridge::ENTRY_POINT,
     game_boy::Mode,
-    helper_functions::concat_2_bytes,
+    helper_functions::log,
     instructions::{
         EightBitOperand, Instruction, InstructionError, InstructionOutcome, InstructionResult, OpCode, Operand,
         OperandType, SignedEightBitOperand, SixteenBitOperand,
     },
 };
 
-#[derive(Default)]
 pub struct Cpu {
     registers: [u16; 6],
     ime: bool,
@@ -154,6 +154,16 @@ impl Cpu {
             Condition::NotCarry => !self.get_flag(Flag::Carry),
             Condition::Carry => self.get_flag(Flag::Carry),
         }
+    }
+}
+
+impl Default for Cpu {
+    fn default() -> Self {
+        let mut this = Self { registers: Default::default(), ime: Default::default() };
+
+        this.set_pc(ENTRY_POINT);
+
+        this
     }
 }
 
@@ -331,6 +341,9 @@ impl<'a, 'b> OperationContext<'a, 'b> {
     }
 
     pub fn perform_instruction(&mut self, instruction: &Instruction) -> InstructionResult<InstructionOutcome> {
+        if instruction.op_code != OpCode::Nop {
+            log(&format!("Performing: {instruction}"));
+        }
         match instruction.op_code {
             OpCode::Adc => self.add_with_carry(&EightBitOperand::try_from(instruction.operands[0])?),
             OpCode::Add => match OperandType::from(instruction.operands[0]) {
@@ -651,6 +664,8 @@ impl<'a, 'b> OperationContext<'a, 'b> {
     fn jump(&mut self, operand: &SixteenBitOperand) -> InstructionResult<InstructionOutcome> {
         let address = self.get_u16_operand(operand)?;
         self.cpu.set_pc(address);
+
+        println!("Set PC to {address:04x}");
 
         Ok(InstructionOutcome::Ok)
     }

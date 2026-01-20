@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::{
     bus::MemoryAccessError,
     game_boy::Mode,
@@ -26,6 +28,17 @@ impl TryFrom<[u8; 3]> for &Instruction {
             OpCode::Illegal => Err(InstructionError::InvalidOperation(value[0])),
             _ => Ok(&UNPREFIXED[value[0] as usize]),
         }
+    }
+}
+impl Display for &Instruction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.op_code)?;
+
+        for op in self.operands {
+            write!(f, " {}", op)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -83,6 +96,65 @@ pub enum OpCode {
     RetConditional,
 }
 
+impl Display for OpCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            OpCode::Adc => "ADC",
+            OpCode::Add => "ADD",
+            OpCode::And => "AND",
+            OpCode::Bit => "BIT",
+            OpCode::Call => "CALL",
+            OpCode::Ccf => "CCF",
+            OpCode::Cp => "CP",
+            OpCode::Cpl => "CPL",
+            OpCode::Daa => "DAA",
+            OpCode::Dec => "DEC",
+            OpCode::Di => "DI",
+            OpCode::Ei => "EI",
+            OpCode::Halt => "HALT",
+            OpCode::Illegal => "ILLEGAL",
+            OpCode::Inc => "INC",
+            OpCode::Jp => "JP",
+            OpCode::Jr => "JR",
+            OpCode::Ld => "LD",
+            OpCode::Ldh => "LDH",
+            OpCode::Nop => "NOP",
+            OpCode::Or => "OR",
+            OpCode::Pop => "POP",
+            OpCode::Prefix => "PREFIX",
+            OpCode::Push => "PUSH",
+            OpCode::Res => "RES",
+            OpCode::Ret => "RET",
+            OpCode::Reti => "RETI",
+            OpCode::Rl => "RL",
+            OpCode::Rla => "RLA",
+            OpCode::Rlc => "RLC",
+            OpCode::Rlca => "RLCA",
+            OpCode::Rr => "RR",
+            OpCode::Rra => "RRA",
+            OpCode::Rrc => "RRC",
+            OpCode::Rrca => "RRCA",
+            OpCode::Rst => "RST",
+            OpCode::Sbc => "SBC",
+            OpCode::Scf => "SCF",
+            OpCode::Set => "SET",
+            OpCode::Sla => "SLA",
+            OpCode::Sra => "SRA",
+            OpCode::Srl => "SRL",
+            OpCode::Stop => "STOP",
+            OpCode::Sub => "SUB",
+            OpCode::Swap => "SWAP",
+            OpCode::Xor => "XOR",
+            OpCode::JpConditional => "JP",
+            OpCode::JrConditional => "JR",
+            OpCode::CallConditional => "CALL",
+            OpCode::RetConditional => "RET",
+        };
+
+        f.write_str(str)
+    }
+}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Operand {
     A,
@@ -114,6 +186,44 @@ pub enum Operand {
     NotZero,
     SP,
     Zero,
+}
+
+impl Display for Operand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            Operand::A => "A",
+            Operand::A16 => "A16",
+            Operand::A16Pointer => "[A16]",
+            Operand::AF => "AF",
+            Operand::B => "B",
+            Operand::BC => "BC",
+            Operand::BCPointer => "[BC]",
+            Operand::C => "C",
+            Operand::D => "D",
+            Operand::DE => "DE",
+            Operand::DEPointer => "[DE]",
+            Operand::E => "E",
+            Operand::E8 => "E8",
+            Operand::FF00OffsetByA8 => "FF00+A8",
+            Operand::FF00OffsetByC => "FF00+C",
+            Operand::H => "H",
+            Operand::HL => "HL",
+            Operand::HLD => "HL-",
+            Operand::HLI => "HL+",
+            Operand::HLPointer => "[HL]",
+            Operand::Immediate(imm) => &imm.to_string(),
+            Operand::L => "L",
+            Operand::N16 => "N16",
+            Operand::N8 => "N8",
+            Operand::Carry => "Carry",
+            Operand::NotCarry => "NotCarry",
+            Operand::NotZero => "NotZero",
+            Operand::SP => "SP",
+            Operand::Zero => "Zero",
+        };
+
+        f.write_str(str)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
