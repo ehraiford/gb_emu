@@ -1,8 +1,8 @@
 use crate::{
     bus::Bus,
     cartridge::cartridge::Cartridge,
-    cpu::{Cpu, OperationContext},
-    instructions::*,
+    processor::cpu::{Cpu, CpuOperationContext},
+    processor::instructions::*,
 };
 
 #[derive(Default)]
@@ -29,7 +29,7 @@ impl GameBoy {
 
     fn tick_cpu_execution(&mut self) {
         let instruction = self.read_next_instruction();
-        let outcome = OperationContext::new(&mut self.cpu, &mut self.bus)
+        let outcome = CpuOperationContext::new(&mut self.cpu, &mut self.bus)
             .perform_instruction(instruction)
             .unwrap();
 

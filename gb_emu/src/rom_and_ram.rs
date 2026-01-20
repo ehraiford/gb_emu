@@ -15,7 +15,7 @@ impl RomBank {
     }
 
     pub fn write(&mut self, address: Address, value: u8) -> MemoryAccessResult<()> {
-        log(&format!("Tried to write to ROM: {address:08x}: {value:02x}"));
+        log(format_args!("Tried to write to ROM: {address:08x}: {value:02x}"));
         Ok(())
     }
 
@@ -85,16 +85,27 @@ impl<const SIZE: usize> BankableRam<SIZE> {
         }
     }
 
+    fn get_active_bank_number(&self) -> crate::bus::MemoryAccessResult<usize> {
+        if self.banks.is_empty() {
+            Err(crate::bus::MemoryAccessError::FailedToAccessAddress)
+        } else {
+            Ok(self.active_bank_num)
+        }
+    }
+
     pub fn read(&mut self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
-        self.banks[self.active_bank_num as usize].read(address)
+        let bank_number: usize = self.get_active_bank_number()?;
+        self.banks[bank_number].read(address)
     }
 
     pub fn write(&mut self, address: Address, value: u8) -> crate::bus::MemoryAccessResult<()> {
-        self.banks[self.active_bank_num as usize].write(address, value)
+        let bank_number: usize = self.get_active_bank_number()?;
+        self.banks[bank_number].write(address, value)
     }
 
     pub fn peek(&self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
-        self.banks[self.active_bank_num as usize].peek(address)
+        let bank_number: usize = self.get_active_bank_number()?;
+        self.banks[bank_number].peek(address)
     }
 }
 

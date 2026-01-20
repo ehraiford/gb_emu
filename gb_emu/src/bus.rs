@@ -1,8 +1,11 @@
 use crate::{
     cartridge::cartridge::{Cartridge, CartridgeDevice},
-    graphics::video_ram::VideoRam,
-    instruction_tables::{CBPREFIXED, UNPREFIXED},
-    instructions::{Instruction, InstructionError, OpCode},
+    graphics::{oam::ObjectAttributeMemory, video_ram::VideoRam},
+    helper_functions::log,
+    processor::{
+        instruction_tables::{CBPREFIXED, UNPREFIXED},
+        instructions::{Instruction, InstructionError, OpCode},
+    },
     work_ram::{BankableWorkRam, WorkRam00},
 };
 
@@ -12,9 +15,10 @@ pub type Address = u16;
 #[derive(Default)]
 pub struct Bus {
     cartridge: Cartridge,
-    video_ram: VideoRam,
-    work_ram_00: WorkRam00,
-    bankable_work_ram: BankableWorkRam,
+    v_ram: VideoRam,
+    w_ram_00: WorkRam00,
+    bankable_w_ram: BankableWorkRam,
+    oam: ObjectAttributeMemory,
 }
 
 impl Bus {
@@ -45,41 +49,63 @@ impl Bus {
 
     pub fn read(&mut self, address: Address) -> MemoryAccessResult<u8> {
         let device = MMDevice::get_device_from_address(address);
-        match device {
+        let result = match device {
             MMDevice::RomBank00 => self.cartridge.read(address, CartridgeDevice::RomBank00),
             MMDevice::BankableRom => self.cartridge.read(address, CartridgeDevice::BankableRom),
-            MMDevice::VideoRam => self.video_ram.read(address),
+            MMDevice::VideoRam => self.v_ram.read(address),
             MMDevice::ExternalRam => self.cartridge.read(address, CartridgeDevice::ExternalRam),
-            MMDevice::WorkRam00 => self.work_ram_00.read(address),
-            MMDevice::BankableWorkRam => self.bankable_work_ram.read(address),
+            MMDevice::WorkRam00 => self.w_ram_00.read(address),
+            MMDevice::BankableWorkRam => self.bankable_w_ram.read(address),
             MMDevice::EchoRam => self.read(address & 0x4FFF),
-            MMDevice::ObjectAttributeMemory => todo!(),
+            MMDevice::ObjectAttributeMemory => self.oam.read(address),
             MMDevice::Unusable => todo!(),
             MMDevice::IoRegisters => todo!(),
             MMDevice::HighRam => todo!(),
             MMDevice::InterruptEnableRegister => todo!(),
+        };
+
+        match result {
+            Ok(val) => Ok(val),
+            Err(e) => match e {
+                MemoryAccessError::FailedToAccessAddress => {
+                    log(format_args!("Could not access anything at address: 0x{address:04x}."));
+                    Ok(0)
+                },
+                _ => return Err(e),
+            },
         }
     }
     pub fn peek(&self, address: Address) -> MemoryAccessResult<u8> {
         let device = MMDevice::get_device_from_address(address);
-        match device {
+        let result = match device {
             MMDevice::RomBank00 => self.cartridge.peek(address, CartridgeDevice::RomBank00),
             MMDevice::BankableRom => self.cartridge.peek(address, CartridgeDevice::BankableRom),
-            MMDevice::VideoRam => todo!(),
+            MMDevice::VideoRam => self.v_ram.peek(address),
             MMDevice::ExternalRam => self.cartridge.peek(address, CartridgeDevice::ExternalRam),
-            MMDevice::WorkRam00 => todo!(),
-            MMDevice::BankableWorkRam => todo!(),
-            MMDevice::EchoRam => todo!(),
-            MMDevice::ObjectAttributeMemory => todo!(),
+            MMDevice::WorkRam00 => self.w_ram_00.peek(address),
+            MMDevice::BankableWorkRam => self.bankable_w_ram.peek(address),
+            MMDevice::EchoRam => self.peek(address & 0x4FFF),
+            MMDevice::ObjectAttributeMemory => self.oam.peek(address),
             MMDevice::Unusable => todo!(),
             MMDevice::IoRegisters => todo!(),
             MMDevice::HighRam => todo!(),
             MMDevice::InterruptEnableRegister => todo!(),
+        };
+
+        match result {
+            Ok(val) => Ok(val),
+            Err(e) => match e {
+                MemoryAccessError::FailedToAccessAddress => {
+                    log(format_args!("Could not access anything at address: 0x{address:04x}."));
+                    Ok(0)
+                },
+                _ => return Err(e),
+            },
         }
     }
     pub fn write(&mut self, address: Address, value: u8) -> MemoryAccessResult<()> {
         let device = MMDevice::get_device_from_address(address);
-        match device {
+        let result = match device {
             MMDevice::RomBank00 => self.cartridge.write(address, CartridgeDevice::RomBank00, value),
             MMDevice::BankableRom => self.cartridge.write(address, CartridgeDevice::BankableRom, value),
             MMDevice::VideoRam => todo!(),
@@ -92,7 +118,18 @@ impl Bus {
             MMDevice::IoRegisters => todo!(),
             MMDevice::HighRam => todo!(),
             MMDevice::InterruptEnableRegister => todo!(),
+        };
+
+        if let Err(e) = result {
+            match e {
+                MemoryAccessError::FailedToAccessAddress => {
+                    log(format_args!("Could not access anything at address: 0x{address:04x}."))
+                },
+                _ => return Err(e),
+            }
         }
+
+        Ok(())
     }
 }
 
@@ -194,7 +231,7 @@ pub trait BusAccessible {
 #[derive(Debug)]
 pub enum MemoryAccessError {
     NotAnOperation(u8),
-    FailedToReadAddress,
+    FailedToAccessAddress,
 }
 
 impl From<InstructionError> for MemoryAccessError {

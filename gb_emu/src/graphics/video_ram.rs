@@ -1,23 +1,35 @@
 use crate::bus::{Address, BusAccessible, MMDevice};
 
-#[derive(Default)]
 pub struct VideoRam {
     ram_banks: Vec<VideoRamBank>,
+    tile_maps: TileMaps,
 }
 
 impl VideoRam {
+    const TILE_MAP_START_ADDR: u16 = 0x9800;
+
     pub fn new_gb() -> Self {
-        Default::default()
+        Self {
+            ram_banks: vec![Default::default()],
+            tile_maps: Default::default(),
+        }
     }
     pub fn new_cgb() -> Self {
-        Self { ram_banks: vec![Default::default(); 2] }
+        Self { ram_banks: vec![Default::default(); 2], ..Default::default() }
+    }
+
+    /// todo!("This will need to point to the correct one when there's multiple"
+    fn active_bank_num(&self) -> usize {
+        0
     }
 
     fn get_ram_bank_mut(&mut self) -> &mut VideoRamBank {
-        &mut self.ram_banks[0] //todo("This will need to point to the correct one when there's multiple"
+        let bank_num = self.active_bank_num();
+        &mut self.ram_banks[bank_num]
     }
     fn get_ram_bank(&self) -> &VideoRamBank {
-        &self.ram_banks[0] //todo("This will need to point to the correct one when there's multiple"
+        let bank_num = self.active_bank_num();
+        &self.ram_banks[bank_num]
     }
 
     fn get_8000_method(&self, tile_number: u8) -> &Tile {
@@ -37,21 +49,47 @@ impl VideoRam {
 impl BusAccessible for VideoRam {
     const MM_DEVICE: MMDevice = MMDevice::VideoRam;
 
-    fn read(&mut self, mut address: Address) -> crate::bus::MemoryAccessResult<u8> {
-        address = Self::local(address);
-        todo!()
+    fn read(&mut self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
+        if address < Self::TILE_MAP_START_ADDR {
+            let address = Self::local(address);
+            let byte_index = TileByteIndex::address_to_index(address);
+            let ram_bank = self.get_ram_bank_mut();
+            Ok(ram_bank.get_byte(byte_index))
+        } else {
+            Ok(self.tile_maps.get_byte(address - Self::TILE_MAP_START_ADDR))
+        }
     }
 
-    fn write(&mut self, mut address: Address, value: u8) -> crate::bus::MemoryAccessResult<()> {
-        address = Self::local(address);
+    fn write(&mut self, address: Address, value: u8) -> crate::bus::MemoryAccessResult<()> {
+        if address < Self::TILE_MAP_START_ADDR {
+            let address = Self::local(address);
 
-        todo!()
+            let byte_index = TileByteIndex::address_to_index(address);
+            let ram_bank = self.get_ram_bank_mut();
+
+            Ok(ram_bank.set_byte(byte_index, value))
+        } else {
+            Ok(self.tile_maps.set_byte(address - Self::TILE_MAP_START_ADDR, value))
+        }
     }
 
-    fn peek(&self, mut address: Address) -> crate::bus::MemoryAccessResult<u8> {
-        address = Self::local(address);
+    fn peek(&self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
+        if address < Self::TILE_MAP_START_ADDR {
+            let address = Self::local(address);
 
-        todo!()
+            let byte_index = TileByteIndex::address_to_index(address);
+            let ram_bank = self.get_ram_bank();
+
+            Ok(ram_bank.get_byte(byte_index))
+        } else {
+            Ok(self.tile_maps.get_byte(address - Self::TILE_MAP_START_ADDR))
+        }
+    }
+}
+
+impl Default for VideoRam {
+    fn default() -> Self {
+        Self::new_gb()
     }
 }
 
@@ -77,6 +115,13 @@ impl VideoRamBank {
         let tile_index = tile_number.abs() as usize;
         &mut self.tiles[block_number][tile_index]
     }
+
+    fn set_byte(&mut self, byte_index: TileByteIndex, value: u8) {
+        self.tiles[byte_index.block_number][byte_index.tile_index].set_byte(byte_index.row, byte_index.column, value);
+    }
+    fn get_byte(&self, byte_index: TileByteIndex) -> u8 {
+        self.tiles[byte_index.block_number][byte_index.tile_index].get_byte(byte_index.row, byte_index.column)
+    }
 }
 
 impl Default for VideoRamBank {
@@ -91,6 +136,14 @@ struct Tile {
 }
 
 impl Tile {
+    fn set_byte(&mut self, row: usize, column: usize, value: u8) {
+        self.data[row][column] = value
+    }
+
+    fn get_byte(&self, row: usize, column: usize) -> u8 {
+        self.data[row][column]
+    }
+
     fn get_pixels(&self) -> [[Pixel; 8]; 8] {
         let mut pixels = [[Default::default(); 8]; 8];
         for (row_index, row) in self.data.iter().enumerate() {
@@ -135,3 +188,71 @@ impl Pixel {
 }
 
 pub const TEST_COLORS: [u8; 4] = [0, 82, 28, 22];
+
+#[derive(Clone, Copy)]
+struct TileMap {
+    tile_map: [u8; 32 * 32],
+}
+
+impl TileMap {
+    fn get_byte(&self, index: usize) -> u8 {
+        self.tile_map[index]
+    }
+    fn set_byte(&mut self, index: usize, value: u8) {
+        self.tile_map[index] = value;
+    }
+}
+
+impl Default for TileMap {
+    fn default() -> Self {
+        Self { tile_map: [Default::default(); 32 * 32] }
+    }
+}
+
+#[derive(Default, Clone, Copy)]
+struct TileMaps {
+    tile_maps: [TileMap; 2],
+}
+
+impl TileMaps {
+    const TILE_MAP_SIZE: usize = 0x400;
+
+    fn get_byte(&self, address: Address) -> u8 {
+        let tile_map_index = (address as usize) / Self::TILE_MAP_SIZE;
+        let in_map_index = (address as usize) % Self::TILE_MAP_SIZE;
+
+        self.tile_maps[tile_map_index].get_byte(in_map_index)
+    }
+    fn set_byte(&mut self, address: Address, value: u8) {
+        let tile_map_index = (address as usize) / Self::TILE_MAP_SIZE;
+        let in_map_index = (address as usize) % Self::TILE_MAP_SIZE;
+
+        self.tile_maps[tile_map_index].set_byte(in_map_index, value);
+    }
+}
+
+#[derive(Debug)]
+struct TileByteIndex {
+    block_number: usize,
+    tile_index: usize,
+    column: usize,
+    row: usize,
+}
+
+impl TileByteIndex {
+    const TILES_IN_BLOCK: usize = 128;
+    const BYTES_IN_TILE: usize = 16;
+    const ROWS_IN_TILE: usize = 8;
+    const COLS_IN_TYLE: usize = 2;
+
+    /// Translates a local address to the indeces required to access it
+    fn address_to_index(address: Address) -> Self {
+        let address = address as usize;
+
+        let block_number = address / (Self::BYTES_IN_TILE * Self::TILES_IN_BLOCK);
+        let tile_index = (address % Self::TILES_IN_BLOCK) / Self::BYTES_IN_TILE;
+        let column = (address % Self::BYTES_IN_TILE) / Self::ROWS_IN_TILE;
+        let row = address % Self::COLS_IN_TYLE;
+        Self { block_number, tile_index, column, row }
+    }
+}

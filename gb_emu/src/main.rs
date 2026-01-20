@@ -9,12 +9,11 @@ use crate::{cartridge::cartridge::Cartridge, game_boy::GameBoy, helper_functions
 
 mod bus;
 mod cartridge;
-mod cpu;
 mod game_boy;
 mod graphics;
 mod helper_functions;
-mod instruction_tables;
-mod instructions;
+mod io_registers;
+mod processor;
 mod rom_and_ram;
 mod work_ram;
 

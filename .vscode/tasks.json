@@ -1,0 +1,17 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "run normal",
+            "type": "shell",
+            "command": "cargo run",
+            "options": {
+                "cwd": "gb_emu",
+                "env": {
+                    "RUST_BACKTRACE": "1"
+                }
+            },
+            "problemMatcher": "$rustc"
+        }
+    ]
+}
