@@ -1,4 +1,8 @@
-use crate::{bus::MemoryAccessResult, cartridge::cartridge::ROM_BANK_SIZE, helper_functions::log};
+use crate::{
+    bus::{Address, MemoryAccessResult},
+    cartridge::cartridge::ROM_BANK_SIZE,
+    helper_functions::log,
+};
 
 #[derive(Clone, Copy)]
 pub struct RomBank {
@@ -6,16 +10,16 @@ pub struct RomBank {
 }
 
 impl RomBank {
-    pub fn read(&mut self, address: u16) -> MemoryAccessResult<u8> {
+    pub fn read(&mut self, address: Address) -> MemoryAccessResult<u8> {
         Ok(self.data[address as usize])
     }
 
-    pub fn write(&mut self, address: u16, value: u8) -> MemoryAccessResult<()> {
+    pub fn write(&mut self, address: Address, value: u8) -> MemoryAccessResult<()> {
         log(&format!("Tried to write to ROM: {address:08x}: {value:02x}"));
         Ok(())
     }
 
-    pub fn peek(&self, address: u16) -> MemoryAccessResult<u8> {
+    pub fn peek(&self, address: Address) -> MemoryAccessResult<u8> {
         Ok(self.data[address as usize])
     }
 
@@ -44,16 +48,16 @@ impl<const SIZE: usize> RamBank<SIZE> {
         Default::default()
     }
 
-    pub fn read(&mut self, address: u16) -> MemoryAccessResult<u8> {
+    pub fn read(&mut self, address: Address) -> MemoryAccessResult<u8> {
         Ok(self.data[address as usize])
     }
 
-    pub fn write(&mut self, address: u16, value: u8) -> MemoryAccessResult<()> {
+    pub fn write(&mut self, address: Address, value: u8) -> MemoryAccessResult<()> {
         self.data[address as usize] = value;
         Ok(())
     }
 
-    pub fn peek(&self, address: u16) -> MemoryAccessResult<u8> {
+    pub fn peek(&self, address: Address) -> MemoryAccessResult<u8> {
         Ok(self.data[address as usize])
     }
 
@@ -81,15 +85,15 @@ impl<const SIZE: usize> BankableRam<SIZE> {
         }
     }
 
-    pub fn read(&mut self, address: u16) -> crate::bus::MemoryAccessResult<u8> {
+    pub fn read(&mut self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
         self.banks[self.active_bank_num as usize].read(address)
     }
 
-    pub fn write(&mut self, address: u16, value: u8) -> crate::bus::MemoryAccessResult<()> {
+    pub fn write(&mut self, address: Address, value: u8) -> crate::bus::MemoryAccessResult<()> {
         self.banks[self.active_bank_num as usize].write(address, value)
     }
 
-    pub fn peek(&self, address: u16) -> crate::bus::MemoryAccessResult<u8> {
+    pub fn peek(&self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
         self.banks[self.active_bank_num as usize].peek(address)
     }
 }

@@ -21,7 +21,7 @@ fn main() {
     let mut game_boy = GameBoy::new();
     let cartridge = Cartridge::new(&read_test_data()).unwrap();
     game_boy.load_cartridge(cartridge);
-    game_boy.test_looping(10000);
+    game_boy.test_looping(100000);
 }
 
 fn read_test_data() -> Vec<u8> {

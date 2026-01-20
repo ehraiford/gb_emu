@@ -1,8 +1,8 @@
-use crate::bus::{BusAccessible, MMDevice};
+use crate::bus::{Address, BusAccessible, MMDevice};
 
 #[derive(Default)]
 pub struct VideoRam {
-    ram_bank: Vec<VideoRamBank>,
+    ram_banks: Vec<VideoRamBank>,
 }
 
 impl VideoRam {
@@ -10,14 +10,14 @@ impl VideoRam {
         Default::default()
     }
     pub fn new_cgb() -> Self {
-        Self { ram_bank: vec![Default::default(); 2] }
+        Self { ram_banks: vec![Default::default(); 2] }
     }
 
     fn get_ram_bank_mut(&mut self) -> &mut VideoRamBank {
-        &mut self.ram_bank[0] //todo("This will need to point to the correct one when there's multiple"
+        &mut self.ram_banks[0] //todo("This will need to point to the correct one when there's multiple"
     }
     fn get_ram_bank(&self) -> &VideoRamBank {
-        &self.ram_bank[0] //todo("This will need to point to the correct one when there's multiple"
+        &self.ram_banks[0] //todo("This will need to point to the correct one when there's multiple"
     }
 
     fn get_8000_method(&self, tile_number: u8) -> &Tile {
@@ -37,15 +37,15 @@ impl VideoRam {
 impl BusAccessible for VideoRam {
     const MM_DEVICE: MMDevice = MMDevice::VideoRam;
 
-    fn read(&mut self, address: u16) -> crate::bus::MemoryAccessResult<u8> {
+    fn read(&mut self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
         todo!()
     }
 
-    fn write(&mut self, address: u16, value: u8) -> crate::bus::MemoryAccessResult<()> {
+    fn write(&mut self, address: Address, value: u8) -> crate::bus::MemoryAccessResult<()> {
         todo!()
     }
 
-    fn peek(&self, address: u16) -> crate::bus::MemoryAccessResult<u8> {
+    fn peek(&self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
         todo!()
     }
 }
