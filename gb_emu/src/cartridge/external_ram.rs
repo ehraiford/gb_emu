@@ -1,7 +1,7 @@
 use crate::{
     bus::{Address, BusAccessible},
     cartridge::cartridge::RAM_BANK_SIZE,
-    rom_and_ram::BankableRam,
+    onboard_devices::rom_and_ram::BankableRam,
 };
 
 #[derive(Default)]

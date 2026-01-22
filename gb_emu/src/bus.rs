@@ -1,13 +1,18 @@
 use crate::{
     cartridge::cartridge::{Cartridge, CartridgeDevice},
+    game_boy::INACCESIBLE_RETURN_VALUE,
     graphics::{oam::ObjectAttributeMemory, video_ram::VideoRam},
     helper_functions::log,
-    io_registers::IoRegisters,
+    interrupts::InterruptEnableRegister,
+    onboard_devices::{
+        h_ram::HighRam,
+        io_registers::IoRegisters,
+        work_ram::{BankableWorkRam, WorkRam00},
+    },
     processor::{
         instruction_tables::{CBPREFIXED, UNPREFIXED},
-        instructions::{Instruction, InstructionError, OpCode},
+        instructions::{Instruction, OpCode},
     },
-    work_ram::{BankableWorkRam, WorkRam00},
 };
 
 pub type MemoryAccessResult<T> = Result<T, MemoryAccessError>;
@@ -21,6 +26,8 @@ pub struct Bus {
     bankable_w_ram: BankableWorkRam,
     oam: ObjectAttributeMemory,
     io_registers: IoRegisters,
+    h_ram: HighRam,
+    ie: InterruptEnableRegister,
 }
 
 impl Bus {
@@ -28,11 +35,15 @@ impl Bus {
         self.cartridge = cartridge;
     }
     pub fn read_u16(&mut self, address: Address) -> MemoryAccessResult<u16> {
-        Ok((((self.read(address + 1)?) as u16) << 8) | self.read(address)? as u16)
+        let little_byte = self.read(address)? as u16;
+        let big_byte = self.read(address + 1)? as u16;
+        Ok((big_byte << 8) | little_byte)
     }
     pub fn write_u16(&mut self, address: Address, value: Address) -> MemoryAccessResult<()> {
-        self.write(address, value as u8)?;
-        self.write(address + 1, (value >> 8) as u8)
+        let little_byte = (value & 0xFF) as u8;
+        let big_byte = (value >> 8) as u8;
+        self.write(address, little_byte)?;
+        self.write(address + 1, big_byte)
     }
     pub fn read_next_instruction(&mut self, pc: Address) -> MemoryAccessResult<&'static Instruction> {
         let first_byte = self.read(pc)?;
@@ -58,20 +69,22 @@ impl Bus {
             MMDevice::ExternalRam => self.cartridge.read(address, CartridgeDevice::ExternalRam),
             MMDevice::WorkRam00 => self.w_ram_00.read(address),
             MMDevice::BankableWorkRam => self.bankable_w_ram.read(address),
-            MMDevice::EchoRam => self.read(address & 0x4FFF),
+            MMDevice::EchoRam => self.read(address - 0x2000),
             MMDevice::ObjectAttributeMemory => self.oam.read(address),
-            MMDevice::Unusable => todo!(),
+            MMDevice::Unusable => Err(MemoryAccessError::TriedAccessingUnusableMemory),
             MMDevice::IoRegisters => self.io_registers.read(address),
-            MMDevice::HighRam => todo!(),
-            MMDevice::InterruptEnableRegister => todo!(),
+            MMDevice::HighRam => self.h_ram.read(address),
+            MMDevice::InterruptEnableRegister => self.ie.read(address),
         };
 
         match result {
             Ok(val) => Ok(val),
             Err(e) => match e {
-                MemoryAccessError::FailedToAccessAddress => {
+                MemoryAccessError::NothingMappedToAddress
+                | MemoryAccessError::InaccessibleInPpuMode
+                | MemoryAccessError::TriedAccessingUnusableMemory => {
                     log(format_args!("Could not access anything at address: 0x{address:04x}."));
-                    Ok(0)
+                    Ok(INACCESIBLE_RETURN_VALUE)
                 },
                 _ => return Err(e),
             },
@@ -86,18 +99,18 @@ impl Bus {
             MMDevice::ExternalRam => self.cartridge.peek(address, CartridgeDevice::ExternalRam),
             MMDevice::WorkRam00 => self.w_ram_00.peek(address),
             MMDevice::BankableWorkRam => self.bankable_w_ram.peek(address),
-            MMDevice::EchoRam => self.peek(address & 0x4FFF),
+            MMDevice::EchoRam => self.peek(address - 0x2000),
             MMDevice::ObjectAttributeMemory => self.oam.peek(address),
-            MMDevice::Unusable => todo!(),
+            MMDevice::Unusable => Err(MemoryAccessError::TriedAccessingUnusableMemory),
             MMDevice::IoRegisters => self.io_registers.peek(address),
-            MMDevice::HighRam => todo!(),
-            MMDevice::InterruptEnableRegister => todo!(),
+            MMDevice::HighRam => self.h_ram.peek(address),
+            MMDevice::InterruptEnableRegister => self.ie.peek(address),
         };
 
         match result {
             Ok(val) => Ok(val),
             Err(e) => match e {
-                MemoryAccessError::FailedToAccessAddress => {
+                MemoryAccessError::NothingMappedToAddress => {
                     log(format_args!("Could not access anything at address: 0x{address:04x}."));
                     Ok(0)
                 },
@@ -114,17 +127,17 @@ impl Bus {
             MMDevice::ExternalRam => self.cartridge.write(address, CartridgeDevice::ExternalRam, value),
             MMDevice::WorkRam00 => self.w_ram_00.write(address, value),
             MMDevice::BankableWorkRam => self.bankable_w_ram.write(address, value),
-            MMDevice::EchoRam => self.write(address & 0x4FFF, value),
+            MMDevice::EchoRam => self.write(address - 0x2000, value),
             MMDevice::ObjectAttributeMemory => self.oam.write(address, value),
-            MMDevice::Unusable => todo!(),
+            MMDevice::Unusable => Err(MemoryAccessError::TriedAccessingUnusableMemory),
             MMDevice::IoRegisters => self.io_registers.write(address, value),
-            MMDevice::HighRam => todo!(),
-            MMDevice::InterruptEnableRegister => todo!(),
+            MMDevice::HighRam => self.h_ram.write(address, value),
+            MMDevice::InterruptEnableRegister => self.ie.write(address, value),
         };
 
         if let Err(e) = result {
             match e {
-                MemoryAccessError::FailedToAccessAddress => {
+                MemoryAccessError::NothingMappedToAddress => {
                     log(format_args!("Could not access anything at address: 0x{address:04x}."))
                 },
                 _ => return Err(e),
@@ -233,17 +246,7 @@ pub trait BusAccessible {
 #[derive(Debug)]
 pub enum MemoryAccessError {
     NotAnOperation(u8),
-    FailedToAccessAddress,
-}
-
-impl From<InstructionError> for MemoryAccessError {
-    fn from(value: InstructionError) -> Self {
-        match value {
-            InstructionError::LdhLowValue(_) | InstructionError::InvalidOperand => {
-                unreachable!("There shouldn't be any place this conversion happens")
-            },
-            InstructionError::InvalidOperation(byte) => Self::NotAnOperation(byte),
-            InstructionError::OperandCannotBeSet => todo!(),
-        }
-    }
+    NothingMappedToAddress,
+    InaccessibleInPpuMode,
+    TriedAccessingUnusableMemory,
 }

@@ -12,13 +12,13 @@ mod cartridge;
 mod game_boy;
 mod graphics;
 mod helper_functions;
-mod io_registers;
+mod interrupts;
+mod onboard_devices;
 mod os_interface;
 mod processor;
-mod rom_and_ram;
-mod work_ram;
 
-const TEST_ROM: &str = &r"C:\Users\evanr\code\gb_emu\test_roms\mem_timing.gb";
+const TEST_ROM: &str = &r"C:\Users\evanr\OneDrive\Desktop\Games\Dr. Mario (World) (Rev 1).gb";
+const TEST_CYCLES: usize = 100_000_000;
 
 fn main() {
     #[cfg(feature = "disassemble")]
@@ -29,7 +29,9 @@ fn main() {
         let mut game_boy = GameBoy::new();
         let cartridge = Cartridge::new(&read_test_data()).unwrap();
         game_boy.load_cartridge(cartridge);
-        game_boy.test_looping(100000);
+
+        game_boy.test_looping(TEST_CYCLES);
+
     }
 }
 
