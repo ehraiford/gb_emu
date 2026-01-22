@@ -1,10 +1,15 @@
+use std::time::Instant;
+
 use crate::{
     bus::Bus,
     cartridge::cartridge::Cartridge,
-    processor::cpu::{Cpu, CpuOperationContext},
-    processor::instructions::*,
+    processor::{
+        cpu::{Cpu, CpuOperationContext},
+        instructions::*,
+    },
 };
 
+const EXPECTED_CLOCK_SPEED: f64 = 4.194304; // In Megahertz
 #[derive(Default)]
 pub struct GameBoy {
     mode: Mode,
@@ -22,34 +27,43 @@ impl GameBoy {
     }
 
     pub fn test_looping(&mut self, cycles: usize) {
-        for _ in 0..cycles {
-            self.tick_cpu_execution();
+        let start = Instant::now();
+        let mut total_t_cycles = 0;
+        while total_t_cycles < cycles {
+            total_t_cycles += self.tick_cpu_execution().0 as usize;
         }
+        let duration = start.elapsed();
+        print!("It took us {} seconds to run through {cycles}.", duration.as_secs());
+        println!(
+            "That's {} MHz. Hardware is {EXPECTED_CLOCK_SPEED:02}",
+            ((total_t_cycles * 4) as f64) / duration.as_secs_f64() / 1_000_000_f64
+        )
     }
 
-    fn tick_cpu_execution(&mut self) {
+    fn tick_cpu_execution(&mut self) -> TCycles {
         let instruction = self.read_next_instruction();
         let outcome = CpuOperationContext::new(&mut self.cpu, &mut self.bus)
             .perform_instruction(instruction)
             .unwrap();
 
-        let mut pc = self.cpu.get_pc();
-        pc += instruction.bytes;
+        let pc = self.cpu.get_pc() + instruction.bytes;
+        self.cpu.set_pc(pc);
+        let mut taken_cycles = instruction.cycles as u64;
 
         match outcome {
-            InstructionOutcome::ExtraCycles(extra_cycles) => pc += extra_cycles,
+            InstructionOutcome::ExtraCycles(extra_cycles) => taken_cycles += extra_cycles as u64,
             InstructionOutcome::Ok => (),
             InstructionOutcome::ChangeGameBoyMode(mode) => self.mode = mode,
-        }
+        };
 
-        self.cpu.set_pc(pc);
+        TCycles(taken_cycles)
     }
 
     fn read_next_instruction(&mut self) -> &'static Instruction {
         let pc = self.cpu.get_pc();
         self.bus
             .read_next_instruction(pc)
-            .expect("We'll want a top level error that other errors can convert to later.")
+            .expect("TODO!() We'll want a top level error that other errors can convert to later.")
     }
 }
 
@@ -60,3 +74,7 @@ pub enum Mode {
     Stopped,
     Halted,
 }
+
+/// The return value for reads to inaccessible devices.
+/// Just standardizing our garbage and removing mystical numbers.
+pub const INACCESIBLE_RETURN_VALUE: u8 = 0xFF;

@@ -1,7 +1,6 @@
 use core::fmt;
 
 use crate::{
-    bus::Address,
     processor::{
         instruction_tables::{CBPREFIXED, UNPREFIXED},
         instructions::{Instruction, OpCode},
@@ -50,20 +49,6 @@ fn read_instruction(bytes: &[u8], pc: &mut usize) -> &'static Instruction {
 
     instruction
 }
-
-// pub struct ValRange<const MIN: u8, const MAX: u8> {
-//     value: u8,
-// }
-
-// impl<const MIN: u8, const MAX: u8> ValRange<MIN, MAX> {
-//     pub const fn new(val: u8) -> Self {
-//         if val < MIN || val >= MAX {
-//             panic!("value must be within the specified range")
-//         }
-
-//         Self { value: val }
-//     }
-// }
 
 
 #[cfg(test)]

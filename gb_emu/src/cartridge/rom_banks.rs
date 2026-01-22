@@ -1,7 +1,7 @@
 use crate::{
     bus::{Address, BusAccessible},
-    cartridge::cartridge::{CartridgeError, CartridgeResult, PartOfCartridge},
-    rom_and_ram::RomBank,
+    cartridge::cartridge::PartOfCartridge,
+    onboard_devices::rom_and_ram::RomBank,
 };
 
 pub struct BankableRoms {
@@ -20,7 +20,7 @@ impl BankableRoms {
 
 impl PartOfCartridge for BankableRoms {
     fn banks_mut(&mut self) -> impl Iterator<Item = &mut [u8]> {
-        self.banks.iter_mut().map(|b| b.get_data_mut())
+        self.banks.iter_mut().map(|b: &mut RomBank| b.get_data_mut())
     }
 }
 
