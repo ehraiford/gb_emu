@@ -1,4 +1,4 @@
-use crate::bus::{BusAccessible, MMDevice};
+use crate::bus::{Address, BusAccessible, MMDevice, MemoryAccessResult};
 
 pub struct ObjectAttributeMemory {
     objects: [Sprite; 40],
@@ -11,7 +11,7 @@ impl ObjectAttributeMemory {
 impl BusAccessible for ObjectAttributeMemory {
     const MM_DEVICE: MMDevice = MMDevice::ObjectAttributeMemory;
 
-    fn read(&mut self, address: crate::bus::Address) -> crate::bus::MemoryAccessResult<u8> {
+    fn read(&mut self, address: Address) -> MemoryAccessResult<u8> {
         let address = Self::local(address) as usize;
 
         let index = address / Self::NUM_OAM_SPRITES;
@@ -20,7 +20,7 @@ impl BusAccessible for ObjectAttributeMemory {
         Ok(self.objects[index].get_byte(byte_num))
     }
 
-    fn write(&mut self, address: crate::bus::Address, value: u8) -> crate::bus::MemoryAccessResult<()> {
+    fn write(&mut self, address: Address, value: u8) -> MemoryAccessResult<()> {
         let address = Self::local(address) as usize;
 
         let index = address / Self::NUM_OAM_SPRITES;
@@ -29,7 +29,7 @@ impl BusAccessible for ObjectAttributeMemory {
         Ok(self.objects[index].set_byte(byte_num, value))
     }
 
-    fn peek(&self, address: crate::bus::Address) -> crate::bus::MemoryAccessResult<u8> {
+    fn peek(&self, address: Address) -> MemoryAccessResult<u8> {
         let address = Self::local(address) as usize;
 
         let index = address / Self::NUM_OAM_SPRITES;

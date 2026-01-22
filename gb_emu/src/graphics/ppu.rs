@@ -1,10 +1,7 @@
 use crate::graphics::{oam::ObjectAttributeMemory, video_ram::VideoRam};
 
 pub struct Ppu {
-    scx: u8,
-    scy: u8,
-    wx: u8,
-    wy: u8,
+    
 }
 
 impl Ppu {}

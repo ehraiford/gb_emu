@@ -2,6 +2,7 @@ use crate::{
     cartridge::cartridge::{Cartridge, CartridgeDevice},
     graphics::{oam::ObjectAttributeMemory, video_ram::VideoRam},
     helper_functions::log,
+    io_registers::IoRegisters,
     processor::{
         instruction_tables::{CBPREFIXED, UNPREFIXED},
         instructions::{Instruction, InstructionError, OpCode},
@@ -19,6 +20,7 @@ pub struct Bus {
     w_ram_00: WorkRam00,
     bankable_w_ram: BankableWorkRam,
     oam: ObjectAttributeMemory,
+    io_registers: IoRegisters,
 }
 
 impl Bus {
@@ -59,7 +61,7 @@ impl Bus {
             MMDevice::EchoRam => self.read(address & 0x4FFF),
             MMDevice::ObjectAttributeMemory => self.oam.read(address),
             MMDevice::Unusable => todo!(),
-            MMDevice::IoRegisters => todo!(),
+            MMDevice::IoRegisters => self.io_registers.read(address),
             MMDevice::HighRam => todo!(),
             MMDevice::InterruptEnableRegister => todo!(),
         };
@@ -87,7 +89,7 @@ impl Bus {
             MMDevice::EchoRam => self.peek(address & 0x4FFF),
             MMDevice::ObjectAttributeMemory => self.oam.peek(address),
             MMDevice::Unusable => todo!(),
-            MMDevice::IoRegisters => todo!(),
+            MMDevice::IoRegisters => self.io_registers.peek(address),
             MMDevice::HighRam => todo!(),
             MMDevice::InterruptEnableRegister => todo!(),
         };
@@ -108,14 +110,14 @@ impl Bus {
         let result = match device {
             MMDevice::RomBank00 => self.cartridge.write(address, CartridgeDevice::RomBank00, value),
             MMDevice::BankableRom => self.cartridge.write(address, CartridgeDevice::BankableRom, value),
-            MMDevice::VideoRam => todo!(),
+            MMDevice::VideoRam => self.v_ram.write(address, value),
             MMDevice::ExternalRam => self.cartridge.write(address, CartridgeDevice::ExternalRam, value),
-            MMDevice::WorkRam00 => todo!(),
-            MMDevice::BankableWorkRam => todo!(),
-            MMDevice::EchoRam => todo!(),
-            MMDevice::ObjectAttributeMemory => todo!(),
+            MMDevice::WorkRam00 => self.w_ram_00.write(address, value),
+            MMDevice::BankableWorkRam => self.bankable_w_ram.write(address, value),
+            MMDevice::EchoRam => self.write(address & 0x4FFF, value),
+            MMDevice::ObjectAttributeMemory => self.oam.write(address, value),
             MMDevice::Unusable => todo!(),
-            MMDevice::IoRegisters => todo!(),
+            MMDevice::IoRegisters => self.io_registers.write(address, value),
             MMDevice::HighRam => todo!(),
             MMDevice::InterruptEnableRegister => todo!(),
         };

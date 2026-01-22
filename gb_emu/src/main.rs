@@ -13,6 +13,7 @@ mod game_boy;
 mod graphics;
 mod helper_functions;
 mod io_registers;
+mod os_interface;
 mod processor;
 mod rom_and_ram;
 mod work_ram;

@@ -1,8 +1,11 @@
 use core::fmt;
 
 use crate::{
-    processor::instruction_tables::{CBPREFIXED, UNPREFIXED},
-    processor::instructions::{Instruction, OpCode},
+    bus::Address,
+    processor::{
+        instruction_tables::{CBPREFIXED, UNPREFIXED},
+        instructions::{Instruction, OpCode},
+    },
 };
 
 pub fn concat_2_bytes(byte1: u8, byte2: u8) -> u16 {
@@ -47,6 +50,21 @@ fn read_instruction(bytes: &[u8], pc: &mut usize) -> &'static Instruction {
 
     instruction
 }
+
+// pub struct ValRange<const MIN: u8, const MAX: u8> {
+//     value: u8,
+// }
+
+// impl<const MIN: u8, const MAX: u8> ValRange<MIN, MAX> {
+//     pub const fn new(val: u8) -> Self {
+//         if val < MIN || val >= MAX {
+//             panic!("value must be within the specified range")
+//         }
+
+//         Self { value: val }
+//     }
+// }
+
 
 #[cfg(test)]
 mod test {

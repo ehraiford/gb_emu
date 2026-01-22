@@ -1,0 +1,113 @@
+use crate::bus::{Address, MemoryAccessResult};
+
+#[derive(Default)]
+pub struct LcdRegisters {
+    lcd_control_flags: u8,
+
+    ly_coordinate: u8,
+    ly_compare: u8,
+    status_flags: u8,
+
+    scy: u8,
+    scx: u8,
+    wy: u8,
+    wx: u8,
+
+    background_palette: u8,
+}
+
+impl LcdRegisters {
+    const START_ADDRESS: Address = 0xFF40;
+
+    pub fn read(&mut self, address: Address) -> MemoryAccessResult<u8> {
+        let address = address - Self::START_ADDRESS;
+        todo!()
+    }
+
+    pub fn write(&mut self, address: Address, value: u8) -> MemoryAccessResult<()> {
+        let address = address - Self::START_ADDRESS;
+        todo!()
+    }
+
+    pub fn peek(&self, address: Address) -> MemoryAccessResult<u8> {
+        let address = address - Self::START_ADDRESS;
+        todo!()
+    }
+
+    fn get_control_flag(&self, flag: LcdControlFlag) -> bool {
+        (self.lcd_control_flags >> flag.get_index()) & 0b1 == 1
+    }
+    fn set_control_flag(&mut self, flag: LcdControlFlag, value: bool) {
+        let index = flag.get_index();
+        self.lcd_control_flags &= 0b1 << index;
+        self.lcd_control_flags |= value as u8;
+    }
+
+    fn get_status_flag(&self, flag: LcdStatusFlag) -> bool {
+        let (shift, mask) = flag.get_shift_and_mask();
+        (self.status_flags >> shift) & mask == 1
+    }
+    fn set_status_flag(&mut self, flag: LcdStatusFlag, value: bool) {
+        let (shift, mask) = flag.get_shift_and_mask();
+        let mut status = self.status_flags;
+        status &= 0b1 << shift;
+        status |= (value as u8) << shift;
+        self.status_flags = status;
+    }
+    fn get_ppu_mode(&self) -> u8 {
+        self.status_flags & 0b11
+    }
+    fn set_ppu_mode(&mut self, mut mode: u8) {
+        let status = self.status_flags & !0b11;
+        mode &= 0b11; // just some extra safety to ensure we don't accidentally overwrite another field
+        self.status_flags = status | mode
+    }
+}
+
+enum LcdControlFlag {
+    LcdPpuEnable,
+    WindowTileMap,
+    WindowEnable,
+    BackgroundWindowTiles,
+    BackgroundTileMap,
+    ObjSize,
+    ObjEnable,
+    BackgroundWindowEnablePriority,
+}
+
+impl LcdControlFlag {
+    fn get_index(&self) -> usize {
+        match self {
+            LcdControlFlag::LcdPpuEnable => 7,
+            LcdControlFlag::WindowTileMap => 6,
+            LcdControlFlag::WindowEnable => 5,
+            LcdControlFlag::BackgroundWindowTiles => 4,
+            LcdControlFlag::BackgroundTileMap => 3,
+            LcdControlFlag::ObjSize => 2,
+            LcdControlFlag::ObjEnable => 1,
+            LcdControlFlag::BackgroundWindowEnablePriority => 0,
+        }
+    }
+}
+
+enum LcdStatusFlag {
+    LycIntSelect,
+    Mode2IntSelect,
+    Mode1IntSelect,
+    Mode0IntSelect,
+    LycEqualsLy,
+    PpuMode,
+}
+
+impl LcdStatusFlag {
+    fn get_shift_and_mask(&self) -> (u8, u8) {
+        match self {
+            LcdStatusFlag::LycIntSelect => (6, 0b1),
+            LcdStatusFlag::Mode2IntSelect => (5, 0b1),
+            LcdStatusFlag::Mode1IntSelect => (4, 0b1),
+            LcdStatusFlag::Mode0IntSelect => (3, 0b1),
+            LcdStatusFlag::LycEqualsLy => (2, 0b1),
+            LcdStatusFlag::PpuMode => unreachable!("This shouldn't be called anywhere to cause this"),
+        }
+    }
+}
