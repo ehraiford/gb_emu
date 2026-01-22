@@ -1,12 +1,12 @@
 use crate::{
     bus::{Bus, MemoryAccessResult},
     cartridge::cartridge::ENTRY_POINT,
+    game_boy::Mode,
+    helper_functions::log,
     processor::instructions::{
         EightBitOperand, Instruction, InstructionError, InstructionOutcome, InstructionResult, OpCode, Operand,
         OperandType, SignedEightBitOperand, SixteenBitOperand,
     },
-    game_boy::Mode,
-    helper_functions::log,
 };
 
 pub struct Cpu {
@@ -361,11 +361,14 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
                 &&EightBitOperand::try_from(instruction.operands[0])?,
                 &&EightBitOperand::try_from(instruction.operands[1])?,
             ),
-            OpCode::Call => self.call(&SixteenBitOperand::try_from(instruction.operands[0])?),
-            OpCode::CallConditional => self.call_conditional(
-                &Condition::try_from(instruction.operands[0])?,
-                &SixteenBitOperand::try_from(instruction.operands[1])?,
-            ),
+            OpCode::Call => match instruction.operands.len() {
+                1 => self.call(&SixteenBitOperand::try_from(instruction.operands[0])?),
+                2 => self.call_conditional(
+                    &Condition::try_from(instruction.operands[0])?,
+                    &SixteenBitOperand::try_from(instruction.operands[1])?,
+                ),
+                _ => unreachable!("OpCode only can have 1 or 2 operands"),
+            },
             OpCode::Ccf => self.complement_carry_flag(),
             OpCode::Cp => self.compare(&EightBitOperand::try_from(instruction.operands[0])?),
             OpCode::Cpl => self.complement(),
@@ -392,16 +395,23 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
                 },
                 _ => return Err(InstructionError::InvalidOperand),
             },
-            OpCode::Jp => self.jump(&SixteenBitOperand::try_from(instruction.operands[0])?),
-            OpCode::JpConditional => self.jump_conditional(
-                &Condition::try_from(instruction.operands[0])?,
-                &SixteenBitOperand::try_from(instruction.operands[1])?,
-            ),
-            OpCode::Jr => self.jump_relative(&SignedEightBitOperand::try_from(instruction.operands[0])?),
-            OpCode::JrConditional => self.jump_relative_conditional(
-                &Condition::try_from(instruction.operands[0])?,
-                &SignedEightBitOperand::try_from(instruction.operands[1])?,
-            ),
+            OpCode::Jp => match instruction.operands.len() {
+                1 => self.jump(&SixteenBitOperand::try_from(instruction.operands[0])?),
+                2 => self.jump_conditional(
+                    &Condition::try_from(instruction.operands[0])?,
+                    &SixteenBitOperand::try_from(instruction.operands[1])?,
+                ),
+                _ => unreachable!("OpCode only can have 1 or 2 operands"),
+            },
+            OpCode::Jr => match instruction.operands.len() {
+                1 => self.jump_relative(&SignedEightBitOperand::try_from(instruction.operands[0])?),
+                2 => self.jump_relative_conditional(
+                    &Condition::try_from(instruction.operands[0])?,
+                    &SignedEightBitOperand::try_from(instruction.operands[1])?,
+                ),
+                _ => unreachable!("OpCode only can have 1 or 2 operands"),
+            },
+
             OpCode::Ld => match OperandType::from(instruction.operands[0]) {
                 OperandType::EightBitOperand => self.load_8_bit(
                     &EightBitOperand::try_from(instruction.operands[0])?,
@@ -426,8 +436,11 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
                 &EightBitOperand::try_from(instruction.operands[0])?,
                 &EightBitOperand::try_from(instruction.operands[1])?,
             ),
-            OpCode::Ret => self.ret(),
-            OpCode::RetConditional => self.return_conditional(&Condition::try_from(instruction.operands[0])?),
+            OpCode::Ret => match instruction.operands.len() {
+                0 => self.ret(),
+                1 => self.return_conditional(&Condition::try_from(instruction.operands[0])?),
+                _ => unreachable!("OpCode only can have 0 or 1 operands"),
+            },
             OpCode::Reti => self.return_from_interrupt(),
             OpCode::Rl => self.rotate_left_through_carry(&EightBitOperand::try_from(instruction.operands[0])?),
             OpCode::Rla => self.rotate_left_through_carry_a(),
@@ -665,8 +678,6 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         let address = self.get_u16_operand(operand)?;
         self.cpu.set_pc(address);
 
-        println!("Set PC to {address:04x}");
-
         Ok(InstructionOutcome::Ok)
     }
 
@@ -697,10 +708,10 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     fn jump_relative_conditional(
         &mut self,
         condition: &Condition,
-        _operand: &SignedEightBitOperand,
+        operand: &SignedEightBitOperand,
     ) -> InstructionResult<InstructionOutcome> {
         if self.check_condition(condition) {
-            self.jump_relative(_operand)?;
+            self.jump_relative(operand)?;
             Ok(InstructionOutcome::ExtraCycles(1))
         } else {
             Ok(InstructionOutcome::Ok)

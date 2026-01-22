@@ -2,8 +2,8 @@ use std::fmt::Display;
 
 use crate::{
     bus::MemoryAccessError,
-    processor::instruction_tables::{CBPREFIXED, UNPREFIXED},
     game_boy::Mode,
+    processor::instruction_tables::{CBPREFIXED, UNPREFIXED},
 };
 
 pub struct Instruction {
@@ -90,10 +90,6 @@ pub enum OpCode {
     Sub,
     Swap,
     Xor,
-    JpConditional,
-    JrConditional,
-    CallConditional,
-    RetConditional,
 }
 
 impl Display for OpCode {
@@ -145,10 +141,6 @@ impl Display for OpCode {
             OpCode::Sub => "SUB",
             OpCode::Swap => "SWAP",
             OpCode::Xor => "XOR",
-            OpCode::JpConditional => "JP",
-            OpCode::JrConditional => "JR",
-            OpCode::CallConditional => "CALL",
-            OpCode::RetConditional => "RET",
         };
 
         f.write_str(str)
@@ -278,14 +270,12 @@ pub enum InstructionError {
     InvalidOperand,
     LdhLowValue(u16),
     OperandCannotBeSet,
+    MemoryAccessError,
 }
 
 impl From<MemoryAccessError> for InstructionError {
-    fn from(value: MemoryAccessError) -> Self {
-        match value {
-            MemoryAccessError::NotAnOperation(_) => todo!(),
-            MemoryAccessError::FailedToAccessAddress => todo!(),
-        }
+    fn from(_: MemoryAccessError) -> Self {
+        Self::MemoryAccessError
     }
 }
 
@@ -389,3 +379,5 @@ pub enum InstructionOutcome {
     Ok,
     ChangeGameBoyMode(Mode),
 }
+
+pub struct TCycles(pub u64);
