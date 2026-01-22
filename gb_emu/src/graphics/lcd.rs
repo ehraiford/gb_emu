@@ -1,4 +1,7 @@
-use crate::bus::{Address, MemoryAccessResult};
+use crate::{
+    bus::{Address, MemoryAccessResult},
+    graphics::ppu::VideoMemory,
+};
 
 #[derive(Default)]
 pub struct LcdRegisters {
@@ -54,13 +57,18 @@ impl LcdRegisters {
         status |= (value as u8) << shift;
         self.status_flags = status;
     }
-    fn get_ppu_mode(&self) -> u8 {
-        self.status_flags & 0b11
+    pub fn get_ppu_mode(&self) -> PpuMode {
+        unsafe { std::mem::transmute(self.status_flags & 0b11) }
     }
-    fn set_ppu_mode(&mut self, mut mode: u8) {
+    fn set_ppu_mode(&mut self, mode: PpuMode) {
         let status = self.status_flags & !0b11;
-        mode &= 0b11; // just some extra safety to ensure we don't accidentally overwrite another field
-        self.status_flags = status | mode
+        self.status_flags = status | mode as u8;
+    }
+}
+
+impl VideoMemory for LcdRegisters {
+    fn update_ppu_mode(&mut self, mode: PpuMode) {
+        self.set_ppu_mode(mode);
     }
 }
 
@@ -110,4 +118,13 @@ impl LcdStatusFlag {
             LcdStatusFlag::PpuMode => unreachable!("This shouldn't be called anywhere to cause this"),
         }
     }
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy)]
+pub enum PpuMode {
+    HorizontalBlank = 0,
+    VerticalBlank = 1,
+    OamScan = 2,
+    DrawingPixels = 3,
 }

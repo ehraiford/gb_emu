@@ -1,8 +1,12 @@
-use crate::bus::{Address, BusAccessible, MMDevice};
+use crate::{
+    bus::{Address, BusAccessible, MMDevice},
+    graphics::{lcd::PpuMode, ppu::VideoMemory},
+};
 
 pub struct VideoRam {
     ram_banks: Vec<VideoRamBank>,
     tile_maps: TileMaps,
+    cpu_accessible: bool,
 }
 
 impl VideoRam {
@@ -12,10 +16,22 @@ impl VideoRam {
         Self {
             ram_banks: vec![Default::default()],
             tile_maps: Default::default(),
+            cpu_accessible: true,
         }
     }
     pub fn new_cgb() -> Self {
-        Self { ram_banks: vec![Default::default(); 2], ..Default::default() }
+        Self {
+            ram_banks: vec![Default::default(); 2],
+            tile_maps: Default::default(),
+            cpu_accessible: true,
+        }
+    }
+
+    fn is_cpu_accessible(&self) -> bool {
+        self.cpu_accessible
+    }
+    fn set_cpu_accessibility(&mut self, setting: bool) {
+        self.cpu_accessible = setting
     }
 
     /// todo!("This will need to point to the correct one when there's multiple"
@@ -50,6 +66,10 @@ impl BusAccessible for VideoRam {
     const MM_DEVICE: MMDevice = MMDevice::VideoRam;
 
     fn read(&mut self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
+        if !self.is_cpu_accessible() {
+            return Err(crate::bus::MemoryAccessError::InaccessibleInPpuMode);
+        }
+
         if address < Self::TILE_MAP_START_ADDR {
             let address = Self::local(address);
             let byte_index = TileByteIndex::address_to_index(address);
@@ -61,6 +81,10 @@ impl BusAccessible for VideoRam {
     }
 
     fn write(&mut self, address: Address, value: u8) -> crate::bus::MemoryAccessResult<()> {
+        if !self.is_cpu_accessible() {
+            return Err(crate::bus::MemoryAccessError::InaccessibleInPpuMode);
+        }
+
         if address < Self::TILE_MAP_START_ADDR {
             let address = Self::local(address);
 
@@ -90,6 +114,17 @@ impl BusAccessible for VideoRam {
 impl Default for VideoRam {
     fn default() -> Self {
         Self::new_gb()
+    }
+}
+
+impl VideoMemory for VideoRam {
+    fn update_ppu_mode(&mut self, mode: PpuMode) {
+        match mode {
+            PpuMode::HorizontalBlank | PpuMode::VerticalBlank | PpuMode::DrawingPixels => {
+                self.set_cpu_accessibility(true)
+            },
+            PpuMode::OamScan => self.set_cpu_accessibility(false),
+        }
     }
 }
 

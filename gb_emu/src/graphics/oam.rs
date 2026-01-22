@@ -1,39 +1,58 @@
-use crate::bus::{Address, BusAccessible, MMDevice, MemoryAccessResult};
+use crate::{
+    bus::{Address, BusAccessible, MMDevice, MemoryAccessError, MemoryAccessResult},
+    graphics::{lcd::PpuMode, ppu::VideoMemory},
+};
 
 pub struct ObjectAttributeMemory {
-    objects: [Sprite; 40],
+    objects: [Sprite; Self::NUM_OAM_SPRITES],
+    cpu_accessible: bool,
 }
 
 impl ObjectAttributeMemory {
     const NUM_OAM_SPRITES: usize = 40;
+
+    fn is_cpu_accessible(&self) -> bool {
+        self.cpu_accessible
+    }
+    fn set_cpu_accessibility(&mut self, setting: bool) {
+        self.cpu_accessible = setting
+    }
+
+    fn convert_address_to_sprite_and_byte_numbers(address: Address) -> (usize, usize) {
+        let address = Self::local(address) as usize;
+
+        let index = address / 4;
+        let byte_num = address % 4;
+
+        (index, byte_num)
+    }
 }
 
 impl BusAccessible for ObjectAttributeMemory {
     const MM_DEVICE: MMDevice = MMDevice::ObjectAttributeMemory;
 
     fn read(&mut self, address: Address) -> MemoryAccessResult<u8> {
-        let address = Self::local(address) as usize;
+        if !self.is_cpu_accessible() {
+            return Err(MemoryAccessError::InaccessibleInPpuMode);
+        }
 
-        let index = address / Self::NUM_OAM_SPRITES;
-        let byte_num = address % Self::NUM_OAM_SPRITES;
+        let (index, byte_num) = Self::convert_address_to_sprite_and_byte_numbers(address);
 
         Ok(self.objects[index].get_byte(byte_num))
     }
 
     fn write(&mut self, address: Address, value: u8) -> MemoryAccessResult<()> {
-        let address = Self::local(address) as usize;
+        if !self.is_cpu_accessible() {
+            return Err(MemoryAccessError::InaccessibleInPpuMode);
+        }
 
-        let index = address / Self::NUM_OAM_SPRITES;
-        let byte_num = address % Self::NUM_OAM_SPRITES;
+        let (index, byte_num) = Self::convert_address_to_sprite_and_byte_numbers(address);
 
         Ok(self.objects[index].set_byte(byte_num, value))
     }
 
     fn peek(&self, address: Address) -> MemoryAccessResult<u8> {
-        let address = Self::local(address) as usize;
-
-        let index = address / Self::NUM_OAM_SPRITES;
-        let byte_num = address % Self::NUM_OAM_SPRITES;
+        let (index, byte_num) = Self::convert_address_to_sprite_and_byte_numbers(address);
 
         Ok(self.objects[index].get_byte(byte_num))
     }
@@ -41,7 +60,16 @@ impl BusAccessible for ObjectAttributeMemory {
 
 impl Default for ObjectAttributeMemory {
     fn default() -> Self {
-        Self { objects: [Default::default(); 40] }
+        Self { objects: [Default::default(); 40], cpu_accessible: true }
+    }
+}
+
+impl VideoMemory for ObjectAttributeMemory {
+    fn update_ppu_mode(&mut self, mode: PpuMode) {
+        match mode {
+            PpuMode::HorizontalBlank | PpuMode::VerticalBlank => self.set_cpu_accessibility(true),
+            PpuMode::OamScan | PpuMode::DrawingPixels => self.set_cpu_accessibility(false),
+        }
     }
 }
 
