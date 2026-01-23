@@ -83,26 +83,32 @@ impl<const SIZE: usize> BankableRam<SIZE> {
         }
     }
 
-    fn get_active_bank_number(&self) -> <usize> {
+    fn get_active_bank_number(&self) -> Option<usize> {
         if self.banks.is_empty() {
-            Err(crate::bus::MemoryAccessError::NothingMappedToAddress)
+            None
         } else {
-            Ok(self.active_bank_num)
+            Some(self.active_bank_num)
         }
     }
 
-    pub fn read(&mut self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
-        let bank_number: usize = self.get_active_bank_number()?;
+    pub fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
+        let Some(bank_number) = self.get_active_bank_number() else {
+            return BusAccessOutcome::from(BusAccessFailure::NothingMappedToAddress);
+        };
         self.banks[bank_number].read(address)
     }
 
-    pub fn write(&mut self, address: Address, value: u8) -> crate::bus::MemoryAccessResult<()> {
-        let bank_number: usize = self.get_active_bank_number()?;
+    pub fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
+        let Some(bank_number) = self.get_active_bank_number() else {
+            return BusAccessOutcome::from(BusAccessFailure::NothingMappedToAddress);
+        };
         self.banks[bank_number].write(address, value)
     }
 
-    pub fn peek(&self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
-        let bank_number: usize = self.get_active_bank_number()?;
+    pub fn peek(&self, address: Address) -> u8 {
+        let Some(bank_number) = self.get_active_bank_number() else {
+            return BusAccessFailure::NothingMappedToAddress.into();
+        };
         self.banks[bank_number].peek(address)
     }
 }

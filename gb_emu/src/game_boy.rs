@@ -47,15 +47,13 @@ impl GameBoy {
 
     fn tick_cpu_execution(&mut self) -> TCycles {
         let BusAccessOutcome(instruction, side_effects) = self.read_next_instruction();
-        let outcome = CpuOperationContext::new(&mut self.cpu, &mut self.bus)
-            .perform_instruction(instruction)
-            .unwrap();
-
+        let BusAccessOutcome(instruction_outcome, instruction_bus_outcome) =
+            CpuOperationContext::new(&mut self.cpu, &mut self.bus).perform_instruction(instruction);
         let pc = self.cpu.get_pc() + instruction.bytes;
         self.cpu.set_pc(pc);
         let mut taken_cycles = instruction.cycles as u64;
 
-        match outcome {
+        match instruction_outcome {
             InstructionOutcome::ExtraCycles(extra_cycles) => taken_cycles += extra_cycles as u64,
             InstructionOutcome::Ok => (),
             InstructionOutcome::ChangeGameBoyMode(mode) => self.mode = mode,

@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::{
     cartridge::cartridge::{Cartridge, CartridgeDevice},
     graphics::{oam::ObjectAttributeMemory, video_ram::VideoRam},
@@ -240,26 +242,53 @@ pub enum BusAccessFailure {
     TriedWritingToRom,
 }
 
+impl Display for BusAccessFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
 /// The return value for reads to inaccessible devices.
 /// Just standardizing our garbage and removing mystical numbers.
 pub const INACCESIBLE_RETURN_VALUE: u8 = 0xFF;
 
-impl<T> From<T> for BusAccessOutcome<T> {
-    fn from(value: T) -> Self {
+impl From<u8> for BusAccessOutcome<u8> {
+    fn from(value: u8) -> Self {
         Self(value, vec![])
+    }
+}
+
+impl From<u16> for BusAccessOutcome<u16> {
+    fn from(value: u16) -> Self {
+        Self(value, vec![])
+    }
+}
+
+impl From<()> for BusAccessOutcome<()> {
+    fn from(value: ()) -> Self {
+        Self(value, vec![])
+    }
+}
+
+impl<T> From<BusAccessFailure> for BusAccessOutcome<T>
+where
+    T: From<BusAccessFailure>,
+{
+    fn from(value: BusAccessFailure) -> Self {
+        Self(T::from(value), vec![])
     }
 }
 
 impl From<BusAccessFailure> for u8 {
     fn from(access_failure: BusAccessFailure) -> Self {
-        log(format_args!(access_failure));
+        log(format_args!("{}", access_failure));
         INACCESIBLE_RETURN_VALUE
     }
 }
 
 impl From<BusAccessFailure> for () {
     fn from(access_failure: BusAccessFailure) -> Self {
-        log(format_args!(access_failure));
+        log(format_args!("{}", access_failure));
         ()
     }
 }
