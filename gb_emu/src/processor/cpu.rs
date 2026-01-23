@@ -1,5 +1,5 @@
 use crate::{
-    bus::{Bus, MemoryAccessResult},
+    bus::{Bus, BusAccessOutcome, BusAccessSideEffect},
     cartridge::cartridge::ENTRY_POINT,
     game_boy::Mode,
     helper_functions::log,
@@ -219,17 +219,16 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         Self { cpu, bus }
     }
 
-    fn push_to_stack(&mut self, value: u16) -> MemoryAccessResult<()> {
+    fn push_to_stack(&mut self, value: u16) -> BusAccessOutcome<()> {
         let new_sp = self.cpu.get_sp().wrapping_sub(2);
         self.cpu.set_sp(new_sp);
         self.bus.write_u16(new_sp, value)
     }
 
-    fn pop_from_stack(&mut self) -> MemoryAccessResult<u16> {
+    fn pop_from_stack(&mut self) -> BusAccessOutcome<u16> {
         let sp = self.cpu.get_sp();
-        let value = self.bus.read_u16(sp)?;
         self.cpu.set_sp(sp.wrapping_add(2));
-        Ok(value)
+        self.bus.read_u16(sp)
     }
 
     fn check_condition(&self, cond: &Condition) -> bool {
@@ -248,82 +247,87 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         self.cpu.set_flags(z, n, h, c)
     }
 
-    fn get_u8_operand(&mut self, operand: &EightBitOperand) -> MemoryAccessResult<u8> {
+    fn get_u8_operand(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<u8> {
         match operand {
-            EightBitOperand::A => Ok(self.cpu.get_a()),
-            EightBitOperand::B => Ok(self.cpu.get_b()),
-            EightBitOperand::L => Ok(self.cpu.get_l()),
-            EightBitOperand::C => Ok(self.cpu.get_c()),
-            EightBitOperand::D => Ok(self.cpu.get_d()),
-            EightBitOperand::E => Ok(self.cpu.get_e()),
-            EightBitOperand::H => Ok(self.cpu.get_h()),
-            EightBitOperand::HLPointer => Ok(self.bus.read(self.cpu.get_hl())?),
-            EightBitOperand::BCPointer => Ok(self.bus.read(self.cpu.get_bc())?),
-            EightBitOperand::DEPointer => Ok(self.bus.read(self.cpu.get_de())?),
+            EightBitOperand::A => self.cpu.get_a().into(),
+            EightBitOperand::B => self.cpu.get_b().into(),
+            EightBitOperand::L => self.cpu.get_l().into(),
+            EightBitOperand::C => self.cpu.get_c().into(),
+            EightBitOperand::D => self.cpu.get_d().into(),
+            EightBitOperand::E => self.cpu.get_e().into(),
+            EightBitOperand::H => self.cpu.get_h().into(),
+            EightBitOperand::HLPointer => self.bus.read(self.cpu.get_hl()),
+            EightBitOperand::BCPointer => self.bus.read(self.cpu.get_bc()),
+            EightBitOperand::DEPointer => self.bus.read(self.cpu.get_de()),
             EightBitOperand::A16Pointer => {
-                let pointer = self.bus.read_u16(self.cpu.get_pc() + 1)?;
-                Ok(self.bus.read(pointer)?)
+                let BusAccessOutcome(pointer, mut side_effects) = self.bus.read_u16(self.cpu.get_pc() + 1);
+                let BusAccessOutcome(value, mut side_effects_second_access) = self.bus.read(pointer);
+                side_effects.append(&mut side_effects_second_access);
+                BusAccessOutcome(value, side_effects)
             },
-            EightBitOperand::FF00OffsetByA => Ok(self.bus.read(0xFF00 + self.cpu.get_a() as u16)?),
-            EightBitOperand::FF00OffsetByC => Ok(self.bus.read(0xFF00 + self.cpu.get_c() as u16)?),
-            EightBitOperand::N8 => Ok(self.bus.read(self.cpu.get_pc() + 1)?),
-            EightBitOperand::Immediate(val) => Ok(*val),
+            EightBitOperand::FF00OffsetByA => self.bus.read(0xFF00 + self.cpu.get_a() as u16),
+            EightBitOperand::FF00OffsetByC => self.bus.read(0xFF00 + self.cpu.get_c() as u16),
+            EightBitOperand::N8 => self.bus.read(self.cpu.get_pc() + 1),
+            EightBitOperand::Immediate(val) => BusAccessOutcome(*val, vec![]),
             EightBitOperand::HLIPointer => {
                 let hl = self.cpu.get_hl();
                 self.cpu.set_hl(hl.wrapping_add(1));
-                Ok(self.bus.read(hl)?)
+                self.bus.read(hl)
             },
             EightBitOperand::HLDPointer => {
                 let hl = self.cpu.get_hl();
                 self.cpu.set_hl(hl.wrapping_sub(1));
-                Ok(self.bus.read(hl)?)
+                self.bus.read(hl)
             },
         }
     }
 
-    fn set_u8_operand(&mut self, operand: &EightBitOperand, value: u8) -> InstructionResult<()> {
+    fn set_u8_operand(&mut self, operand: &EightBitOperand, value: u8) -> Vec<BusAccessSideEffect> {
         match operand {
-            EightBitOperand::A => Ok(self.cpu.set_a(value)),
+            EightBitOperand::A => self.cpu.set_a(value),
             EightBitOperand::A16Pointer => todo!(),
-            EightBitOperand::B => Ok(self.cpu.set_b(value)),
+            EightBitOperand::B => self.cpu.set_b(value),
             EightBitOperand::HLIPointer => {
                 let hl = self.cpu.get_hl();
                 self.cpu.set_hl(hl.wrapping_add(1));
-                Ok(self.bus.write(hl, value)?)
+                return self.bus.write(hl, value).1;
             },
             EightBitOperand::HLDPointer => {
                 let hl = self.cpu.get_hl();
                 self.cpu.set_hl(hl.wrapping_sub(1));
-                Ok(self.bus.write(hl, value)?)
+                return self.bus.write(hl, value).1;
             },
-            EightBitOperand::HLPointer => Ok(self.bus.write(self.cpu.get_hl(), value)?),
-            EightBitOperand::DEPointer => Ok(self.bus.write(self.cpu.get_de(), value)?),
-            EightBitOperand::BCPointer => Ok(self.bus.write(self.cpu.get_bc(), value)?),
-            EightBitOperand::L => Ok(self.cpu.set_l(value)),
-            EightBitOperand::C => Ok(self.cpu.set_c(value)),
-            EightBitOperand::D => Ok(self.cpu.set_d(value)),
-            EightBitOperand::E => Ok(self.cpu.set_e(value)),
-            EightBitOperand::FF00OffsetByA => Ok(self.bus.write(0xFF00 + self.cpu.get_a() as u16, value)?),
-            EightBitOperand::FF00OffsetByC => Ok(self.bus.write(0xFF00 + self.cpu.get_c() as u16, value)?),
-            EightBitOperand::H => Ok(self.cpu.set_h(value)),
-            _ => Err(InstructionError::InvalidOperand),
-        }
+            EightBitOperand::HLPointer => return self.bus.write(self.cpu.get_hl(), value).1,
+            EightBitOperand::DEPointer => return self.bus.write(self.cpu.get_de(), value).1,
+            EightBitOperand::BCPointer => return self.bus.write(self.cpu.get_bc(), value).1,
+            EightBitOperand::L => self.cpu.set_l(value),
+            EightBitOperand::C => self.cpu.set_c(value),
+            EightBitOperand::D => self.cpu.set_d(value),
+            EightBitOperand::E => self.cpu.set_e(value),
+            EightBitOperand::FF00OffsetByA => return self.bus.write(0xFF00 + self.cpu.get_a() as u16, value).1,
+            EightBitOperand::FF00OffsetByC => return self.bus.write(0xFF00 + self.cpu.get_c() as u16, value).1,
+            EightBitOperand::H => self.cpu.set_h(value),
+            _ => unreachable!("There shouldn't be any places this is called that reaches here."),
+        };
+
+        vec![]
     }
 
-    fn get_i8_operand(&mut self) -> InstructionResult<i8> {
-        Ok(self.bus.read(self.cpu.get_pc() + 1)? as i8)
+    fn get_i8_operand(&mut self) -> BusAccessOutcome<i8> {
+        let BusAccessOutcome(value, side_effects) = self.bus.read(self.cpu.get_pc() + 1);
+        BusAccessOutcome(value as i8, side_effects)
     }
 
-    fn get_u16_operand(&mut self, operand: &SixteenBitOperand) -> InstructionResult<u16> {
+    fn get_u16_operand(&mut self, operand: &SixteenBitOperand) -> BusAccessOutcome<u16> {
         match operand {
-            SixteenBitOperand::BC => Ok(self.cpu.get_bc()),
-            SixteenBitOperand::DE => Ok(self.cpu.get_de()),
-            SixteenBitOperand::HL => Ok(self.cpu.get_hl()),
-            SixteenBitOperand::AF => Ok(self.cpu.get_af()),
-            SixteenBitOperand::SP => Ok(self.cpu.get_sp()),
-            SixteenBitOperand::A16 => Ok(self.bus.read_u16(self.cpu.get_pc())?),
-            SixteenBitOperand::N16 => Ok(self.bus.read_u16(self.cpu.get_pc())?),
-            SixteenBitOperand::Immediate(imm) => Ok(*imm),
+            SixteenBitOperand::BC => self.cpu.get_bc().into(),
+            SixteenBitOperand::DE => self.cpu.get_de().into(),
+            SixteenBitOperand::HL => self.cpu.get_hl().into(),
+            SixteenBitOperand::AF => self.cpu.get_af().into(),
+            SixteenBitOperand::SP => self.cpu.get_sp().into(),
+            SixteenBitOperand::A16 => self.bus.read_u16(self.cpu.get_pc()),
+            SixteenBitOperand::N16 => self.bus.read_u16(self.cpu.get_pc()),
+            SixteenBitOperand::Immediate(imm) => BusAccessOutcome(*imm, vec![]),
         }
     }
 

@@ -54,6 +54,12 @@ pub enum PpuTickOutcome {
     NewPpuMode(PpuMode),
 }
 
+struct FifoPixelFetcher {
+    
+}
+
 pub trait VideoMemory {
     fn update_ppu_mode(&mut self, mode: PpuMode);
 }
+
+

@@ -1,7 +1,6 @@
 use std::fmt::Display;
 
 use crate::{
-    bus::MemoryAccessError,
     game_boy::Mode,
     processor::instruction_tables::{CBPREFIXED, UNPREFIXED},
 };
@@ -271,12 +270,6 @@ pub enum InstructionError {
     LdhLowValue(u16),
     OperandCannotBeSet,
     MemoryAccessError,
-}
-
-impl From<MemoryAccessError> for InstructionError {
-    fn from(_: MemoryAccessError) -> Self {
-        Self::MemoryAccessError
-    }
 }
 
 #[derive(Copy, Clone, Debug)]

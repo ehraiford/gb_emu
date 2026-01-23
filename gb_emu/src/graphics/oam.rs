@@ -1,5 +1,5 @@
 use crate::{
-    bus::{Address, BusAccessible, MMDevice, MemoryAccessError, MemoryAccessResult},
+    bus::{Address, BusAccessFailure, BusAccessOutcome, BusAccessible, MMDevice},
     graphics::{lcd::PpuMode, ppu::VideoMemory},
 };
 
@@ -31,30 +31,30 @@ impl ObjectAttributeMemory {
 impl BusAccessible for ObjectAttributeMemory {
     const MM_DEVICE: MMDevice = MMDevice::ObjectAttributeMemory;
 
-    fn read(&mut self, address: Address) -> MemoryAccessResult<u8> {
+    fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
         if !self.is_cpu_accessible() {
-            return Err(MemoryAccessError::InaccessibleInPpuMode);
+            return u8::from(BusAccessFailure::InaccessbileInPpuMode).into();
         }
 
         let (index, byte_num) = Self::convert_address_to_sprite_and_byte_numbers(address);
 
-        Ok(self.objects[index].get_byte(byte_num))
+        self.objects[index].get_byte(byte_num).into()
     }
 
-    fn write(&mut self, address: Address, value: u8) -> MemoryAccessResult<()> {
+    fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
         if !self.is_cpu_accessible() {
-            return Err(MemoryAccessError::InaccessibleInPpuMode);
+            return <()>::from(BusAccessFailure::InaccessbileInPpuMode).into();
         }
 
         let (index, byte_num) = Self::convert_address_to_sprite_and_byte_numbers(address);
 
-        Ok(self.objects[index].set_byte(byte_num, value))
+        self.objects[index].set_byte(byte_num, value).into()
     }
 
-    fn peek(&self, address: Address) -> MemoryAccessResult<u8> {
+    fn peek(&self, address: Address) -> u8 {
         let (index, byte_num) = Self::convert_address_to_sprite_and_byte_numbers(address);
 
-        Ok(self.objects[index].get_byte(byte_num))
+        self.objects[index].get_byte(byte_num)
     }
 }
 

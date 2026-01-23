@@ -1,5 +1,5 @@
 use crate::{
-    bus::{Address, BusAccessible, MMDevice},
+    bus::{Address, BusAccessFailure, BusAccessible, MMDevice},
     graphics::{lcd::PpuMode, ppu::VideoMemory},
 };
 
@@ -48,41 +48,51 @@ impl VideoRam {
         &self.ram_banks[bank_num]
     }
 
-    fn get_8000_method(&self, tile_number: u8) -> &Tile {
+    pub(super) fn get_8000_method(&self, tile_number: u8) -> &Tile {
         self.get_ram_bank().get_8000_method(tile_number as usize)
     }
-    fn get_8800_method(&self, tile_number: i8) -> &Tile {
+    pub(super) fn get_8800_method(&self, tile_number: i8) -> &Tile {
         self.get_ram_bank().get_8800_method(tile_number)
     }
-    fn get_8000_method_mut(&mut self, tile_number: u8) -> &mut Tile {
+    pub(super) fn get_8000_method_mut(&mut self, tile_number: u8) -> &mut Tile {
         self.get_ram_bank_mut().get_8000_method_mut(tile_number as usize)
     }
-    fn get_8800_method_mut(&mut self, tile_number: i8) -> &mut Tile {
+    pub(super) fn get_8800_method_mut(&mut self, tile_number: i8) -> &mut Tile {
         self.get_ram_bank_mut().get_8800_method_mut(tile_number)
+    }
+
+    pub fn print_all_tiles(&self) {
+        for block in self.ram_banks[self.active_bank_num()].tiles {
+            for tile in block {
+                if !tile.is_blank() {
+                    tile.display_in_terminal();
+                }
+            }
+        }
     }
 }
 
 impl BusAccessible for VideoRam {
     const MM_DEVICE: MMDevice = MMDevice::VideoRam;
 
-    fn read(&mut self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
+    fn read(&mut self, address: Address) -> crate::bus::BusAccessOutcome<u8> {
         if !self.is_cpu_accessible() {
-            return Err(crate::bus::MemoryAccessError::InaccessibleInPpuMode);
+            return u8::from(BusAccessFailure::InaccessbileInPpuMode).into();
         }
 
         if address < Self::TILE_MAP_START_ADDR {
             let address = Self::local(address);
             let byte_index = TileByteIndex::address_to_index(address);
             let ram_bank = self.get_ram_bank_mut();
-            Ok(ram_bank.get_byte(byte_index))
+            ram_bank.get_byte(byte_index).into()
         } else {
-            Ok(self.tile_maps.get_byte(address - Self::TILE_MAP_START_ADDR))
+            self.tile_maps.get_byte(address - Self::TILE_MAP_START_ADDR).into()
         }
     }
 
-    fn write(&mut self, address: Address, value: u8) -> crate::bus::MemoryAccessResult<()> {
+    fn write(&mut self, address: Address, value: u8) -> crate::bus::BusAccessOutcome<()> {
         if !self.is_cpu_accessible() {
-            return Err(crate::bus::MemoryAccessError::InaccessibleInPpuMode);
+            return <()>::from(BusAccessFailure::InaccessbileInPpuMode).into();
         }
 
         if address < Self::TILE_MAP_START_ADDR {
@@ -91,22 +101,24 @@ impl BusAccessible for VideoRam {
             let byte_index = TileByteIndex::address_to_index(address);
             let ram_bank = self.get_ram_bank_mut();
 
-            Ok(ram_bank.set_byte(byte_index, value))
+            ram_bank.set_byte(byte_index, value).into()
         } else {
-            Ok(self.tile_maps.set_byte(address - Self::TILE_MAP_START_ADDR, value))
+            self.tile_maps
+                .set_byte(address - Self::TILE_MAP_START_ADDR, value)
+                .into()
         }
     }
 
-    fn peek(&self, address: Address) -> crate::bus::MemoryAccessResult<u8> {
+    fn peek(&self, address: Address) -> u8 {
         if address < Self::TILE_MAP_START_ADDR {
             let address = Self::local(address);
 
             let byte_index = TileByteIndex::address_to_index(address);
             let ram_bank = self.get_ram_bank();
 
-            Ok(ram_bank.get_byte(byte_index))
+            ram_bank.get_byte(byte_index)
         } else {
-            Ok(self.tile_maps.get_byte(address - Self::TILE_MAP_START_ADDR))
+            self.tile_maps.get_byte(address - Self::TILE_MAP_START_ADDR)
         }
     }
 }
@@ -166,7 +178,7 @@ impl Default for VideoRamBank {
 }
 
 #[derive(Default, Copy, Clone)]
-struct Tile {
+pub struct Tile {
     data: [[u8; 2]; 8],
 }
 
@@ -199,6 +211,17 @@ impl Tile {
                 print!("\x1b[48;5;{}m  \x1b[0m", TEST_COLORS[pixel.color_number as usize]);
             }
         }
+    }
+
+    fn is_blank(&self) -> bool {
+        for line in self.data {
+            for byte in line {
+                if byte != 0 {
+                    return false;
+                }
+            }
+        }
+        true
     }
 }
 

@@ -1,7 +1,4 @@
-use crate::{
-    bus::{Address, MemoryAccessResult},
-    graphics::ppu::VideoMemory,
-};
+use crate::{bus::{Address, BusAccessOutcome}, graphics::ppu::VideoMemory};
 
 #[derive(Default)]
 pub struct LcdRegisters {
@@ -22,17 +19,17 @@ pub struct LcdRegisters {
 impl LcdRegisters {
     const START_ADDRESS: Address = 0xFF40;
 
-    pub fn read(&mut self, address: Address) -> MemoryAccessResult<u8> {
+    pub fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
         let address = address - Self::START_ADDRESS;
         todo!()
     }
 
-    pub fn write(&mut self, address: Address, value: u8) -> MemoryAccessResult<()> {
+    pub fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
         let address = address - Self::START_ADDRESS;
         todo!()
     }
 
-    pub fn peek(&self, address: Address) -> MemoryAccessResult<u8> {
+    pub fn peek(&self, address: Address) -> u8 {
         let address = address - Self::START_ADDRESS;
         todo!()
     }

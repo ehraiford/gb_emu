@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use crate::{
-    bus::Bus,
+    bus::{Bus, BusAccessOutcome},
     cartridge::cartridge::Cartridge,
     processor::{
         cpu::{Cpu, CpuOperationContext},
@@ -32,16 +32,21 @@ impl GameBoy {
         while total_t_cycles < cycles {
             total_t_cycles += self.tick_cpu_execution().0 as usize;
         }
+
+        self.bus.print_graphics_data();
         let duration = start.elapsed();
-        print!("It took us {} seconds to run through {cycles}.", duration.as_secs());
+        print!(
+            "It took us {} seconds to run through {total_t_cycles} cycles.",
+            duration.as_secs()
+        );
         println!(
-            "That's {} MHz. Hardware is {EXPECTED_CLOCK_SPEED:02}",
+            "That's {:.2} MHz. Hardware is {EXPECTED_CLOCK_SPEED:.2} MHz.",
             ((total_t_cycles * 4) as f64) / duration.as_secs_f64() / 1_000_000_f64
         )
     }
 
     fn tick_cpu_execution(&mut self) -> TCycles {
-        let instruction = self.read_next_instruction();
+        let BusAccessOutcome(instruction, side_effects) = self.read_next_instruction();
         let outcome = CpuOperationContext::new(&mut self.cpu, &mut self.bus)
             .perform_instruction(instruction)
             .unwrap();
@@ -59,11 +64,9 @@ impl GameBoy {
         TCycles(taken_cycles)
     }
 
-    fn read_next_instruction(&mut self) -> &'static Instruction {
+    fn read_next_instruction(&mut self) -> BusAccessOutcome<&'static Instruction> {
         let pc = self.cpu.get_pc();
-        self.bus
-            .read_next_instruction(pc)
-            .expect("TODO!() We'll want a top level error that other errors can convert to later.")
+        self.bus.read_next_instruction(pc)
     }
 }
 
@@ -74,7 +77,3 @@ pub enum Mode {
     Stopped,
     Halted,
 }
-
-/// The return value for reads to inaccessible devices.
-/// Just standardizing our garbage and removing mystical numbers.
-pub const INACCESIBLE_RETURN_VALUE: u8 = 0xFF;

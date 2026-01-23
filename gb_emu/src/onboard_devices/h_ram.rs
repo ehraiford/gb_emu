@@ -1,5 +1,5 @@
 use crate::{
-    bus::{Address, BusAccessible, MMDevice, MemoryAccessResult},
+    bus::{Address, BusAccessOutcome, BusAccessible, MMDevice},
     onboard_devices::rom_and_ram::RamBank,
 };
 
@@ -11,17 +11,17 @@ pub struct HighRam {
 impl BusAccessible for HighRam {
     const MM_DEVICE: MMDevice = MMDevice::HighRam;
 
-    fn read(&mut self, address: Address) -> MemoryAccessResult<u8> {
+    fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
         let address = Self::local(address);
         self.data.read(address)
     }
 
-    fn write(&mut self, address: Address, value: u8) -> MemoryAccessResult<()> {
+    fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
         let address = Self::local(address);
         self.data.write(address, value)
     }
 
-    fn peek(&self, address: Address) -> MemoryAccessResult<u8> {
+    fn peek(&self, address: Address) -> u8 {
         let address = Self::local(address);
         self.data.peek(address)
     }

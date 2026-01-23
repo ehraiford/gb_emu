@@ -1,5 +1,5 @@
 use crate::{
-    bus::{Address, BusAccessible, MMDevice, MemoryAccessResult},
+    bus::{Address, BusAccessOutcome, BusAccessible, MMDevice},
     graphics::lcd::LcdRegisters,
 };
 
@@ -13,7 +13,7 @@ impl IoRegisters {}
 impl BusAccessible for IoRegisters {
     const MM_DEVICE: MMDevice = MMDevice::IoRegisters;
 
-    fn read(&mut self, address: Address) -> MemoryAccessResult<u8> {
+    fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
         println!("Reading from 0x{address:04x}");
         match IoSection::from_address(address) {
             IoSection::JoypadInput => todo!(),
@@ -26,6 +26,7 @@ impl BusAccessible for IoRegisters {
             IoSection::OamDmaTransfer => todo!(),
             IoSection::Keys => todo!(),
             IoSection::VramDma => todo!(),
+            IoSection::BootRomMappingControl => todo!(),
             IoSection::Ir => todo!(),
             IoSection::BgObjPalettes => todo!(),
             IoSection::ObjectPriorityMode => todo!(),
@@ -33,7 +34,7 @@ impl BusAccessible for IoRegisters {
         }
     }
 
-    fn write(&mut self, address: Address, value: u8) -> MemoryAccessResult<()> {
+    fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
         println!("Writing 0x{value:02x} to 0x{address:04x}");
         match IoSection::from_address(address) {
             IoSection::JoypadInput => todo!(),
@@ -46,6 +47,7 @@ impl BusAccessible for IoRegisters {
             IoSection::OamDmaTransfer => todo!(),
             IoSection::Keys => todo!(),
             IoSection::VramDma => todo!(),
+            IoSection::BootRomMappingControl => todo!(),
             IoSection::Ir => todo!(),
             IoSection::BgObjPalettes => todo!(),
             IoSection::ObjectPriorityMode => todo!(),
@@ -53,7 +55,7 @@ impl BusAccessible for IoRegisters {
         }
     }
 
-    fn peek(&self, address: Address) -> MemoryAccessResult<u8> {
+    fn peek(&self, address: Address) -> u8 {
         match IoSection::from_address(address) {
             IoSection::JoypadInput => todo!(),
             IoSection::SerialTransfer => todo!(),
@@ -69,6 +71,7 @@ impl BusAccessible for IoRegisters {
             IoSection::BgObjPalettes => todo!(),
             IoSection::ObjectPriorityMode => todo!(),
             IoSection::WramBankSelect => todo!(),
+            IoSection::BootRomMappingControl => todo!(),
         }
     }
 }
@@ -84,6 +87,7 @@ const IO_MAP: &[(IoSection, (Address, Address))] = &[
     (IoSection::Lcd, (0xFF40, 0xFF4C)),
     (IoSection::Keys, (0xFF4C, 0xFF4E)),
     (IoSection::VramDma, (0xFF4F, 0xFF50)),
+    (IoSection::BootRomMappingControl, (0xFF50, 0xFF51)),
     (IoSection::Ir, (0xFF56, 0xFF57)),
     (IoSection::BgObjPalettes, (0xFF68, 0xFF6C)),
     (IoSection::ObjectPriorityMode, (0xFF6C, 0xFF6D)),
@@ -103,6 +107,7 @@ enum IoSection {
     OamDmaTransfer,
     Keys,
     VramDma,
+    BootRomMappingControl,
     Ir,
     BgObjPalettes,
     ObjectPriorityMode,

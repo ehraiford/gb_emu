@@ -18,7 +18,7 @@ mod os_interface;
 mod processor;
 
 const TEST_ROM: &str = &r"C:\Users\evanr\OneDrive\Desktop\Games\Dr. Mario (World) (Rev 1).gb";
-const TEST_CYCLES: usize = 100_000_000;
+const TEST_CYCLES: usize = 1_000_000_000;
 
 fn main() {
     #[cfg(feature = "disassemble")]
@@ -31,7 +31,6 @@ fn main() {
         game_boy.load_cartridge(cartridge);
 
         game_boy.test_looping(TEST_CYCLES);
-
     }
 }
 

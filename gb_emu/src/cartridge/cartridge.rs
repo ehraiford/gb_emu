@@ -1,5 +1,5 @@
 use crate::{
-    bus::{Address, BusAccessible, MMDevice, MemoryAccessResult},
+    bus::{Address, BusAccessOutcome, BusAccessible, MMDevice},
     cartridge::{
         external_ram::ExternalRam,
         header::Header,
@@ -54,7 +54,7 @@ impl Cartridge {
         Ok(())
     }
 
-    pub fn read(&mut self, address: Address, device: CartridgeDevice) -> MemoryAccessResult<u8> {
+    pub fn read(&mut self, address: Address, device: CartridgeDevice) -> BusAccessOutcome<u8> {
         match device {
             CartridgeDevice::RomBank00 => self.rom_bank_00.read(address),
             CartridgeDevice::BankableRom => self
@@ -65,7 +65,7 @@ impl Cartridge {
                 .read(address, ControlledMemoryDevice::ExternalRam),
         }
     }
-    pub fn write(&mut self, address: Address, device: CartridgeDevice, value: u8) -> MemoryAccessResult<()> {
+    pub fn write(&mut self, address: Address, device: CartridgeDevice, value: u8) -> BusAccessOutcome<()> {
         match device {
             CartridgeDevice::RomBank00 => self.rom_bank_00.write(address, value),
             CartridgeDevice::BankableRom => {
@@ -78,7 +78,7 @@ impl Cartridge {
             },
         }
     }
-    pub fn peek(&self, address: Address, device: CartridgeDevice) -> MemoryAccessResult<u8> {
+    pub fn peek(&self, address: Address, device: CartridgeDevice) -> u8 {
         match device {
             CartridgeDevice::RomBank00 => self.rom_bank_00.peek(address),
             CartridgeDevice::BankableRom => self
@@ -165,19 +165,19 @@ impl ControlledMemory {
         }
     }
 
-    pub fn read(&mut self, address: Address, device: ControlledMemoryDevice) -> MemoryAccessResult<u8> {
+    pub fn read(&mut self, address: Address, device: ControlledMemoryDevice) -> BusAccessOutcome<u8> {
         match device {
             ControlledMemoryDevice::BankableRom => self.bankable_roms.read(address),
             ControlledMemoryDevice::ExternalRam => self.external_ram.read(address),
         }
     }
-    pub fn write(&mut self, address: Address, device: ControlledMemoryDevice, value: u8) -> MemoryAccessResult<()> {
+    pub fn write(&mut self, address: Address, device: ControlledMemoryDevice, value: u8) -> BusAccessOutcome<()> {
         match device {
             ControlledMemoryDevice::BankableRom => self.bankable_roms.write(address, value),
             ControlledMemoryDevice::ExternalRam => self.external_ram.write(address, value),
         }
     }
-    pub fn peek(&self, address: Address, device: ControlledMemoryDevice) -> MemoryAccessResult<u8> {
+    pub fn peek(&self, address: Address, device: ControlledMemoryDevice) -> u8 {
         match device {
             ControlledMemoryDevice::BankableRom => self.bankable_roms.peek(address),
             ControlledMemoryDevice::ExternalRam => self.external_ram.peek(address),

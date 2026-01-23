@@ -1,14 +1,12 @@
 use core::fmt;
 
-use crate::{
-    processor::{
-        instruction_tables::{CBPREFIXED, UNPREFIXED},
-        instructions::{Instruction, OpCode},
-    },
+use crate::processor::{
+    instruction_tables::{CBPREFIXED, UNPREFIXED},
+    instructions::{Instruction, OpCode},
 };
 
-pub fn concat_2_bytes(byte1: u8, byte2: u8) -> u16 {
-    ((byte1 as u16) << 8) | byte2 as u16
+pub fn concat_2_bytes(left: u8, right: u8) -> u16 {
+    ((left as u16) << 8) | right as u16
 }
 
 /// gets a chunk of bits in a byte specified by the leftmost and rightmost (inclusive) bits desired.
@@ -49,7 +47,6 @@ fn read_instruction(bytes: &[u8], pc: &mut usize) -> &'static Instruction {
 
     instruction
 }
-
 
 #[cfg(test)]
 mod test {

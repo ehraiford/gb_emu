@@ -1,7 +1,6 @@
 use crate::{
-    bus::{Address, MemoryAccessResult},
+    bus::{Address, BusAccessFailure, BusAccessOutcome},
     cartridge::cartridge::ROM_BANK_SIZE,
-    helper_functions::log,
 };
 
 #[derive(Clone, Copy)]
@@ -10,17 +9,16 @@ pub struct RomBank {
 }
 
 impl RomBank {
-    pub fn read(&mut self, mut address: Address) -> MemoryAccessResult<u8> {
-        Ok(self.data[address as usize])
+    pub fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
+        self.data[address as usize].into()
     }
 
-    pub fn write(&mut self, address: Address, value: u8) -> MemoryAccessResult<()> {
-        log(format_args!("Tried to write to ROM: {address:08x}: {value:02x}"));
-        Ok(())
+    pub fn write(&mut self, _: Address, _: u8) -> BusAccessOutcome<()> {
+        <()>::from(BusAccessFailure::TriedWritingToRom).into()
     }
 
-    pub fn peek(&self, address: Address) -> MemoryAccessResult<u8> {
-        Ok(self.data[address as usize])
+    pub fn peek(&self, address: Address) -> u8 {
+        self.data[address as usize].into()
     }
 
     pub fn get_data_mut(&mut self) -> &mut [u8] {
@@ -48,17 +46,17 @@ impl<const SIZE: usize> RamBank<SIZE> {
         Default::default()
     }
 
-    pub fn read(&mut self, address: Address) -> MemoryAccessResult<u8> {
-        Ok(self.data[address as usize])
+    pub fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
+        self.data[address as usize].into()
     }
 
-    pub fn write(&mut self, address: Address, value: u8) -> MemoryAccessResult<()> {
+    pub fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
         self.data[address as usize] = value;
-        Ok(())
+        BusAccessOutcome::default_outcome(())
     }
 
-    pub fn peek(&self, address: Address) -> MemoryAccessResult<u8> {
-        Ok(self.data[address as usize])
+    pub fn peek(&self, address: Address) -> u8 {
+        self.data[address as usize]
     }
 
     pub fn get_data_mut(&mut self) -> &mut [u8] {
@@ -85,7 +83,7 @@ impl<const SIZE: usize> BankableRam<SIZE> {
         }
     }
 
-    fn get_active_bank_number(&self) -> crate::bus::MemoryAccessResult<usize> {
+    fn get_active_bank_number(&self) -> <usize> {
         if self.banks.is_empty() {
             Err(crate::bus::MemoryAccessError::NothingMappedToAddress)
         } else {
