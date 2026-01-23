@@ -2,17 +2,19 @@ use std::fmt::Display;
 
 use crate::{
     cartridge::cartridge::{Cartridge, CartridgeDevice},
+    game_boy::Change,
     graphics::{oam::ObjectAttributeMemory, video_ram::VideoRam},
     helper_functions::{concat_2_bytes, log},
     interrupts::InterruptEnableRegister,
     onboard_devices::{
+        bootrom::BootRom,
         h_ram::HighRam,
         io_registers::IoRegisters,
         work_ram::{BankableWorkRam, WorkRam00},
     },
     processor::{
         instruction_tables::{CBPREFIXED, UNPREFIXED},
-        instructions::{Instruction, OpCode},
+        instructions::{Instruction, InstructionOutcome, OpCode},
     },
 };
 
@@ -26,12 +28,17 @@ pub struct Bus {
     io_registers: IoRegisters,
     h_ram: HighRam,
     ie: InterruptEnableRegister,
+    boot_rom: BootRom,
 }
 
 impl Bus {
     pub fn load_cartridge(&mut self, cartridge: Cartridge) {
         self.cartridge = cartridge;
     }
+    pub fn unmap_bootrom(&mut self) {
+        self.boot_rom.unmap();
+    }
+
     pub fn read_u16(&mut self, address: Address) -> BusAccessOutcome<u16> {
         let BusAccessOutcome(little_byte, mut side_effects) = self.read(address);
         let BusAccessOutcome(big_byte, mut side_effects_2nd_access) = self.read(address + 1);
@@ -76,7 +83,10 @@ impl Bus {
     pub fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
         let device = MMDevice::get_device_from_address(address);
         match device {
-            MMDevice::RomBank00 => self.cartridge.read(address, CartridgeDevice::RomBank00),
+            MMDevice::RomBank00 => match self.boot_rom.mapped() && address < BootRom::SIZE {
+                true => self.boot_rom.read(address),
+                false => self.cartridge.read(address, CartridgeDevice::RomBank00),
+            },
             MMDevice::BankableRom => self.cartridge.read(address, CartridgeDevice::BankableRom),
             MMDevice::VideoRam => self.v_ram.read(address),
             MMDevice::ExternalRam => self.cartridge.read(address, CartridgeDevice::ExternalRam),
@@ -223,16 +233,11 @@ pub trait BusAccessible {
 
 pub type Address = u16;
 
-pub enum BusAccessSideEffect {
-    UnmapBootRom,
-    // Add others here
-}
+pub struct BusAccessOutcome<T>(pub T, pub Vec<Change>);
 
-pub struct BusAccessOutcome<T>(pub T, pub Vec<BusAccessSideEffect>);
-
-impl<T> BusAccessOutcome<T> {
-    pub fn default_outcome(value: T) -> Self {
-        Self(value, vec![])
+impl<T: BusDefault> BusAccessOutcome<T> {
+    pub fn default_outcome() -> Self {
+        Self(T::DEFAULT_BUS_VALUE, vec![])
     }
 }
 pub enum BusAccessFailure {
@@ -244,7 +249,13 @@ pub enum BusAccessFailure {
 
 impl Display for BusAccessFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        let str = match self {
+            BusAccessFailure::NothingMappedToAddress => "NothingMappedToAddress",
+            BusAccessFailure::InaccessbileInPpuMode => "InaccessbileInPpuMode",
+            BusAccessFailure::TriedAccessingUnusableMemory => "TriedAccessingUnusableMemory",
+            BusAccessFailure::TriedWritingToRom => "TriedWritingToRom",
+        };
+        f.write_str(str)
     }
 }
 
@@ -270,25 +281,33 @@ impl From<()> for BusAccessOutcome<()> {
     }
 }
 
-impl<T> From<BusAccessFailure> for BusAccessOutcome<T>
-where
-    T: From<BusAccessFailure>,
-{
-    fn from(value: BusAccessFailure) -> Self {
-        Self(T::from(value), vec![])
+impl<T: BusDefault> From<BusAccessFailure> for BusAccessOutcome<T> {
+    fn from(failure: BusAccessFailure) -> Self {
+        log(&format!("{}", failure));
+        Self(T::DEFAULT_BUS_VALUE, vec![])
     }
 }
 
 impl From<BusAccessFailure> for u8 {
     fn from(access_failure: BusAccessFailure) -> Self {
-        log(format_args!("{}", access_failure));
-        INACCESIBLE_RETURN_VALUE
+        log(&format!("{}", access_failure));
+        u8::DEFAULT_BUS_VALUE
     }
 }
 
-impl From<BusAccessFailure> for () {
-    fn from(access_failure: BusAccessFailure) -> Self {
-        log(format_args!("{}", access_failure));
-        ()
-    }
+trait BusDefault {
+    const DEFAULT_BUS_VALUE: Self;
+}
+
+impl BusDefault for u8 {
+    const DEFAULT_BUS_VALUE: Self = INACCESIBLE_RETURN_VALUE;
+}
+impl BusDefault for u16 {
+    const DEFAULT_BUS_VALUE: Self = 0xFFFF;
+}
+impl BusDefault for InstructionOutcome {
+    const DEFAULT_BUS_VALUE: Self = InstructionOutcome::Ok;
+}
+impl BusDefault for () {
+    const DEFAULT_BUS_VALUE: Self = ();
 }

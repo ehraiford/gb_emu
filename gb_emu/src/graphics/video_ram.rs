@@ -92,7 +92,7 @@ impl BusAccessible for VideoRam {
 
     fn write(&mut self, address: Address, value: u8) -> crate::bus::BusAccessOutcome<()> {
         if !self.is_cpu_accessible() {
-            return <()>::from(BusAccessFailure::InaccessbileInPpuMode).into();
+            return BusAccessFailure::InaccessbileInPpuMode.into();
         }
 
         if address < Self::TILE_MAP_START_ADDR {

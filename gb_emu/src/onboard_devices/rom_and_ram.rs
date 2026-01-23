@@ -14,7 +14,7 @@ impl RomBank {
     }
 
     pub fn write(&mut self, _: Address, _: u8) -> BusAccessOutcome<()> {
-        <()>::from(BusAccessFailure::TriedWritingToRom).into()
+        BusAccessFailure::TriedWritingToRom.into()
     }
 
     pub fn peek(&self, address: Address) -> u8 {
@@ -52,7 +52,7 @@ impl<const SIZE: usize> RamBank<SIZE> {
 
     pub fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
         self.data[address as usize] = value;
-        BusAccessOutcome::default_outcome(())
+        BusAccessOutcome::default_outcome()
     }
 
     pub fn peek(&self, address: Address) -> u8 {

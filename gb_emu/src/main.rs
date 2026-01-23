@@ -18,7 +18,7 @@ mod os_interface;
 mod processor;
 
 const TEST_ROM: &str = &r"C:\Users\evanr\OneDrive\Desktop\Games\Dr. Mario (World) (Rev 1).gb";
-const TEST_CYCLES: u64 = 100_000_000;
+const TEST_CYCLES: u64 = 1_000_000_000;
 
 fn main() {
     #[cfg(feature = "disassemble")]
@@ -48,6 +48,5 @@ fn program_assembly() {
 
     let assembly = disassemble(&fs::read(rom_path).unwrap());
 
-    let mut file = File::create(&output_path).unwrap();
-    file.write_all(assembly.as_bytes()).unwrap();
+    println!("{assembly}")
 }

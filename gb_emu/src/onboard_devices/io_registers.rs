@@ -1,5 +1,6 @@
 use crate::{
-    bus::{Address, BusAccessOutcome, BusAccessible, MMDevice},
+    bus::{Address, BusAccessFailure, BusAccessOutcome, BusAccessible, MMDevice},
+    game_boy::Change,
     graphics::lcd::LcdRegisters,
 };
 
@@ -14,64 +15,73 @@ impl BusAccessible for IoRegisters {
     const MM_DEVICE: MMDevice = MMDevice::IoRegisters;
 
     fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
-        println!("Reading from 0x{address:04x}");
-        match IoSection::from_address(address) {
-            IoSection::JoypadInput => todo!(),
-            IoSection::SerialTransfer => todo!(),
-            IoSection::TimerAndDivider => todo!(),
-            IoSection::Interrupts => todo!(),
-            IoSection::Audio => todo!(),
-            IoSection::WavePattern => todo!(),
+        let Some(section) = IoSection::from_address(address) else {
+            return BusAccessFailure::NothingMappedToAddress.into();
+        };
+        match section {
+            IoSection::JoypadInput => BusAccessOutcome::default_outcome(),
+            IoSection::SerialTransfer => BusAccessOutcome::default_outcome(),
+            IoSection::TimerAndDivider => BusAccessOutcome::default_outcome(),
+            IoSection::Interrupts => BusAccessOutcome::default_outcome(),
+            IoSection::Audio => BusAccessOutcome::default_outcome(),
+            IoSection::WavePattern => BusAccessOutcome::default_outcome(),
             IoSection::Lcd => self.lcd_registers.read(address),
-            IoSection::OamDmaTransfer => todo!(),
-            IoSection::Keys => todo!(),
-            IoSection::VramDma => todo!(),
-            IoSection::BootRomMappingControl => todo!(),
-            IoSection::Ir => todo!(),
-            IoSection::BgObjPalettes => todo!(),
-            IoSection::ObjectPriorityMode => todo!(),
-            IoSection::WramBankSelect => todo!(),
+            IoSection::OamDmaTransfer => BusAccessOutcome::default_outcome(),
+            IoSection::Keys => BusAccessOutcome::default_outcome(),
+            IoSection::VramDma => BusAccessOutcome::default_outcome(),
+            IoSection::BootRomMappingControl => {
+                BusAccessOutcome(u8::from(BusAccessFailure::TriedAccessingUnusableMemory), vec![])
+            },
+            IoSection::Ir => BusAccessOutcome::default_outcome(),
+            IoSection::BgObjPalettes => BusAccessOutcome::default_outcome(),
+            IoSection::ObjectPriorityMode => BusAccessOutcome::default_outcome(),
+            IoSection::WramBankSelect => BusAccessOutcome::default_outcome(),
         }
     }
 
     fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
-        println!("Writing 0x{value:02x} to 0x{address:04x}");
-        match IoSection::from_address(address) {
-            IoSection::JoypadInput => todo!(),
-            IoSection::SerialTransfer => todo!(),
-            IoSection::TimerAndDivider => todo!(),
-            IoSection::Interrupts => todo!(),
-            IoSection::Audio => todo!(),
-            IoSection::WavePattern => todo!(),
+        let Some(section) = IoSection::from_address(address) else {
+            return BusAccessFailure::NothingMappedToAddress.into();
+        };
+        match section {
+            IoSection::JoypadInput => BusAccessOutcome::default_outcome(),
+            IoSection::SerialTransfer => BusAccessOutcome::default_outcome(),
+            IoSection::TimerAndDivider => BusAccessOutcome::default_outcome(),
+            IoSection::Interrupts => BusAccessOutcome::default_outcome(),
+            IoSection::Audio => BusAccessOutcome::default_outcome(),
+            IoSection::WavePattern => BusAccessOutcome::default_outcome(),
             IoSection::Lcd => self.lcd_registers.write(address, value),
-            IoSection::OamDmaTransfer => todo!(),
-            IoSection::Keys => todo!(),
-            IoSection::VramDma => todo!(),
-            IoSection::BootRomMappingControl => todo!(),
-            IoSection::Ir => todo!(),
-            IoSection::BgObjPalettes => todo!(),
-            IoSection::ObjectPriorityMode => todo!(),
-            IoSection::WramBankSelect => todo!(),
+            IoSection::OamDmaTransfer => BusAccessOutcome::default_outcome(),
+            IoSection::Keys => BusAccessOutcome::default_outcome(),
+            IoSection::VramDma => BusAccessOutcome::default_outcome(),
+            IoSection::BootRomMappingControl => BusAccessOutcome((), vec![Change::UnmapBootRom]),
+            IoSection::Ir => BusAccessOutcome::default_outcome(),
+            IoSection::BgObjPalettes => BusAccessOutcome::default_outcome(),
+            IoSection::ObjectPriorityMode => BusAccessOutcome::default_outcome(),
+            IoSection::WramBankSelect => BusAccessOutcome::default_outcome(),
         }
     }
 
     fn peek(&self, address: Address) -> u8 {
-        match IoSection::from_address(address) {
-            IoSection::JoypadInput => todo!(),
-            IoSection::SerialTransfer => todo!(),
-            IoSection::TimerAndDivider => todo!(),
-            IoSection::Interrupts => todo!(),
-            IoSection::Audio => todo!(),
-            IoSection::WavePattern => todo!(),
+        let Some(section) = IoSection::from_address(address) else {
+            return BusAccessFailure::NothingMappedToAddress.into();
+        };
+        match section {
+            IoSection::JoypadInput => BusAccessFailure::NothingMappedToAddress.into(),
+            IoSection::SerialTransfer => BusAccessFailure::NothingMappedToAddress.into(),
+            IoSection::TimerAndDivider => BusAccessFailure::NothingMappedToAddress.into(),
+            IoSection::Interrupts => BusAccessFailure::NothingMappedToAddress.into(),
+            IoSection::Audio => BusAccessFailure::NothingMappedToAddress.into(),
+            IoSection::WavePattern => BusAccessFailure::NothingMappedToAddress.into(),
             IoSection::Lcd => self.lcd_registers.peek(address),
-            IoSection::OamDmaTransfer => todo!(),
-            IoSection::Keys => todo!(),
-            IoSection::VramDma => todo!(),
-            IoSection::Ir => todo!(),
-            IoSection::BgObjPalettes => todo!(),
-            IoSection::ObjectPriorityMode => todo!(),
-            IoSection::WramBankSelect => todo!(),
-            IoSection::BootRomMappingControl => todo!(),
+            IoSection::OamDmaTransfer => BusAccessFailure::NothingMappedToAddress.into(),
+            IoSection::Keys => BusAccessFailure::NothingMappedToAddress.into(),
+            IoSection::VramDma => BusAccessFailure::NothingMappedToAddress.into(),
+            IoSection::BootRomMappingControl => u8::from(BusAccessFailure::TriedAccessingUnusableMemory),
+            IoSection::Ir => BusAccessFailure::NothingMappedToAddress.into(),
+            IoSection::BgObjPalettes => BusAccessFailure::NothingMappedToAddress.into(),
+            IoSection::ObjectPriorityMode => BusAccessFailure::NothingMappedToAddress.into(),
+            IoSection::WramBankSelect => BusAccessFailure::NothingMappedToAddress.into(),
         }
     }
 }
@@ -120,15 +130,15 @@ impl IoSection {
         IO_MAP[*self as usize].1
     }
 
-    fn from_address(address: Address) -> Self {
+    fn from_address(address: Address) -> Option<Self> {
         let mut i = 0;
         while i < IO_MAP.len() {
             if IO_MAP[i].1.0 <= address && IO_MAP[i].1.1 > address {
-                return IO_MAP[i].0;
+                return Some(IO_MAP[i].0);
             }
             i += 1;
         }
 
-        panic!("This should cover ever address that the bus would send here.")
+        None // This just means it's accessing parts of the IO space not mapped to anything
     }
 }

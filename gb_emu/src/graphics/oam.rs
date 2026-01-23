@@ -43,7 +43,7 @@ impl BusAccessible for ObjectAttributeMemory {
 
     fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
         if !self.is_cpu_accessible() {
-            return <()>::from(BusAccessFailure::InaccessbileInPpuMode).into();
+            return BusAccessFailure::InaccessbileInPpuMode.into();
         }
 
         let (index, byte_num) = Self::convert_address_to_sprite_and_byte_numbers(address);

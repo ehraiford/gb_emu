@@ -8,7 +8,7 @@ use crate::{
     },
 };
 
-pub const EXPECTED_CLOCK_SPEED: f32 = 4.194304; // In Megahertz
+pub const EXPECTED_CLOCK_SPEED: f64 = 4.194304; // In Megahertz
 #[derive(Default)]
 pub struct GameBoy {
     mode: Mode,
@@ -29,33 +29,38 @@ impl GameBoy {
     pub fn test_looping(&mut self, cycles: u64) {
         let tracked_data = TrackedData::new();
         while self.elapsed_cycles.0 < cycles {
-            let just_ticked = self.tick_cpu_execution().into();
+            let just_ticked: TCycles = self.tick();
             self.elapsed_cycles += just_ticked;
         }
 
         tracked_data.log_from_gameboy(self);
+
+        // self.bus.print_graphics_data();
     }
 
-    fn tick_cpu_execution(&mut self) -> MCycles {
-        let BusAccessOutcome(instruction, side_effects) = self.read_next_instruction();
-        let BusAccessOutcome(instruction_outcome, instruction_bus_outcome) =
-            CpuOperationContext::new(&mut self.cpu, &mut self.bus).perform_instruction(instruction);
-        let pc = self.cpu.get_pc() + instruction.bytes;
-        self.cpu.set_pc(pc);
-        let mut taken_cycles = instruction.cycles as u64;
-
-        match instruction_outcome {
-            InstructionOutcome::ExtraCycles(extra_cycles) => taken_cycles += extra_cycles as u64,
-            InstructionOutcome::Ok => (),
-            InstructionOutcome::ChangeGameBoyMode(mode) => self.mode = mode,
-        };
-
-        MCycles(taken_cycles)
+    fn tick(&mut self) -> TCycles {
+        match self.mode {
+            Mode::Executing => {
+                let (m_cycles, changes) = self.cpu.tick_execution(&mut self.bus);
+                self.handle_changes(changes);
+                m_cycles.into()
+            },
+            Mode::Stopped => todo!(),
+            Mode::Halted => todo!(),
+        }
     }
 
-    fn read_next_instruction(&mut self) -> BusAccessOutcome<&'static Instruction> {
-        let pc = self.cpu.get_pc();
-        self.bus.read_next_instruction(pc)
+    fn handle_changes(&mut self, changes: Vec<Change>) {
+        for change in changes {
+            self.handle_change(change)
+        }
+    }
+
+    fn handle_change(&mut self, change: Change) {
+        match change {
+            Change::UnmapBootRom => self.bus.unmap_bootrom(),
+            Change::ChangeGameBoyMode(mode) => self.mode = mode,
+        }
     }
 
     pub fn get_elapsed_cycles(&self) -> TCycles {
@@ -89,4 +94,9 @@ impl std::ops::AddAssign for TCycles {
     fn add_assign(&mut self, rhs: Self) {
         self.0 += rhs.0;
     }
+}
+pub enum Change {
+    UnmapBootRom,
+    ChangeGameBoyMode(Mode),
+    // Add others here
 }

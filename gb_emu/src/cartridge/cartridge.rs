@@ -39,7 +39,7 @@ impl Cartridge {
         Header::new(&self.rom_bank_00.get_bank_data()[0x100..0x150])
     }
 
-    /// Sets the ROM and RAM data to the values provided
+    /// Sets the ROM data to the values provided
     fn initialize_cartridge_data(&mut self, data: &[u8], header: Header) -> CartridgeResult<()> {
         if header.get_expected_bank_size_in_kb() != data.len() / 1024 {
             return Err(CartridgeError::DataSizeBankMismatch);

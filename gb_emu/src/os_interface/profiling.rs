@@ -28,6 +28,6 @@ impl TrackedData {
     }
 }
 
-fn convert_to_megahertz(cycles: TCycles, duration: Duration) -> f32 {
-    cycles.0 as f32 / duration.as_secs_f32() / 1_000_000_f32
+fn convert_to_megahertz(cycles: TCycles, duration: Duration) -> f64 {
+    cycles.0 as f64 / duration.as_secs_f64() / 1_000_000_f64
 }
