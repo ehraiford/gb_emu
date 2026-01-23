@@ -372,5 +372,3 @@ pub enum InstructionOutcome {
     Ok,
     ChangeGameBoyMode(Mode),
 }
-
-pub struct TCycles(pub u64);
