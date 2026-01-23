@@ -261,8 +261,6 @@ impl From<Operand> for OperandType {
     }
 }
 
-pub type InstructionResult<T> = Result<T, InstructionError>;
-
 #[derive(Debug, Clone, Copy)]
 pub enum InstructionError {
     InvalidOperation(u8),
@@ -368,7 +366,8 @@ impl TryFrom<Operand> for SignedEightBitOperand {
 }
 
 pub enum InstructionOutcome {
-    ExtraCycles(u16),
+    TookConditionalBranch(u16),
     Ok,
     ChangeGameBoyMode(Mode),
+    ExplicitlySetPC,
 }
