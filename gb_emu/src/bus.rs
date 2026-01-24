@@ -283,14 +283,14 @@ impl From<()> for BusAccessOutcome<()> {
 
 impl<T: BusDefault> From<BusAccessFailure> for BusAccessOutcome<T> {
     fn from(failure: BusAccessFailure) -> Self {
-        log(&format!("{}", failure));
+        // log(&format!("{}", failure));
         Self(T::DEFAULT_BUS_VALUE, vec![])
     }
 }
 
 impl From<BusAccessFailure> for u8 {
     fn from(access_failure: BusAccessFailure) -> Self {
-        log(&format!("{}", access_failure));
+        // log(&format!("{}", access_failure));
         u8::DEFAULT_BUS_VALUE
     }
 }

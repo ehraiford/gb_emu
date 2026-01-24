@@ -393,10 +393,10 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
 
     pub fn perform_instruction(&mut self, instruction: &Instruction) -> BusAccessOutcome<InstructionOutcome> {
         if instruction.op_code != OpCode::Nop {
-            log(&format!(
-                "Performing: {instruction} from Address 0x{:04x}",
-                self.cpu.get_pc()
-            ));
+            // log(format_args!(
+            //     "Performing: {instruction} from Address 0x{:04x}",
+            //     self.cpu.get_pc()
+            // ));
         }
         match instruction.op_code {
             OpCode::Adc => self.add_with_carry(&EightBitOperand::try_from(instruction.operands[0]).unwrap()),
