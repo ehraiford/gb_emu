@@ -1,8 +1,6 @@
 use crate::{
     bus::{Bus, BusAccessOutcome},
-    cartridge::cartridge::ENTRY_POINT,
     game_boy::{Change, MCycles, Mode},
-    helper_functions::log,
     processor::instructions::{
         EightBitOperand, Instruction, InstructionError, InstructionOutcome, OpCode, Operand, OperandType,
         SignedEightBitOperand, SixteenBitOperand,
@@ -12,6 +10,7 @@ use crate::{
 pub struct Cpu {
     registers: [u16; 6],
     ime: bool,
+    pub executed_instructions: Vec<&'static Instruction>,
 }
 
 impl Cpu {
@@ -41,36 +40,32 @@ impl Cpu {
         (MCycles(taken_cycles), changes)
     }
 
+    pub fn enable_interrupts(&mut self) {
+        self.ime = true;
+    }
+    pub fn disable_interrupts(&mut self) {
+        self.ime = false;
+    }
     pub fn set_flags(&mut self, z: bool, n: bool, h: bool, c: bool) {
         let mut new_flags = z as u8;
         new_flags = (new_flags << 1) | n as u8;
         new_flags = (new_flags << 1) | h as u8;
         new_flags = (new_flags << 1) | c as u8;
+        new_flags <<= 4;
 
         self.set_f(new_flags);
     }
 
     pub fn get_flag(&self, flag: Flag) -> bool {
-        match flag {
-            Flag::InterruptMasterEnable => self.ime,
-            _ => (self.get_af() >> flag.get_af_index()) & 0b1 == 1,
-        }
+        (self.get_af() >> flag.get_af_index()) & 0b1 == 1
     }
 
     pub fn set_flag(&mut self, flag: Flag, value: bool) {
-        match flag {
-            Flag::InterruptMasterEnable => self.ime = value,
-            _ => {
-                let flag_index = flag.get_af_index();
-                let flag_mask = !(0b1 << flag_index);
-                let af = self.get_af();
-
-                let masked_af = af & flag_mask;
-                let result = masked_af | (value as u16) << flag_index;
-
-                self.set_af(result);
-            },
-        }
+        let flag_index = flag.get_af_index();
+        let mut f = self.get_f();
+        f &= !(0b1 << flag_index);
+        f |= (value as u8) << flag_index;
+        self.set_f(f);
     }
 
     pub fn get_a(&self) -> u8 {
@@ -188,7 +183,11 @@ impl Cpu {
 
 impl Default for Cpu {
     fn default() -> Self {
-        Self { registers: Default::default(), ime: Default::default() }
+        Self {
+            registers: Default::default(),
+            ime: Default::default(),
+            executed_instructions: Default::default(),
+        }
     }
 }
 
@@ -197,7 +196,6 @@ pub enum Flag {
     Subtraction,
     HalfCarry,
     Carry,
-    InterruptMasterEnable,
 }
 
 impl Flag {
@@ -207,7 +205,6 @@ impl Flag {
             Flag::Subtraction => 6,
             Flag::HalfCarry => 5,
             Flag::Carry => 4,
-            _ => unreachable!("This function is invalid for any other flag and isn't called anywhere to reach this."),
         }
     }
 }
@@ -290,7 +287,12 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
                 side_effects.append(&mut side_effects_second_access);
                 BusAccessOutcome(value, side_effects)
             },
-            EightBitOperand::FF00OffsetByA => self.bus.read(0xFF00 + self.cpu.get_a() as u16),
+            EightBitOperand::FF00OffsetByA8 => {
+                let BusAccessOutcome(value, mut changes) = self.bus.read(self.cpu.get_pc() + 1);
+                let BusAccessOutcome(value, mut changes_second_access) = self.bus.read(0xFF00 + value as u16);
+                changes.append(&mut changes_second_access);
+                BusAccessOutcome(value, changes)
+            },
             EightBitOperand::FF00OffsetByC => self.bus.read(0xFF00 + self.cpu.get_c() as u16),
             EightBitOperand::N8 => self.bus.read(self.cpu.get_pc() + 1),
             EightBitOperand::Immediate(val) => BusAccessOutcome(*val, vec![]),
@@ -352,7 +354,12 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
                 self.cpu.set_e(value);
                 vec![]
             },
-            EightBitOperand::FF00OffsetByA => return self.bus.write(0xFF00 + self.cpu.get_a() as u16, value).1,
+            EightBitOperand::FF00OffsetByA8 => {
+                let BusAccessOutcome(value, mut changes) = self.bus.read(self.cpu.get_pc() + 1);
+                let mut changes_second_access = self.bus.write(0xFF00 + value as u16, value).1;
+                changes.append(&mut changes_second_access);
+                changes
+            },
             EightBitOperand::FF00OffsetByC => return self.bus.write(0xFF00 + self.cpu.get_c() as u16, value).1,
             EightBitOperand::H => {
                 self.cpu.set_h(value);
@@ -391,18 +398,20 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         }
     }
 
-    pub fn perform_instruction(&mut self, instruction: &Instruction) -> BusAccessOutcome<InstructionOutcome> {
-        if instruction.op_code != OpCode::Nop {
-            // log(format_args!(
-            //     "Performing: {instruction} from Address 0x{:04x}",
-            //     self.cpu.get_pc()
-            // ));
-        }
+    pub fn perform_instruction(&mut self, instruction: &'static Instruction) -> BusAccessOutcome<InstructionOutcome> {
+        // if instruction.op_code != OpCode::Nop {
+        //     log(format_args!(
+        //         "Performing: {instruction} from Address 0x{:04x}",
+        //         self.cpu.get_pc()
+        //     ));
+        // }
+        self.cpu.executed_instructions.push(instruction);
+
         match instruction.op_code {
-            OpCode::Adc => self.add_with_carry(&EightBitOperand::try_from(instruction.operands[0]).unwrap()),
+            OpCode::Adc => self.add_with_carry(&EightBitOperand::try_from(instruction.operands[1]).unwrap()),
             OpCode::Add => match OperandType::from(instruction.operands[0]) {
                 OperandType::EightBitOperand => {
-                    self.add_8_bit(&EightBitOperand::try_from(instruction.operands[0]).unwrap())
+                    self.add_8_bit(&EightBitOperand::try_from(instruction.operands[1]).unwrap())
                 },
                 OperandType::SixteenBitOperand => self.add_16_bit(
                     &SixteenBitOperand::try_from(instruction.operands[0]).unwrap(),
@@ -410,7 +419,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
                 ),
                 _ => unreachable!("There shouldn't be any places this is called that reaches here."),
             },
-            OpCode::And => self.and(&EightBitOperand::try_from(instruction.operands[0]).unwrap()),
+            OpCode::And => self.and(&EightBitOperand::try_from(instruction.operands[1]).unwrap()),
             OpCode::Bit => self.bit(
                 &&EightBitOperand::try_from(instruction.operands[0]).unwrap(),
                 &&EightBitOperand::try_from(instruction.operands[1]).unwrap(),
@@ -424,7 +433,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
                 _ => unreachable!("OpCode only can have 1 or 2 operands"),
             },
             OpCode::Ccf => self.complement_carry_flag(),
-            OpCode::Cp => self.compare(&EightBitOperand::try_from(instruction.operands[0]).unwrap()),
+            OpCode::Cp => self.compare(&EightBitOperand::try_from(instruction.operands[1]).unwrap()),
             OpCode::Cpl => self.complement(),
             OpCode::Daa => self.decimal_adjust_accumulator(),
             OpCode::Dec => match OperandType::from(instruction.operands[0]) {
@@ -487,7 +496,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
                 &EightBitOperand::try_from(instruction.operands[1]).unwrap(),
             ),
             OpCode::Nop => self.nop(),
-            OpCode::Or => self.or(&EightBitOperand::try_from(instruction.operands[0]).unwrap()),
+            OpCode::Or => self.or(&EightBitOperand::try_from(instruction.operands[1]).unwrap()),
             OpCode::Pop => self.pop(&SixteenBitOperand::try_from(instruction.operands[0]).unwrap()),
             OpCode::Prefix => unreachable!("This should have been caught prior"),
             OpCode::Push => self.push(&SixteenBitOperand::try_from(instruction.operands[0]).unwrap()),
@@ -510,7 +519,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             OpCode::Rrc => self.rotate_right_into_carry(&EightBitOperand::try_from(instruction.operands[0]).unwrap()),
             OpCode::Rrca => self.rotate_right_into_carry_a(),
             OpCode::Rst => self.call_vector(&EightBitOperand::try_from(instruction.operands[0]).unwrap()),
-            OpCode::Sbc => self.subtract_with_carry(&EightBitOperand::try_from(instruction.operands[0]).unwrap()),
+            OpCode::Sbc => self.subtract_with_carry(&EightBitOperand::try_from(instruction.operands[1]).unwrap()),
             OpCode::Scf => self.set_carry_flag(),
             OpCode::Set => self.set_bit(
                 &EightBitOperand::try_from(instruction.operands[0]).unwrap(),
@@ -522,9 +531,9 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             },
             OpCode::Srl => self.shift_right_logically(&EightBitOperand::try_from(instruction.operands[0]).unwrap()),
             OpCode::Stop => self.stop(),
-            OpCode::Sub => self.subtract(&EightBitOperand::try_from(instruction.operands[0]).unwrap()),
+            OpCode::Sub => self.subtract(&EightBitOperand::try_from(instruction.operands[1]).unwrap()),
             OpCode::Swap => self.swap(&EightBitOperand::try_from(instruction.operands[0]).unwrap()),
-            OpCode::Xor => self.xor(&EightBitOperand::try_from(instruction.operands[0]).unwrap()),
+            OpCode::Xor => self.xor(&EightBitOperand::try_from(instruction.operands[1]).unwrap()),
         }
     }
 
@@ -639,7 +648,6 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     fn compare(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
         let BusAccessOutcome(operand_value, side_effects) = self.get_u8_operand(&operand);
         let a = self.get_a();
-
         self.set_flags(
             a == operand_value,
             true,
@@ -824,6 +832,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         operand1: &EightBitOperand,
     ) -> BusAccessOutcome<InstructionOutcome> {
         let BusAccessOutcome(value, mut side_effects) = self.get_u8_operand(operand1);
+
         let mut side_effects_2nd_access = self.set_u8_operand(operand0, value);
 
         side_effects.append(&mut side_effects_2nd_access);
@@ -1118,13 +1127,13 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     }
 
     fn disable_interrupts(&mut self) -> BusAccessOutcome<InstructionOutcome> {
-        self.cpu.set_flag(Flag::InterruptMasterEnable, false);
+        self.cpu.disable_interrupts();
 
         BusAccessOutcome::default_outcome()
     }
 
     fn enable_interrupts(&mut self) -> BusAccessOutcome<InstructionOutcome> {
-        self.cpu.set_flag(Flag::InterruptMasterEnable, true);
+        self.cpu.enable_interrupts();
 
         BusAccessOutcome(InstructionOutcome::Ok, vec![])
     }

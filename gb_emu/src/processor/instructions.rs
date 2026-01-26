@@ -270,7 +270,7 @@ pub enum InstructionError {
     MemoryAccessError,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum EightBitOperand {
     A,
     A16Pointer,
@@ -284,7 +284,7 @@ pub enum EightBitOperand {
     D,
     DEPointer,
     E,
-    FF00OffsetByA,
+    FF00OffsetByA8,
     FF00OffsetByC,
     H,
     N8,
@@ -306,7 +306,7 @@ impl TryFrom<Operand> for EightBitOperand {
             Operand::D => Ok(Self::D),
             Operand::DEPointer => Ok(Self::DEPointer),
             Operand::E => Ok(Self::E),
-            Operand::FF00OffsetByA8 => Ok(Self::FF00OffsetByA),
+            Operand::FF00OffsetByA8 => Ok(Self::FF00OffsetByA8),
             Operand::FF00OffsetByC => Ok(Self::FF00OffsetByC),
             Operand::H => Ok(Self::H),
             Operand::N8 => Ok(Self::N8),
