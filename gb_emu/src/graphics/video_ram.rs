@@ -1,5 +1,5 @@
 use crate::{
-    bus::{Address, BusAccessFailure, BusAccessible, MMDevice},
+    bus::{Address, BusAccessFailure, BusAccessible, MemoryTarget},
     graphics::{lcd::PpuMode, ppu::VideoMemory},
 };
 
@@ -73,7 +73,7 @@ impl VideoRam {
 }
 
 impl BusAccessible for VideoRam {
-    const MM_DEVICE: MMDevice = MMDevice::VideoRam;
+    const MM_DEVICE: MemoryTarget = MemoryTarget::VideoRam;
 
     fn read(&mut self, address: Address) -> crate::bus::BusAccessOutcome<u8> {
         if !self.is_cpu_accessible() {
@@ -184,7 +184,7 @@ pub struct Tile {
 
 impl Tile {
     fn set_byte(&mut self, row: usize, column: usize, value: u8) {
-        self.data[row][column] = value
+        self.data[column][row] = value
     }
 
     fn get_byte(&self, row: usize, column: usize) -> u8 {
@@ -309,8 +309,9 @@ impl TileByteIndex {
 
         let block_number = address / (Self::BYTES_IN_TILE * Self::TILES_IN_BLOCK);
         let tile_index = (address % Self::TILES_IN_BLOCK) / Self::BYTES_IN_TILE;
-        let column = (address % Self::BYTES_IN_TILE) / Self::ROWS_IN_TILE;
-        let row = address % Self::COLS_IN_TYLE;
+        let row = (address % Self::BYTES_IN_TILE) / Self::ROWS_IN_TILE;
+        let column = address % Self::COLS_IN_TYLE;
+
         Self { block_number, tile_index, column, row }
     }
 }

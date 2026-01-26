@@ -3,13 +3,16 @@ use std::fmt::Display;
 use crate::{
     cartridge::cartridge::{Cartridge, CartridgeDevice},
     game_boy::Change,
-    graphics::{oam::ObjectAttributeMemory, video_ram::VideoRam},
+    graphics::{
+        oam::{ObjectAttributeMemory, PriorityMode},
+        video_ram::VideoRam,
+    },
     helper_functions::{concat_2_bytes, log},
     interrupts::InterruptEnableRegister,
-    onboard_devices::{
+    io_registers::IoRegisters,
+    onboard_memory::{
         bootrom::BootRom,
         h_ram::HighRam,
-        io_registers::IoRegisters,
         work_ram::{BankableWorkRam, WorkRam00},
     },
     processor::{
@@ -37,6 +40,13 @@ impl Bus {
     }
     pub fn unmap_bootrom(&mut self) {
         self.boot_rom.unmap();
+    }
+
+    pub fn start_oam_dma_transfer(&mut self) {
+        todo!("HRAM is the only accessible part of memory")
+    }
+    pub fn end_oam_dma_transfer(&mut self) {
+        todo!("HRAM is no longer the only accessible part of memory")
     }
 
     pub fn read_u16(&mut self, address: Address) -> BusAccessOutcome<u16> {
@@ -81,63 +91,83 @@ impl Bus {
     }
 
     pub fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
-        let device = MMDevice::get_device_from_address(address);
+        let device = MemoryTarget::get_device_from_address(address);
         match device {
-            MMDevice::RomBank00 => match self.boot_rom.mapped() && address < BootRom::SIZE {
+            MemoryTarget::RomBank00 => match self.boot_rom.mapped() && address < BootRom::SIZE {
                 true => self.boot_rom.read(address),
                 false => self.cartridge.read(address, CartridgeDevice::RomBank00),
             },
-            MMDevice::BankableRom => self.cartridge.read(address, CartridgeDevice::BankableRom),
-            MMDevice::VideoRam => self.v_ram.read(address),
-            MMDevice::ExternalRam => self.cartridge.read(address, CartridgeDevice::ExternalRam),
-            MMDevice::WorkRam00 => self.w_ram_00.read(address),
-            MMDevice::BankableWorkRam => self.bankable_w_ram.read(address),
-            MMDevice::EchoRam => self.read(address - 0x2000),
-            MMDevice::ObjectAttributeMemory => self.oam.read(address),
-            MMDevice::Unusable => BusAccessFailure::TriedAccessingUnusableMemory.into(),
-            MMDevice::IoRegisters => self.io_registers.read(address),
-            MMDevice::HighRam => self.h_ram.read(address),
-            MMDevice::InterruptEnableRegister => self.ie.read(address),
+            MemoryTarget::BankableRom => self.cartridge.read(address, CartridgeDevice::BankableRom),
+            MemoryTarget::VideoRam => self.v_ram.read(address),
+            MemoryTarget::ExternalRam => self.cartridge.read(address, CartridgeDevice::ExternalRam),
+            MemoryTarget::WorkRam00 => self.w_ram_00.read(address),
+            MemoryTarget::BankableWorkRam => self.bankable_w_ram.read(address),
+            MemoryTarget::EchoRam => self.read(address - 0x2000),
+            MemoryTarget::ObjectAttributeMemory => self.oam.read(address),
+            MemoryTarget::Unusable => BusAccessFailure::TriedAccessingUnusableMemory.into(),
+            MemoryTarget::IoRegisters => self.io_registers.read(address),
+            MemoryTarget::HighRam => self.h_ram.read(address),
+            MemoryTarget::InterruptEnableRegister => self.ie.read(address),
         }
     }
+
+    /// Statelessly access the value at the given address. This is for dma transfers and observational use
     pub fn peek(&self, address: Address) -> u8 {
-        let device = MMDevice::get_device_from_address(address);
+        let device = MemoryTarget::get_device_from_address(address);
         match device {
-            MMDevice::RomBank00 => self.cartridge.peek(address, CartridgeDevice::RomBank00),
-            MMDevice::BankableRom => self.cartridge.peek(address, CartridgeDevice::BankableRom),
-            MMDevice::VideoRam => self.v_ram.peek(address),
-            MMDevice::ExternalRam => self.cartridge.peek(address, CartridgeDevice::ExternalRam),
-            MMDevice::WorkRam00 => self.w_ram_00.peek(address),
-            MMDevice::BankableWorkRam => self.bankable_w_ram.peek(address),
-            MMDevice::EchoRam => self.peek(address - 0x2000),
-            MMDevice::ObjectAttributeMemory => self.oam.peek(address),
-            MMDevice::Unusable => BusAccessFailure::TriedAccessingUnusableMemory.into(),
-            MMDevice::IoRegisters => self.io_registers.peek(address),
-            MMDevice::HighRam => self.h_ram.peek(address),
-            MMDevice::InterruptEnableRegister => self.ie.peek(address),
+            MemoryTarget::RomBank00 => self.cartridge.peek(address, CartridgeDevice::RomBank00),
+            MemoryTarget::BankableRom => self.cartridge.peek(address, CartridgeDevice::BankableRom),
+            MemoryTarget::VideoRam => self.v_ram.peek(address),
+            MemoryTarget::ExternalRam => self.cartridge.peek(address, CartridgeDevice::ExternalRam),
+            MemoryTarget::WorkRam00 => self.w_ram_00.peek(address),
+            MemoryTarget::BankableWorkRam => self.bankable_w_ram.peek(address),
+            MemoryTarget::EchoRam => self.peek(address - 0x2000),
+            MemoryTarget::ObjectAttributeMemory => self.oam.peek(address),
+            MemoryTarget::Unusable => BusAccessFailure::TriedAccessingUnusableMemory.into(),
+            MemoryTarget::IoRegisters => self.io_registers.peek(address),
+            MemoryTarget::HighRam => self.h_ram.peek(address),
+            MemoryTarget::InterruptEnableRegister => self.ie.peek(address),
         }
     }
     pub fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
-        let device = MMDevice::get_device_from_address(address);
+        let device = MemoryTarget::get_device_from_address(address);
         match device {
-            MMDevice::RomBank00 => self.cartridge.write(address, CartridgeDevice::RomBank00, value),
-            MMDevice::BankableRom => self.cartridge.write(address, CartridgeDevice::BankableRom, value),
-            MMDevice::VideoRam => self.v_ram.write(address, value),
-            MMDevice::ExternalRam => self.cartridge.write(address, CartridgeDevice::ExternalRam, value),
-            MMDevice::WorkRam00 => self.w_ram_00.write(address, value),
-            MMDevice::BankableWorkRam => self.bankable_w_ram.write(address, value),
-            MMDevice::EchoRam => self.write(address - 0x2000, value),
-            MMDevice::ObjectAttributeMemory => self.oam.write(address, value),
-            MMDevice::Unusable => BusAccessFailure::TriedAccessingUnusableMemory.into(),
-            MMDevice::IoRegisters => self.io_registers.write(address, value),
-            MMDevice::HighRam => self.h_ram.write(address, value),
-            MMDevice::InterruptEnableRegister => self.ie.write(address, value),
+            MemoryTarget::RomBank00 => self.cartridge.write(address, CartridgeDevice::RomBank00, value),
+            MemoryTarget::BankableRom => self.cartridge.write(address, CartridgeDevice::BankableRom, value),
+            MemoryTarget::VideoRam => self.v_ram.write(address, value),
+            MemoryTarget::ExternalRam => self.cartridge.write(address, CartridgeDevice::ExternalRam, value),
+            MemoryTarget::WorkRam00 => self.w_ram_00.write(address, value),
+            MemoryTarget::BankableWorkRam => self.bankable_w_ram.write(address, value),
+            MemoryTarget::EchoRam => self.write(address - 0x2000, value),
+            MemoryTarget::ObjectAttributeMemory => self.oam.write(address, value),
+            MemoryTarget::Unusable => BusAccessFailure::TriedAccessingUnusableMemory.into(),
+            MemoryTarget::IoRegisters => self.io_registers.write(address, value),
+            MemoryTarget::HighRam => self.h_ram.write(address, value),
+            MemoryTarget::InterruptEnableRegister => self.ie.write(address, value),
         }
+    }
+
+    pub fn set_active_bank_number(&mut self, device: MemoryTarget, bank_num: u8) {
+        match device {
+            MemoryTarget::BankableRom => todo!(),
+            MemoryTarget::VideoRam => todo!(),
+            MemoryTarget::ExternalRam => todo!(),
+            MemoryTarget::BankableWorkRam => self.bankable_w_ram.set_active_bank_number(bank_num),
+            _ => unreachable!("There shouldn't be any instances where this is called. All bankable memory is above."),
+        }
+    }
+
+    pub fn set_object_priority_mode(&mut self, mode: PriorityMode) {
+        self.oam.set_priority_mode(mode)
+    }
+
+    pub fn oam_dma_transfer(&mut self, address: Address, value: u8) {
+        self.oam.set_from_dma_transfer(address, value);
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum MMDevice {
+pub enum MemoryTarget {
     RomBank00,
     BankableRom,
     VideoRam,
@@ -152,52 +182,52 @@ pub enum MMDevice {
     InterruptEnableRegister,
 }
 
-impl MMDevice {
+impl MemoryTarget {
     pub const fn get_base_address(&self) -> Address {
         match self {
-            MMDevice::RomBank00 => 0x0000,
-            MMDevice::BankableRom => 0x4000,
-            MMDevice::VideoRam => 0x8000,
-            MMDevice::ExternalRam => 0xA000,
-            MMDevice::WorkRam00 => 0xC000,
-            MMDevice::BankableWorkRam => 0xD000,
-            MMDevice::EchoRam => 0xE000,
-            MMDevice::ObjectAttributeMemory => 0xFE00,
-            MMDevice::Unusable => 0xFEA0,
-            MMDevice::IoRegisters => 0xFF00,
-            MMDevice::HighRam => 0xFF80,
-            MMDevice::InterruptEnableRegister => 0xFFFF,
+            MemoryTarget::RomBank00 => 0x0000,
+            MemoryTarget::BankableRom => 0x4000,
+            MemoryTarget::VideoRam => 0x8000,
+            MemoryTarget::ExternalRam => 0xA000,
+            MemoryTarget::WorkRam00 => 0xC000,
+            MemoryTarget::BankableWorkRam => 0xD000,
+            MemoryTarget::EchoRam => 0xE000,
+            MemoryTarget::ObjectAttributeMemory => 0xFE00,
+            MemoryTarget::Unusable => 0xFEA0,
+            MemoryTarget::IoRegisters => 0xFF00,
+            MemoryTarget::HighRam => 0xFF80,
+            MemoryTarget::InterruptEnableRegister => 0xFFFF,
         }
     }
     pub const fn get_end_address(&self) -> Address {
         match self {
-            MMDevice::RomBank00 => 0x4000,
-            MMDevice::BankableRom => 0x8000,
-            MMDevice::VideoRam => 0xA000,
-            MMDevice::ExternalRam => 0xC000,
-            MMDevice::WorkRam00 => 0xD000,
-            MMDevice::BankableWorkRam => 0xE000,
-            MMDevice::EchoRam => 0xFE00,
-            MMDevice::ObjectAttributeMemory => 0xFEA0,
-            MMDevice::Unusable => 0xFF00,
-            MMDevice::IoRegisters => 0xFF80,
-            MMDevice::HighRam => 0xFFFF,
-            MMDevice::InterruptEnableRegister => 0xFFFF,
+            MemoryTarget::RomBank00 => 0x4000,
+            MemoryTarget::BankableRom => 0x8000,
+            MemoryTarget::VideoRam => 0xA000,
+            MemoryTarget::ExternalRam => 0xC000,
+            MemoryTarget::WorkRam00 => 0xD000,
+            MemoryTarget::BankableWorkRam => 0xE000,
+            MemoryTarget::EchoRam => 0xFE00,
+            MemoryTarget::ObjectAttributeMemory => 0xFEA0,
+            MemoryTarget::Unusable => 0xFF00,
+            MemoryTarget::IoRegisters => 0xFF80,
+            MemoryTarget::HighRam => 0xFFFF,
+            MemoryTarget::InterruptEnableRegister => 0xFFFF,
         }
     }
     pub const fn get_device_from_address(address: Address) -> Self {
-        let enumerated_devices: &[MMDevice] = &[
-            MMDevice::RomBank00,
-            MMDevice::BankableRom,
-            MMDevice::VideoRam,
-            MMDevice::ExternalRam,
-            MMDevice::WorkRam00,
-            MMDevice::BankableWorkRam, // GameBoy Color Only
-            MMDevice::EchoRam,         // Mirror of C000-DDFF
-            MMDevice::ObjectAttributeMemory,
-            MMDevice::Unusable,
-            MMDevice::IoRegisters,
-            MMDevice::HighRam,
+        let enumerated_devices: &[MemoryTarget] = &[
+            MemoryTarget::RomBank00,
+            MemoryTarget::BankableRom,
+            MemoryTarget::VideoRam,
+            MemoryTarget::ExternalRam,
+            MemoryTarget::WorkRam00,
+            MemoryTarget::BankableWorkRam, // GameBoy Color Only
+            MemoryTarget::EchoRam,         // Mirror of C000-DDFF
+            MemoryTarget::ObjectAttributeMemory,
+            MemoryTarget::Unusable,
+            MemoryTarget::IoRegisters,
+            MemoryTarget::HighRam,
         ];
 
         let mut i = 0;
@@ -208,12 +238,12 @@ impl MMDevice {
             i += 1;
         }
         // only one that doesn't fit in there is IE Register
-        MMDevice::InterruptEnableRegister
+        MemoryTarget::InterruptEnableRegister
     }
 }
 
 pub trait BusAccessible {
-    const MM_DEVICE: MMDevice;
+    const MM_DEVICE: MemoryTarget;
 
     fn local(global: Address) -> Address {
         global - Self::MM_DEVICE.get_base_address()
@@ -245,6 +275,7 @@ pub enum BusAccessFailure {
     InaccessbileInPpuMode,
     TriedAccessingUnusableMemory,
     TriedWritingToRom,
+    Unimplemented,
 }
 
 impl Display for BusAccessFailure {
@@ -254,6 +285,7 @@ impl Display for BusAccessFailure {
             BusAccessFailure::InaccessbileInPpuMode => "InaccessbileInPpuMode",
             BusAccessFailure::TriedAccessingUnusableMemory => "TriedAccessingUnusableMemory",
             BusAccessFailure::TriedWritingToRom => "TriedWritingToRom",
+            BusAccessFailure::Unimplemented => "NotImplemented",
         };
         f.write_str(str)
     }
@@ -295,7 +327,7 @@ impl From<BusAccessFailure> for u8 {
     }
 }
 
-trait BusDefault {
+pub trait BusDefault {
     const DEFAULT_BUS_VALUE: Self;
 }
 

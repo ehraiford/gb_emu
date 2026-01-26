@@ -1,7 +1,7 @@
 use crate::{
     bus::{Address, BusAccessible},
     cartridge::cartridge::RAM_BANK_SIZE,
-    onboard_devices::rom_and_ram::BankableRam,
+    onboard_memory::rom_and_ram::BankableRam,
 };
 
 #[derive(Default)]
@@ -18,7 +18,7 @@ impl ExternalRam {
 }
 
 impl BusAccessible for ExternalRam {
-    const MM_DEVICE: crate::bus::MMDevice = crate::bus::MMDevice::ExternalRam;
+    const MM_DEVICE: crate::bus::MemoryTarget = crate::bus::MemoryTarget::ExternalRam;
 
     fn read(&mut self, address: Address) -> crate::bus::BusAccessOutcome<u8> {
         self.bankable_ram.read(Self::local(address))

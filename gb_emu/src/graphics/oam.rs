@@ -1,11 +1,13 @@
 use crate::{
-    bus::{Address, BusAccessFailure, BusAccessOutcome, BusAccessible, MMDevice},
+    bus::{Address, BusAccessFailure, BusAccessOutcome, BusAccessible, MemoryTarget},
+    game_boy::GameBoy,
     graphics::{lcd::PpuMode, ppu::VideoMemory},
 };
 
 pub struct ObjectAttributeMemory {
     objects: [Sprite; Self::NUM_OAM_SPRITES],
     cpu_accessible: bool,
+    priority_mode: PriorityMode,
 }
 
 impl ObjectAttributeMemory {
@@ -26,10 +28,18 @@ impl ObjectAttributeMemory {
 
         (index, byte_num)
     }
+    pub fn set_priority_mode(&mut self, mode: PriorityMode) {
+        self.priority_mode = mode;
+    }
+
+    pub fn set_from_dma_transfer(&mut self, address: Address, value: u8) {
+        let (index, byte_num) = Self::convert_address_to_sprite_and_byte_numbers(address);
+        self.objects[index].set_byte(byte_num, value)
+    }
 }
 
 impl BusAccessible for ObjectAttributeMemory {
-    const MM_DEVICE: MMDevice = MMDevice::ObjectAttributeMemory;
+    const MM_DEVICE: MemoryTarget = MemoryTarget::ObjectAttributeMemory;
 
     fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
         if !self.is_cpu_accessible() {
@@ -60,7 +70,11 @@ impl BusAccessible for ObjectAttributeMemory {
 
 impl Default for ObjectAttributeMemory {
     fn default() -> Self {
-        Self { objects: [Default::default(); 40], cpu_accessible: true }
+        Self {
+            objects: [Default::default(); 40],
+            cpu_accessible: true,
+            priority_mode: PriorityMode::GameBoy,
+        }
     }
 }
 
@@ -138,6 +152,22 @@ impl SpriteFlag {
             SpriteFlag::DmgPalette => (4, 0b1),
             SpriteFlag::Bank => (3, 0b1),
             SpriteFlag::CgbPalette => (0, 0b111),
+        }
+    }
+}
+
+#[derive(Debug)]
+#[repr(u8)]
+pub enum PriorityMode {
+    GameBoy = 0,
+    GameBoyColor,
+}
+
+impl From<u8> for PriorityMode {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => Self::GameBoy,
+            _ => Self::GameBoyColor,
         }
     }
 }

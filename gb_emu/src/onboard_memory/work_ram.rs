@@ -1,6 +1,6 @@
 use crate::{
     bus::{Address, BusAccessible},
-    onboard_devices::rom_and_ram::{BankableRam, RamBank},
+    onboard_memory::rom_and_ram::{BankableRam, RamBank},
 };
 
 const BANK_SIZE: usize = 4 * 1024;
@@ -11,7 +11,7 @@ pub struct WorkRam00 {
 }
 
 impl BusAccessible for WorkRam00 {
-    const MM_DEVICE: crate::bus::MMDevice = crate::bus::MMDevice::WorkRam00;
+    const MM_DEVICE: crate::bus::MemoryTarget = crate::bus::MemoryTarget::WorkRam00;
 
     fn read(&mut self, address: Address) -> crate::bus::BusAccessOutcome<u8> {
         self.bank.read(Self::local(address))
@@ -32,13 +32,13 @@ pub struct BankableWorkRam {
 }
 
 impl BankableWorkRam {
-    pub fn new(num_of_banks: usize) -> Self {
-        Self { bankable_ram: BankableRam::new(num_of_banks) }
+    pub fn set_active_bank_number(&mut self, bank_num: u8) {
+        self.bankable_ram.set_active_bank_number(bank_num);
     }
 }
 
 impl BusAccessible for BankableWorkRam {
-    const MM_DEVICE: crate::bus::MMDevice = crate::bus::MMDevice::BankableWorkRam;
+    const MM_DEVICE: crate::bus::MemoryTarget = crate::bus::MemoryTarget::BankableWorkRam;
 
     fn read(&mut self, address: Address) -> crate::bus::BusAccessOutcome<u8> {
         self.bankable_ram.read(Self::local(address))

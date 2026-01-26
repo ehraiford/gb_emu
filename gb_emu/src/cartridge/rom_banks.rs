@@ -1,7 +1,7 @@
 use crate::{
     bus::{Address, BusAccessible},
     cartridge::cartridge::PartOfCartridge,
-    onboard_devices::rom_and_ram::RomBank,
+    onboard_memory::rom_and_ram::RomBank,
 };
 
 pub struct BankableRoms {
@@ -25,7 +25,7 @@ impl PartOfCartridge for BankableRoms {
 }
 
 impl BusAccessible for BankableRoms {
-    const MM_DEVICE: crate::bus::MMDevice = crate::bus::MMDevice::BankableRom;
+    const MM_DEVICE: crate::bus::MemoryTarget = crate::bus::MemoryTarget::BankableRom;
 
     fn read(&mut self, address: Address) -> crate::bus::BusAccessOutcome<u8> {
         self.banks[self.active_bank_num as usize].read(Self::local(address))
@@ -67,7 +67,7 @@ impl PartOfCartridge for RomBank00 {
 }
 
 impl BusAccessible for RomBank00 {
-    const MM_DEVICE: crate::bus::MMDevice = crate::bus::MMDevice::RomBank00;
+    const MM_DEVICE: crate::bus::MemoryTarget = crate::bus::MemoryTarget::RomBank00;
 
     fn read(&mut self, address: Address) -> crate::bus::BusAccessOutcome<u8> {
         self.bank.read(Self::local(address))

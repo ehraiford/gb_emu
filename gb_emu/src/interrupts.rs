@@ -1,4 +1,4 @@
-use crate::bus::{Address, BusAccessOutcome, BusAccessible, MMDevice};
+use crate::bus::{Address, BusAccessOutcome, BusAccessible, MemoryTarget};
 
 #[derive(Default)]
 pub struct InterruptEnableRegister {
@@ -12,7 +12,7 @@ impl InterruptEnableRegister {
 }
 
 impl BusAccessible for InterruptEnableRegister {
-    const MM_DEVICE: MMDevice = MMDevice::InterruptEnableRegister;
+    const MM_DEVICE: MemoryTarget = MemoryTarget::InterruptEnableRegister;
 
     fn read(&mut self, _: Address) -> BusAccessOutcome<u8> {
         self.value.into()

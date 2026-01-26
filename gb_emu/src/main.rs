@@ -1,7 +1,6 @@
 use std::{
     env,
-    fs::{self, File},
-    io::Write,
+    fs::{self},
     path::PathBuf,
 };
 
@@ -9,11 +8,13 @@ use crate::{cartridge::cartridge::Cartridge, game_boy::GameBoy, helper_functions
 
 mod bus;
 mod cartridge;
+mod dma;
 mod game_boy;
 mod graphics;
 mod helper_functions;
 mod interrupts;
-mod onboard_devices;
+mod io_registers;
+mod onboard_memory;
 mod os_interface;
 mod processor;
 
@@ -22,7 +23,7 @@ const TEST_CYCLES: u64 = 1_000_000_000;
 
 fn main() {
     #[cfg(feature = "disassemble")]
-    program_assembly();
+    _program_assembly();
 
     #[cfg(not(feature = "disassemble"))]
     {
@@ -38,7 +39,7 @@ fn read_test_data() -> Vec<u8> {
     fs::read(TEST_ROM).unwrap()
 }
 
-fn program_assembly() {
+fn _program_assembly() {
     let args: Vec<String> = env::args().collect();
     let rom_path = PathBuf::from(&args[1]);
 

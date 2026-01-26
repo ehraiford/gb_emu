@@ -1,5 +1,5 @@
 use crate::{
-    bus::{Address, BusAccessOutcome, BusAccessible, MMDevice},
+    bus::{Address, BusAccessOutcome, BusAccessible, MemoryTarget},
     cartridge::{
         external_ram::ExternalRam,
         header::Header,
@@ -106,9 +106,9 @@ pub enum CartridgeDevice {
 impl CartridgeDevice {
     const fn get_starting_address(&self) -> Address {
         match self {
-            CartridgeDevice::RomBank00 => MMDevice::RomBank00.get_base_address(),
-            CartridgeDevice::BankableRom => MMDevice::BankableRom.get_base_address(),
-            CartridgeDevice::ExternalRam => MMDevice::ExternalRam.get_base_address(),
+            CartridgeDevice::RomBank00 => MemoryTarget::RomBank00.get_base_address(),
+            CartridgeDevice::BankableRom => MemoryTarget::BankableRom.get_base_address(),
+            CartridgeDevice::ExternalRam => MemoryTarget::ExternalRam.get_base_address(),
         }
     }
 }

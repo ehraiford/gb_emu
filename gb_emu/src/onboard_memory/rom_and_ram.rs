@@ -72,7 +72,7 @@ impl<const SIZE: usize> Default for RamBank<SIZE> {
 
 pub struct BankableRam<const SIZE: usize> {
     banks: Vec<RamBank<SIZE>>,
-    active_bank_num: usize,
+    active_bank_num: u8,
 }
 
 impl<const SIZE: usize> BankableRam<SIZE> {
@@ -83,7 +83,7 @@ impl<const SIZE: usize> BankableRam<SIZE> {
         }
     }
 
-    fn get_active_bank_number(&self) -> Option<usize> {
+    fn get_active_bank_number(&self) -> Option<u8> {
         if self.banks.is_empty() {
             None
         } else {
@@ -91,25 +91,29 @@ impl<const SIZE: usize> BankableRam<SIZE> {
         }
     }
 
+    pub fn set_active_bank_number(&mut self, bank_num: u8) {
+        self.active_bank_num = bank_num;
+    }
+
     pub fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
         let Some(bank_number) = self.get_active_bank_number() else {
             return BusAccessOutcome::from(BusAccessFailure::NothingMappedToAddress);
         };
-        self.banks[bank_number].read(address)
+        self.banks[bank_number as usize].read(address)
     }
 
     pub fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
         let Some(bank_number) = self.get_active_bank_number() else {
             return BusAccessOutcome::from(BusAccessFailure::NothingMappedToAddress);
         };
-        self.banks[bank_number].write(address, value)
+        self.banks[bank_number as usize].write(address, value)
     }
 
     pub fn peek(&self, address: Address) -> u8 {
         let Some(bank_number) = self.get_active_bank_number() else {
             return BusAccessFailure::NothingMappedToAddress.into();
         };
-        self.banks[bank_number].peek(address)
+        self.banks[bank_number as usize].peek(address)
     }
 }
 
