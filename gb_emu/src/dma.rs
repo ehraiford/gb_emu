@@ -3,6 +3,7 @@ use crate::bus::{Address, Bus, MemoryTarget};
 pub struct OamDma {
     remaining_bytes: u8,
     source_address: Address,
+    wait_tick: bool,
 }
 
 impl<'a, 'b, 'c> OamDma {
@@ -26,6 +27,12 @@ impl<'a, 'b, 'c> OamDma {
     }
 
     pub fn tick_transfer(&mut self, bus: &mut Bus) -> bool {
+        // this lets the transfer write 1 byte every two cycles
+        if self.wait_tick {
+            self.wait_tick = false;
+            return false;
+        }
+
         let byte = bus.peek(self.source_address);
         let destination_address = self.get_destination_address();
 
@@ -40,6 +47,6 @@ impl<'a, 'b, 'c> OamDma {
 
 impl Default for OamDma {
     fn default() -> Self {
-        Self { remaining_bytes: 0, source_address: 0x00 }
+        Self { remaining_bytes: 0, source_address: 0x00, wait_tick: true }
     }
 }
