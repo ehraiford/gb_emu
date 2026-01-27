@@ -1,8 +1,7 @@
 use crate::{
     bus::{Address, BusAccessFailure, BusAccessOutcome},
-    game_boy::Change,
-    graphics::ppu::VideoMemory,
-    io_registers::IoSection,
+    game_boy::GameBoyStateChange,
+    graphics::ppu::{Ppu, PpuTickMode},
 };
 pub struct LcdRegisters {
     control_flags: u8,
@@ -22,6 +21,20 @@ pub struct LcdRegisters {
 impl LcdRegisters {
     const START_ADDRESS: Address = 0xFF40;
 
+    pub fn get_ly(&self) -> u8 {
+        self.ly
+    }
+
+    pub fn increment_ly(&mut self) -> Vec<GameBoyStateChange> {
+        self.ly = (self.ly + 1) % Ppu::SCREEN_HEIGHT;
+        if self.ly == self.ly_compare {
+            self.set_status_flag(LcdStatusFlag::LycEqualsLy, true);
+            vec![GameBoyStateChange::Interrupt(crate::game_boy::Interrupt::LycEqualsLy)]
+        } else {
+            vec![]
+        }
+    }
+
     pub fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
         BusAccessOutcome(self.peek(address), vec![])
     }
@@ -29,13 +42,13 @@ impl LcdRegisters {
     pub fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
         let address = address - Self::START_ADDRESS;
         match address {
-            0 => self.control_flags = value,
-            1 => self.status_flags = value,
+            0 => return BusAccessOutcome((), self.set_control_flags(value)),
+            1 => return BusAccessFailure::TriedWritingToReadOnlyMemory.into(),
             2 => self.scy = value,
             3 => self.scx = value,
-            4 => self.ly = value,
+            4 => return BusAccessFailure::TriedWritingToReadOnlyMemory.into(),
             5 => self.ly_compare = value,
-            6 => return BusAccessOutcome((), vec![Change::StartOamDmaTransfer(value)]),
+            6 => return BusAccessOutcome((), vec![GameBoyStateChange::StartOamDmaTransfer(value)]),
             7 => self.palette.dmg_palette = value,
             8 => self.palette.ogp0 = value,
             9 => self.palette.ogp1 = value,
@@ -68,6 +81,18 @@ impl LcdRegisters {
     fn get_control_flag(&self, flag: LcdControlFlag) -> bool {
         (self.control_flags >> flag.get_index()) & 0b1 == 1
     }
+    fn set_control_flags(&mut self, value: u8) -> Vec<GameBoyStateChange> {
+        let enable_index = LcdControlFlag::LcdPpuEnable.get_index();
+        let new_enable_val = value >> enable_index;
+        let old_enable_val = self.control_flags >> enable_index;
+        self.control_flags = value;
+        if new_enable_val ^ old_enable_val == 1 {
+            vec![GameBoyStateChange::ChangeLCdPpuState(new_enable_val == 1)]
+        } else {
+            vec![]
+        }
+    }
+
     fn set_control_flag(&mut self, flag: LcdControlFlag, value: bool) {
         let index = flag.get_index();
         self.control_flags &= 0b1 << index;
@@ -85,12 +110,12 @@ impl LcdRegisters {
         status |= (value as u8) << shift;
         self.status_flags = status;
     }
-    pub fn get_ppu_mode(&self) -> PpuMode {
-        unsafe { std::mem::transmute(self.status_flags & 0b11) }
+    pub fn get_ppu_mode(&self) -> PpuTickMode {
+        PpuTickMode::from(self.status_flags)
     }
-    fn set_ppu_mode(&mut self, mode: PpuMode) {
+    fn set_ppu_mode(&mut self, mode: PpuTickMode) {
         let status = self.status_flags & !0b11;
-        self.status_flags = status | mode as u8;
+        self.status_flags = status | u8::from(mode);
     }
 }
 
@@ -108,17 +133,11 @@ impl Default for LcdRegisters {
             palette: Default::default(),
         };
 
-        for (address, value) in IoSection::Lcd.get_default_value_mapping() {
-            this.write(address, value);
-        }
+        // for (address, value) in IoSection::Lcd.get_default_value_mapping() {
+        //     this.write(address, value);
+        // }
 
         this
-    }
-}
-
-impl VideoMemory for LcdRegisters {
-    fn update_ppu_mode(&mut self, mode: PpuMode) {
-        self.set_ppu_mode(mode);
     }
 }
 
@@ -168,15 +187,6 @@ impl LcdStatusFlag {
             LcdStatusFlag::PpuMode => unreachable!("This shouldn't be called anywhere to cause this"),
         }
     }
-}
-
-#[repr(u8)]
-#[derive(Clone, Copy)]
-pub enum PpuMode {
-    HorizontalBlank = 0,
-    VerticalBlank = 1,
-    OamScan = 2,
-    DrawingPixels = 3,
 }
 
 const DMG_PALETTE_ADDRESS: Address = 0xFF47;
