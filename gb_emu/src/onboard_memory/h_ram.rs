@@ -1,11 +1,12 @@
 use crate::{
-    bus::{Address, BusAccessOutcome, BusAccessible, MemoryTarget},
+    bus::{Address, BusAccessFailure, BusAccessOutcome, BusAccessible, MemoryTarget},
     onboard_memory::rom_and_ram::RamBank,
 };
 
 #[derive(Default)]
 pub struct HighRam {
     data: RamBank<0x7F>,
+    cpu_accessible: bool,
 }
 
 impl BusAccessible for HighRam {

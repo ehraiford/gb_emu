@@ -9,7 +9,6 @@ use crate::{
 
 pub const ROM_BANK_SIZE: usize = 16 * 1024;
 pub const RAM_BANK_SIZE: usize = 8 * 1024;
-pub const ENTRY_POINT: Address = 0x100;
 
 pub struct Cartridge {
     rom_bank_00: RomBank00,

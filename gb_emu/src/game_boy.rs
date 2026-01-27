@@ -1,7 +1,12 @@
 use crate::{
-    bus::{Bus, MemoryTarget},
+    bus::{Bus, MemoryMapEvent, MemoryTarget},
     cartridge::cartridge::Cartridge,
     dma::OamDma,
+    graphics::{
+        lcd,
+        ppu::{Dots, Ppu, PpuOperationContext, PpuTickMode},
+    },
+    helper_functions::log,
     os_interface::profiling::TrackedData,
     processor::cpu::Cpu,
 };
@@ -11,6 +16,7 @@ pub const EXPECTED_CLOCK_SPEED: f64 = 4.194304; // In Megahertz
 pub struct GameBoy {
     state: GameBoyState,
     cpu: Cpu,
+    ppu: Ppu,
     bus: Bus,
     oam_dma: OamDma,
 }
@@ -20,98 +26,175 @@ impl GameBoy {
         Default::default()
     }
 
+    fn log_last_n_instructions(&self, n: usize) {
+        let len = self.cpu.executed_instructions.len();
+        let start = len.saturating_sub(n);
+        for instruction in &self.cpu.executed_instructions[start..] {
+            log(format_args!(
+                "PC: 0x{:04x}, Instruction: {}",
+                instruction.1, instruction.0
+            ));
+        }
+    }
+
     pub fn load_cartridge(&mut self, cartridge: Cartridge) {
         self.bus.load_cartridge(cartridge)
     }
 
     pub fn test_looping(&mut self, cycles: u64) {
         let tracked_data = TrackedData::new();
-        while self.state.elapsed_cycles.0 < cycles {
+        while self.state.elapsed_cpu_cycles.0 < cycles {
             self.tick();
         }
 
         tracked_data.log_from_gameboy(self);
 
-        // self.bus.print_graphics_data();
+        self.bus.print_graphics_data();
+        self.log_last_n_instructions(0x100);
     }
 
-    fn tick_cpu(&mut self) {
-        let (m_cycles, changes) = self.cpu.tick_execution(&mut self.bus);
-        self.handle_changes(changes);
-        self.state.elapsed_cycles += m_cycles.into();
+    fn tick_cpu(&mut self) -> Vec<GameBoyStateChange> {
+        let (m_cycles, changes) = self.cpu.tick(&mut self.bus);
+
+        self.state.elapsed_cpu_cycles += m_cycles.into();
+        self.state.elapsed_cpu_cycles = m_cycles.into();
+
+        changes
     }
 
-    fn tick_oam_dma(&mut self) {
-        if self.state.oam_dma_active {
+    fn tick_oam_dma(&mut self) -> Vec<GameBoyStateChange> {
+        for _ in 0..self.state.last_instruction_t_cycles.0 {
             let complete = self.oam_dma.tick_transfer(&mut self.bus);
             if complete {
                 self.state.oam_dma_active = false;
-                self.bus.end_oam_dma_transfer();
+                return vec![GameBoyStateChange::EndOamDmaTransfer];
             }
         }
+
+        Vec::new()
     }
 
-    fn tick_ppu(&mut self) {}
+    fn tick_ppu_enabled(&mut self) -> Vec<GameBoyStateChange> {
+        let mut changes = Vec::new();
+        let (v_ram, oam, lcd_regs) = self.bus.get_ppu_context_mem();
+        for _ in 0..self.state.last_instruction_t_cycles.0 {
+            changes.append(&mut self.ppu.tick_ppu_enabled(v_ram, oam, lcd_regs))
+        }
+        changes
+    }
+
+    fn tick_ppu_disabled(&mut self) -> Vec<GameBoyStateChange> {
+        let mut changes = Vec::new();
+        let (v_ram, oam, lcd_regs) = self.bus.get_ppu_context_mem();
+        for _ in 0..self.state.last_instruction_t_cycles.0 {
+            changes.append(&mut self.ppu.tick_ppu_disabled(v_ram, oam, lcd_regs))
+        }
+        changes
+    }
 
     fn tick(&mut self) {
-        match self.state.mode {
-            Mode::Executing => {
-                self.tick_cpu();
-                self.tick_oam_dma();
-                self.tick_ppu();
-            },
-            Mode::Stopped => todo!(),
-            Mode::Halted => todo!(),
+        let mut changes = Vec::new();
+        if self.state.is_cpu_active() {
+            changes.append(&mut self.tick_cpu());
+        } else {
+            self.state.last_instruction_t_cycles = TCycles(1);
         }
+        if self.state.is_ppu_active() {
+            changes.append(&mut self.tick_ppu_enabled());
+        } else {
+            changes.append(&mut self.tick_ppu_disabled());
+        }
+        if self.state.is_oam_dma_active() {
+            changes.append(&mut self.tick_oam_dma());
+        }
+        self.handle_changes(changes);
     }
 
-    fn handle_changes(&mut self, changes: Vec<Change>) {
+    fn handle_changes(&mut self, changes: Vec<GameBoyStateChange>) {
         for change in changes {
             self.handle_change(change)
         }
     }
 
-    fn handle_change(&mut self, change: Change) {
+    fn handle_change(&mut self, change: GameBoyStateChange) {
         match change {
-            Change::UnmapBootRom => self.bus.unmap_bootrom(),
-            Change::ChangeGameBoyMode(mode) => self.state.mode = mode,
-            Change::ChangeSelectedWorkRam(bank_num) => {
+            GameBoyStateChange::UnmapBootRom => self.bus.handle_memory_map_event(MemoryMapEvent::UnmapBootRom),
+            // GameBoyStateChange::UnmapBootRom => self.state.elapsed_cpu_cycles = TCycles(u32::MAX as u64),
+            GameBoyStateChange::ChangeGameBoyMode(mode) => self.mode_transition(mode),
+            GameBoyStateChange::ChangeSelectedWorkRam(bank_num) => {
                 self.bus.set_active_bank_number(MemoryTarget::BankableWorkRam, bank_num)
             },
-            Change::ChangeObjectPriorityMode(mode) => self.bus.set_object_priority_mode(mode),
-            Change::StartOamDmaTransfer(input) => self.initiate_dma_transfer(input),
+            GameBoyStateChange::ChangeObjectPriorityMode(mode) => self.bus.set_object_priority_mode(mode),
+            GameBoyStateChange::StartOamDmaTransfer(input) => self.initiate_dma_transfer(input),
+            GameBoyStateChange::EndOamDmaTransfer => self.end_dma_transfer(),
+            GameBoyStateChange::UpdatePpuMode(mode) => {
+                self.bus.handle_memory_map_event(MemoryMapEvent::UpdatePpuMode(mode))
+            },
+            GameBoyStateChange::ChangeLCdPpuState(enabled) => self.state.ppu_active = enabled,
+            GameBoyStateChange::Interrupt(interrupt) => (),
         }
     }
 
     fn initiate_dma_transfer(&mut self, input: u8) {
         self.oam_dma.initiate_transfer(input);
         self.state.oam_dma_active = true;
-        self.bus.start_oam_dma_transfer();
+        self.bus.handle_memory_map_event(MemoryMapEvent::StartOamDataTransfer);
+    }
+
+    fn end_dma_transfer(&mut self) {
+        self.state.oam_dma_active = false;
+        self.bus.handle_memory_map_event(MemoryMapEvent::EndOamDataTransfer);
+    }
+
+    fn mode_transition(&mut self, new_mode: GameBoyMode) {
+        self.state.mode_transition(new_mode);
     }
 
     pub fn get_elapsed_cycles(&self) -> TCycles {
-        self.state.elapsed_cycles
+        self.state.elapsed_cpu_cycles
     }
 }
 
 struct GameBoyState {
-    mode: Mode,
-    elapsed_cycles: TCycles,
+    mode: GameBoyMode,
+    elapsed_cpu_cycles: TCycles,
+    last_instruction_t_cycles: TCycles,
     oam_dma_active: bool,
+    ppu_active: bool,
+    cpu_active: bool,
+}
+
+impl GameBoyState {
+    fn mode_transition(&mut self, new_mode: GameBoyMode) {
+        self.mode = new_mode;
+        todo!()
+    }
+    fn is_cpu_active(&self) -> bool {
+        self.cpu_active
+    }
+    fn is_ppu_active(&self) -> bool {
+        self.ppu_active
+    }
+    fn is_oam_dma_active(&self) -> bool {
+        self.oam_dma_active
+    }
 }
 
 impl Default for GameBoyState {
     fn default() -> Self {
         Self {
             mode: Default::default(),
-            elapsed_cycles: Default::default(),
+            elapsed_cpu_cycles: Default::default(),
+            last_instruction_t_cycles: TCycles(1),
             oam_dma_active: false,
+            ppu_active: false,
+            cpu_active: true,
         }
     }
 }
 
 #[derive(Default, Debug)]
-pub enum Mode {
+pub enum GameBoyMode {
     #[default]
     Executing,
     Stopped,
@@ -139,14 +222,24 @@ impl std::ops::AddAssign for TCycles {
 }
 
 #[derive(Debug)]
-pub enum Change {
+pub enum GameBoyStateChange {
     UnmapBootRom,
-    ChangeGameBoyMode(Mode),
+    ChangeGameBoyMode(GameBoyMode),
     ChangeSelectedWorkRam(u8),
+    ChangeLCdPpuState(Enabled),
     ChangeObjectPriorityMode(crate::graphics::oam::PriorityMode),
     StartOamDmaTransfer(u8),
-    // Add others here
+    UpdatePpuMode(PpuTickMode),
+    EndOamDmaTransfer,
+    Interrupt(Interrupt),
 }
+
+#[derive(Debug)]
+pub enum Interrupt {
+    LycEqualsLy,
+}
+
+pub type Enabled = bool;
 
 pub enum HardwareType {
     Dmg,

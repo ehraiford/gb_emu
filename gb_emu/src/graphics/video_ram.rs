@@ -1,7 +1,4 @@
-use crate::{
-    bus::{Address, BusAccessFailure, BusAccessible, MemoryTarget},
-    graphics::{lcd::PpuMode, ppu::VideoMemory},
-};
+use crate::bus::{Address, BusAccessFailure, BusAccessible, MemoryTarget};
 
 pub struct VideoRam {
     ram_banks: Vec<VideoRamBank>,
@@ -25,13 +22,6 @@ impl VideoRam {
             tile_maps: Default::default(),
             cpu_accessible: true,
         }
-    }
-
-    fn is_cpu_accessible(&self) -> bool {
-        self.cpu_accessible
-    }
-    fn set_cpu_accessibility(&mut self, setting: bool) {
-        self.cpu_accessible = setting
     }
 
     /// todo!("This will need to point to the correct one when there's multiple"
@@ -62,9 +52,10 @@ impl VideoRam {
     }
 
     pub fn print_all_tiles(&self) {
-        for block in self.ram_banks[self.active_bank_num()].tiles {
-            for tile in block {
+        for (i, block) in self.ram_banks[self.active_bank_num()].tiles.iter().enumerate() {
+            for (j, tile) in block.iter().enumerate() {
                 if !tile.is_blank() {
+                    println!("Block {i}, Tile {j}");
                     tile.display_in_terminal();
                 }
             }
@@ -76,10 +67,6 @@ impl BusAccessible for VideoRam {
     const MM_DEVICE: MemoryTarget = MemoryTarget::VideoRam;
 
     fn read(&mut self, address: Address) -> crate::bus::BusAccessOutcome<u8> {
-        if !self.is_cpu_accessible() {
-            return u8::from(BusAccessFailure::InaccessbileInPpuMode).into();
-        }
-
         if address < Self::TILE_MAP_START_ADDR {
             let address = Self::local(address);
             let byte_index = TileByteIndex::address_to_index(address);
@@ -91,10 +78,7 @@ impl BusAccessible for VideoRam {
     }
 
     fn write(&mut self, address: Address, value: u8) -> crate::bus::BusAccessOutcome<()> {
-        if !self.is_cpu_accessible() {
-            return BusAccessFailure::InaccessbileInPpuMode.into();
-        }
-
+        // println!("Writing {value} to address: 0x{address:04x}");
         if address < Self::TILE_MAP_START_ADDR {
             let address = Self::local(address);
 
@@ -129,17 +113,6 @@ impl Default for VideoRam {
     }
 }
 
-impl VideoMemory for VideoRam {
-    fn update_ppu_mode(&mut self, mode: PpuMode) {
-        match mode {
-            PpuMode::HorizontalBlank | PpuMode::VerticalBlank | PpuMode::DrawingPixels => {
-                self.set_cpu_accessibility(true)
-            },
-            PpuMode::OamScan => self.set_cpu_accessibility(false),
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 struct VideoRamBank {
     tiles: [[Tile; 128]; 3],
@@ -164,6 +137,9 @@ impl VideoRamBank {
     }
 
     fn set_byte(&mut self, byte_index: TileByteIndex, value: u8) {
+        if value != 0 {
+            println!("Block {}, Tile {}", byte_index.block_number, byte_index.tile_index);
+        }
         self.tiles[byte_index.block_number][byte_index.tile_index].set_byte(byte_index.row, byte_index.column, value);
     }
     fn get_byte(&self, byte_index: TileByteIndex) -> u8 {
@@ -184,7 +160,11 @@ pub struct Tile {
 
 impl Tile {
     fn set_byte(&mut self, row: usize, column: usize, value: u8) {
-        self.data[column][row] = value
+        self.data[row][column] = value;
+        if value != 0 {
+            println!("Tile is now:\n",);
+            self.display_in_terminal()
+        }
     }
 
     fn get_byte(&self, row: usize, column: usize) -> u8 {
@@ -208,8 +188,9 @@ impl Tile {
         let pixels = self.get_pixels();
         for row in pixels {
             for pixel in row {
-                print!("\x1b[48;5;{}m  \x1b[0m", TEST_COLORS[pixel.color_number as usize]);
+                print!("{}", pixel.color_number);
             }
+            println!()
         }
     }
 
@@ -298,19 +279,29 @@ struct TileByteIndex {
 }
 
 impl TileByteIndex {
-    const TILES_IN_BLOCK: usize = 128;
+    const BLOCK_SIZE: usize = 128;
     const BYTES_IN_TILE: usize = 16;
-    const ROWS_IN_TILE: usize = 8;
-    const COLS_IN_TYLE: usize = 2;
+    const COLS_IN_TILE: usize = 2;
 
     /// Translates a local address to the indeces required to access it
     fn address_to_index(address: Address) -> Self {
         let address = address as usize;
 
-        let block_number = address / (Self::BYTES_IN_TILE * Self::TILES_IN_BLOCK);
-        let tile_index = (address % Self::TILES_IN_BLOCK) / Self::BYTES_IN_TILE;
-        let row = (address % Self::BYTES_IN_TILE) / Self::ROWS_IN_TILE;
-        let column = address % Self::COLS_IN_TYLE;
+        let block_number = address / (Self::BYTES_IN_TILE * Self::BLOCK_SIZE);
+        let in_block_address = address % (Self::BYTES_IN_TILE * Self::BLOCK_SIZE);
+        let tile_index = in_block_address / Self::BYTES_IN_TILE;
+        let in_tile_address = in_block_address % Self::BYTES_IN_TILE;
+        let row = in_tile_address / Self::COLS_IN_TILE;
+        let column = in_tile_address % Self::COLS_IN_TILE;
+
+        // println!(
+        //     "In Block Address: {}, In Tile Address {}",
+        //     in_block_address, in_tile_address
+        // );
+        // println!(
+        //     "Mapped {address} to Block {}, Tile {}, Row {}, Column {}",
+        //     block_number, tile_index, row, column
+        // );
 
         Self { block_number, tile_index, column, row }
     }

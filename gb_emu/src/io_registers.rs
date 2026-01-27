@@ -1,11 +1,11 @@
 use crate::{
-    bus::{Address, BusAccessFailure, BusAccessOutcome, BusAccessible, INACCESIBLE_RETURN_VALUE, MemoryTarget},
-    game_boy::Change,
+    bus::{Address, BusAccessFailure, BusAccessOutcome, BusAccessible, MemoryTarget},
+    game_boy::GameBoyStateChange,
     graphics::{lcd::LcdRegisters, oam::PriorityMode},
 };
 
 pub struct IoRegisters {
-    lcd_registers: LcdRegisters,
+    pub lcd_registers: LcdRegisters,
 }
 
 impl IoRegisters {}
@@ -54,13 +54,16 @@ impl BusAccessible for IoRegisters {
             IoSection::Lcd => self.lcd_registers.write(address, value),
             IoSection::Keys => BusAccessFailure::Unimplemented.into(),
             IoSection::VramBankSelect => BusAccessFailure::Unimplemented.into(),
-            IoSection::BootRomMappingControl => BusAccessOutcome((), vec![Change::UnmapBootRom]),
+            IoSection::BootRomMappingControl => BusAccessOutcome((), vec![GameBoyStateChange::UnmapBootRom]),
             IoSection::Ir => BusAccessFailure::Unimplemented.into(),
             IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(),
-            IoSection::ObjectPriorityMode => {
-                BusAccessOutcome((), vec![Change::ChangeObjectPriorityMode(PriorityMode::from(value))])
+            IoSection::ObjectPriorityMode => BusAccessOutcome(
+                (),
+                vec![GameBoyStateChange::ChangeObjectPriorityMode(PriorityMode::from(value))],
+            ),
+            IoSection::WramBankSelect => {
+                BusAccessOutcome((), vec![GameBoyStateChange::ChangeSelectedWorkRam(value & 0b111)])
             },
-            IoSection::WramBankSelect => BusAccessOutcome((), vec![Change::ChangeSelectedWorkRam(value & 0b111)]),
             IoSection::VramDma => todo!(),
         }
     }
@@ -137,72 +140,6 @@ impl IoSection {
     /// Gets the range (global) for a IO Register section.
     const fn get_range(&self) -> (Address, Address) {
         IO_MAP[*self as usize].1
-    }
-
-    pub fn get_default_value_mapping(&self) -> Vec<(Address, u8)> {
-        match self {
-            IoSection::JoypadInput => vec![(0xFF00, 0xCF)],
-            IoSection::SerialTransfer => vec![(0xFF01, 0x00), (0xFF02, 0x7E)],
-            IoSection::TimerAndDivider => vec![(0xFF04, 0x18), (0xFF05, 0x00), (0xFF06, 0x00), (0xFF07, 0xF8)],
-            IoSection::Interrupts => vec![(0xFF0F, 0xE1)],
-            IoSection::Audio => vec![
-                (0xFF10, 0x80),
-                (0xFF11, 0xBF),
-                (0xFF12, 0xF3),
-                (0xFF13, 0xFF),
-                (0xFF14, 0xBF),
-                (0xFF16, 0x3F),
-                (0xFF17, 0x00),
-                (0xFF18, 0xFF),
-                (0xFF19, 0xBF),
-                (0xFF1A, 0x7F),
-                (0xFF1B, 0xFF),
-                (0xFF1C, 0x9F),
-                (0xFF1D, 0xFF),
-                (0xFF1E, 0xBF),
-                (0xFF20, 0xFF),
-                (0xFF21, 0x00),
-                (0xFF22, 0x00),
-                (0xFF23, 0xBF),
-                (0xFF24, 0x77),
-                (0xFF25, 0xF3),
-                (0xFF26, 0xF1),
-            ],
-            IoSection::WavePattern => vec![],
-            IoSection::Lcd => vec![
-                (0xFF40, 0x91),
-                (0xFF41, 0x81),
-                (0xFF42, 0x00),
-                (0xFF43, 0x00),
-                (0xFF44, 0x91),
-                (0xFF45, 0x00),
-                (0xFF46, 0xFF),
-                (0xFF47, 0xFC),
-                (0xFF48, INACCESIBLE_RETURN_VALUE),
-                (0xFF49, INACCESIBLE_RETURN_VALUE),
-                (0xFF4A, 0x00),
-                (0xFF4B, 0x00),
-            ],
-            IoSection::Keys => vec![(0xFF4C, INACCESIBLE_RETURN_VALUE), (0xFF4D, INACCESIBLE_RETURN_VALUE)],
-            IoSection::VramBankSelect => vec![(0xFF4F, INACCESIBLE_RETURN_VALUE)],
-            IoSection::BootRomMappingControl => vec![(0xFF50, INACCESIBLE_RETURN_VALUE)],
-            IoSection::VramDma => vec![
-                (0xFF51, INACCESIBLE_RETURN_VALUE),
-                (0xFF52, INACCESIBLE_RETURN_VALUE),
-                (0xFF53, INACCESIBLE_RETURN_VALUE),
-                (0xFF54, INACCESIBLE_RETURN_VALUE),
-                (0xFF55, INACCESIBLE_RETURN_VALUE),
-            ],
-            IoSection::Ir => vec![(0xFF56, INACCESIBLE_RETURN_VALUE)],
-            IoSection::BgObjPalettes => vec![
-                (0xFF68, INACCESIBLE_RETURN_VALUE),
-                (0xFF69, INACCESIBLE_RETURN_VALUE),
-                (0xFF6A, INACCESIBLE_RETURN_VALUE),
-                (0xFF6B, INACCESIBLE_RETURN_VALUE),
-            ],
-            IoSection::ObjectPriorityMode => vec![],
-            IoSection::WramBankSelect => vec![(0xFF70, INACCESIBLE_RETURN_VALUE)],
-        }
     }
 
     fn from_address(address: Address) -> Option<Self> {

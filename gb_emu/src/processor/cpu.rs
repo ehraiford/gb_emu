@@ -1,6 +1,6 @@
 use crate::{
-    bus::{Bus, BusAccessOutcome},
-    game_boy::{Change, MCycles, Mode},
+    bus::{Address, Bus, BusAccessOutcome},
+    game_boy::{GameBoyMode, GameBoyStateChange, MCycles},
     processor::instructions::{
         EightBitOperand, Instruction, InstructionError, InstructionOutcome, OpCode, Operand, OperandType,
         SignedEightBitOperand, SixteenBitOperand,
@@ -10,11 +10,11 @@ use crate::{
 pub struct Cpu {
     registers: [u16; 6],
     ime: bool,
-    pub executed_instructions: Vec<&'static Instruction>,
+    pub executed_instructions: Vec<(&'static Instruction, Address)>,
 }
 
 impl Cpu {
-    pub fn tick_execution(&mut self, bus: &mut Bus) -> (MCycles, Vec<Change>) {
+    pub fn tick(&mut self, bus: &mut Bus) -> (MCycles, Vec<GameBoyStateChange>) {
         let pc = self.get_pc();
 
         let BusAccessOutcome(instruction, mut changes) = bus.read_next_instruction(pc);
@@ -30,7 +30,7 @@ impl Cpu {
                 pc_offset = 0;
             },
             InstructionOutcome::Ok => (),
-            InstructionOutcome::ChangeGameBoyMode(mode) => changes.push(Change::ChangeGameBoyMode(mode)),
+            InstructionOutcome::ChangeGameBoyMode(mode) => changes.push(GameBoyStateChange::ChangeGameBoyMode(mode)),
             InstructionOutcome::ExplicitlySetPC => pc_offset = 0,
         };
 
@@ -288,8 +288,13 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
                 BusAccessOutcome(value, side_effects)
             },
             EightBitOperand::FF00OffsetByA8 => {
-                let BusAccessOutcome(value, mut changes) = self.bus.read(self.cpu.get_pc() + 1);
-                let BusAccessOutcome(value, mut changes_second_access) = self.bus.read(0xFF00 + value as u16);
+                let BusAccessOutcome(address, mut changes) = self.bus.read(self.cpu.get_pc() + 1);
+                let BusAccessOutcome(value, mut changes_second_access) = self.bus.read(0xFF00 + address as u16);
+                // println!(
+                //     "FF00 Offset by A8: {} from address 0x{:04x}",
+                //     value,
+                //     0xFF00 + address as u16
+                // );
                 changes.append(&mut changes_second_access);
                 BusAccessOutcome(value, changes)
             },
@@ -309,7 +314,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         }
     }
 
-    fn set_u8_operand(&mut self, operand: &EightBitOperand, value: u8) -> Vec<Change> {
+    fn set_u8_operand(&mut self, operand: &EightBitOperand, value: u8) -> Vec<GameBoyStateChange> {
         match operand {
             EightBitOperand::A => {
                 self.cpu.set_a(value);
@@ -355,8 +360,8 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
                 vec![]
             },
             EightBitOperand::FF00OffsetByA8 => {
-                let BusAccessOutcome(value, mut changes) = self.bus.read(self.cpu.get_pc() + 1);
-                let mut changes_second_access = self.bus.write(0xFF00 + value as u16, value).1;
+                let BusAccessOutcome(address, mut changes) = self.bus.read(self.cpu.get_pc() + 1);
+                let mut changes_second_access = self.bus.write(0xFF00 + address as u16, value).1;
                 changes.append(&mut changes_second_access);
                 changes
             },
@@ -384,6 +389,11 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             SixteenBitOperand::A16 => self.bus.read_u16(self.cpu.get_pc() + 1),
             SixteenBitOperand::N16 => self.bus.read_u16(self.cpu.get_pc() + 1),
             SixteenBitOperand::Immediate(imm) => BusAccessOutcome(*imm, vec![]),
+            SixteenBitOperand::E8 => {
+                let BusAccessOutcome(value, changes) = self.bus.read(self.cpu.get_pc() + 1);
+                let unsigned_value = (value as i8) as u16;
+                BusAccessOutcome(unsigned_value, changes)
+            },
         }
     }
 
@@ -405,7 +415,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         //         self.cpu.get_pc()
         //     ));
         // }
-        self.cpu.executed_instructions.push(instruction);
+        self.cpu.executed_instructions.push((instruction, self.cpu.get_pc()));
 
         match instruction.op_code {
             OpCode::Adc => self.add_with_carry(&EightBitOperand::try_from(instruction.operands[1]).unwrap()),
@@ -413,10 +423,13 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
                 OperandType::EightBitOperand => {
                     self.add_8_bit(&EightBitOperand::try_from(instruction.operands[1]).unwrap())
                 },
-                OperandType::SixteenBitOperand => self.add_16_bit(
-                    &SixteenBitOperand::try_from(instruction.operands[0]).unwrap(),
-                    &SixteenBitOperand::try_from(instruction.operands[1]).unwrap(),
-                ),
+                OperandType::SixteenBitOperand => {
+                    println!("instruction: {}", instruction);
+                    self.add_16_bit(
+                        &SixteenBitOperand::try_from(instruction.operands[0]).unwrap(),
+                        &SixteenBitOperand::try_from(instruction.operands[1]).unwrap(),
+                    )
+                },
                 _ => unreachable!("There shouldn't be any places this is called that reaches here."),
             },
             OpCode::And => self.and(&EightBitOperand::try_from(instruction.operands[1]).unwrap()),
@@ -648,6 +661,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     fn compare(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
         let BusAccessOutcome(operand_value, side_effects) = self.get_u8_operand(&operand);
         let a = self.get_a();
+        // println!("Compare A ({a}) and N8 ({operand_value})");
         self.set_flags(
             a == operand_value,
             true,
@@ -832,7 +846,6 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         operand1: &EightBitOperand,
     ) -> BusAccessOutcome<InstructionOutcome> {
         let BusAccessOutcome(value, mut side_effects) = self.get_u8_operand(operand1);
-
         let mut side_effects_2nd_access = self.set_u8_operand(operand0, value);
 
         side_effects.append(&mut side_effects_2nd_access);
@@ -1139,7 +1152,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     }
 
     fn halt(&mut self) -> BusAccessOutcome<InstructionOutcome> {
-        BusAccessOutcome(InstructionOutcome::ChangeGameBoyMode(Mode::Halted), vec![])
+        BusAccessOutcome(InstructionOutcome::ChangeGameBoyMode(GameBoyMode::Halted), vec![])
     }
 
     fn nop(&self) -> BusAccessOutcome<InstructionOutcome> {
@@ -1147,7 +1160,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     }
 
     fn stop(&mut self) -> BusAccessOutcome<InstructionOutcome> {
-        BusAccessOutcome(InstructionOutcome::ChangeGameBoyMode(Mode::Stopped), vec![])
+        BusAccessOutcome(InstructionOutcome::ChangeGameBoyMode(GameBoyMode::Stopped), vec![])
     }
 }
 

@@ -14,7 +14,7 @@ impl RomBank {
     }
 
     pub fn write(&mut self, _: Address, _: u8) -> BusAccessOutcome<()> {
-        BusAccessFailure::TriedWritingToRom.into()
+        BusAccessFailure::TriedWritingToReadOnlyMemory.into()
     }
 
     pub fn peek(&self, address: Address) -> u8 {

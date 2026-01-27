@@ -218,7 +218,7 @@ pub const UNPREFIXED: [Instruction; 256] = [
     Instruction::new(OpCode::Rst, &[Operand::Immediate(10)], 16, 1),
     Instruction::new(OpCode::Ret, &[Operand::C], 20, 1),
     Instruction::new(OpCode::Reti, &[], 16, 1),
-    Instruction::new(OpCode::Jp, &[Operand::C, Operand::A16], 16, 3),
+    Instruction::new(OpCode::Jp, &[Operand::Carry, Operand::A16], 16, 3),
     Instruction::new(OpCode::Illegal, &[], 4, 1),
     Instruction::new(OpCode::Call, &[Operand::C, Operand::A16], 24, 3),
     Instruction::new(OpCode::Illegal, &[], 4, 1),

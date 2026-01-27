@@ -1,29 +1,21 @@
-use crate::bus::{Address, BusAccessOutcome};
+use crate::bus::{Address, BusAccessFailure, BusAccessOutcome};
 
 pub struct BootRom {
     data: &'static [u8; BOOTROM.len()],
-    mapped: bool,
 }
 
 impl BootRom {
-    pub const SIZE: u16 = BOOTROM.len() as u16;
-
-    pub fn mapped(&self) -> bool {
-        self.mapped
-    }
-
-    pub fn unmap(&mut self) {
-        self.mapped = false;
-    }
-
     pub fn read(&self, address: Address) -> BusAccessOutcome<u8> {
         BusAccessOutcome(self.data[address as usize], vec![])
+    }
+    pub fn write(&mut self, _address: Address, _value: u8) -> BusAccessOutcome<()> {
+        BusAccessFailure::TriedWritingToReadOnlyMemory.into()
     }
 }
 
 impl Default for BootRom {
     fn default() -> Self {
-        Self { data: &BOOTROM, mapped: true }
+        Self { data: &BOOTROM }
     }
 }
 
@@ -44,4 +36,3 @@ const BOOTROM: [u8; 256] = [
     0x31, 0x2E, 0x32, 0x00, 0x3E, 0xFF, 0xC6, 0x01, 0x0B, 0x1E, 0xD8, 0x21, 0x4D, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x3E, 0x01, 0xE0, 0x50,
 ];
-

@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use crate::{
-    game_boy::Mode,
+    game_boy::GameBoyMode,
     processor::instruction_tables::{CBPREFIXED, UNPREFIXED},
 };
 
@@ -327,6 +327,7 @@ pub enum SixteenBitOperand {
     A16,
     N16,
     SP,
+    E8,
     Immediate(u16),
 }
 
@@ -342,6 +343,7 @@ impl TryFrom<Operand> for SixteenBitOperand {
             Operand::A16 => Ok(Self::A16),
             Operand::N16 => Ok(Self::N16),
             Operand::SP => Ok(Self::SP),
+            Operand::E8 => Ok(Self::E8),
             _ => Err(InstructionError::InvalidOperand),
         }
     }
@@ -368,6 +370,6 @@ impl TryFrom<Operand> for SignedEightBitOperand {
 pub enum InstructionOutcome {
     TookConditionalBranch(u16),
     Ok,
-    ChangeGameBoyMode(Mode),
+    ChangeGameBoyMode(GameBoyMode),
     ExplicitlySetPC,
 }
