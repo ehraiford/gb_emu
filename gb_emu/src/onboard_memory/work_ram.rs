@@ -13,11 +13,11 @@ pub struct WorkRam00 {
 impl BusAccessible for WorkRam00 {
     const MM_DEVICE: crate::bus::MemoryTarget = crate::bus::MemoryTarget::WorkRam00;
 
-    fn read(&mut self, address: Address) -> crate::bus::BusAccessOutcome<u8> {
+    fn read(&mut self, address: Address) -> u8 {
         self.bank.read(Self::local(address))
     }
 
-    fn write(&mut self, address: Address, value: u8) -> crate::bus::BusAccessOutcome<()> {
+    fn write(&mut self, address: Address, value: u8) {
         self.bank.write(Self::local(address), value)
     }
 
@@ -40,11 +40,11 @@ impl BankableWorkRam {
 impl BusAccessible for BankableWorkRam {
     const MM_DEVICE: crate::bus::MemoryTarget = crate::bus::MemoryTarget::BankableWorkRam;
 
-    fn read(&mut self, address: Address) -> crate::bus::BusAccessOutcome<u8> {
+    fn read(&mut self, address: Address) -> u8 {
         self.bankable_ram.read(Self::local(address))
     }
 
-    fn write(&mut self, address: Address, value: u8) -> crate::bus::BusAccessOutcome<()> {
+    fn write(&mut self, address: Address, value: u8) {
         self.bankable_ram.write(Self::local(address), value)
     }
 

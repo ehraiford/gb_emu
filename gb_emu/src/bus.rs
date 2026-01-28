@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::{
     cartridge::cartridge::{Cartridge, CartridgeDevice},
-    game_boy::GameBoyStateChange,
+    game_boy::GameBoyEvent,
     graphics::{
         lcd::LcdRegisters,
         oam::{ObjectAttributeMemory, PriorityMode},
@@ -58,35 +58,31 @@ impl Bus {
         (&mut self.v_ram, &mut self.oam, &mut self.io_registers.lcd_registers)
     }
 
-    pub fn read_u16(&mut self, address: Address) -> BusAccessOutcome<u16> {
-        let BusAccessOutcome(little_byte, mut side_effects) = self.read(address);
-        let BusAccessOutcome(big_byte, mut side_effects_2nd_access) = self.read(address + 1);
-        side_effects.append(&mut side_effects_2nd_access);
+    pub fn read_u16(&mut self, address: Address) -> u16 {
+        let little_byte = self.read(address);
+        let big_byte = self.read(address + 1);
 
-        BusAccessOutcome(concat_2_bytes(big_byte, little_byte), side_effects)
+        concat_2_bytes(big_byte, little_byte)
     }
-    pub fn write_u16(&mut self, address: Address, value: Address) -> BusAccessOutcome<()> {
+    pub fn write_u16(&mut self, address: Address, value: Address) {
         let little_byte = (value & 0xFF) as u8;
         let big_byte = (value >> 8) as u8;
 
-        let mut side_effects = self.write(address, little_byte).1;
+        self.write(address, little_byte);
 
-        side_effects.append(&mut self.write(address + 1, big_byte).1);
-
-        BusAccessOutcome((), side_effects)
+        self.write(address + 1, big_byte);
     }
-    pub fn read_next_instruction(&mut self, pc: Address) -> BusAccessOutcome<&'static Instruction> {
-        let BusAccessOutcome(first_byte, mut side_effects) = self.read(pc);
+    pub fn read_next_instruction(&mut self, pc: Address) -> &'static Instruction {
+        let first_byte = self.read(pc);
 
         let unprefixed_instruction = &UNPREFIXED[first_byte as usize];
         let outcome = match unprefixed_instruction.op_code {
             OpCode::Prefix => {
-                let BusAccessOutcome(second_byte, mut side_effects_second_access) = self.read(pc + 1);
+                let second_byte = self.read(pc + 1);
                 let prefixed_instruction = &CBPREFIXED[second_byte as usize];
-                side_effects.append(&mut side_effects_second_access);
-                BusAccessOutcome(prefixed_instruction, side_effects)
+                prefixed_instruction
             },
-            _ => BusAccessOutcome(unprefixed_instruction, side_effects),
+            _ => unprefixed_instruction,
         };
 
         // log("Next instruction is: {:?}", instruction.op_code);
@@ -101,7 +97,7 @@ impl Bus {
         // self.v_ram.print_all_tiles();
     }
 
-    pub fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
+    pub fn read(&mut self, address: Address) -> u8 {
         let Some(device) = self.get_cpu_accessible_device_from_address(address) else {
             return BusAccessFailure::InaccessibleByCpu.into();
         };
@@ -126,7 +122,7 @@ impl Bus {
     pub fn peek(&self, address: Address) -> u8 {
         let device = self.get_device_from_address(address);
         match device {
-            MemoryTarget::BootRom => self.boot_rom.read(address).0,
+            MemoryTarget::BootRom => self.boot_rom.read(address),
             MemoryTarget::RomBank00 => self.cartridge.peek(address, CartridgeDevice::RomBank00),
             MemoryTarget::BankableRom => self.cartridge.peek(address, CartridgeDevice::BankableRom),
             MemoryTarget::VideoRam => self.v_ram.peek(address),
@@ -141,7 +137,7 @@ impl Bus {
             MemoryTarget::InterruptEnableRegister => self.ie.peek(address),
         }
     }
-    pub fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
+    pub fn write(&mut self, address: Address, value: u8) -> () {
         let Some(device) = self.get_cpu_accessible_device_from_address(address) else {
             return BusAccessFailure::InaccessibleByCpu.into();
         };
@@ -253,8 +249,8 @@ pub trait BusAccessible {
         Self::MM_DEVICE.get_end_address_inclusive()
     }
 
-    fn read(&mut self, address: Address) -> BusAccessOutcome<u8>;
-    fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()>;
+    fn read(&mut self, address: Address) -> u8;
+    fn write(&mut self, address: Address, value: u8) -> ();
     fn peek(&self, address: Address) -> u8;
 }
 
@@ -266,6 +262,7 @@ impl MemoryMap {
     fn handle_memory_map_event(&mut self, event: MemoryMapEvent) {
         match event {
             MemoryMapEvent::UnmapBootRom => {
+                println!("Unmapping bootrom");
                 self.map[0].device = MemoryTarget::RomBank00;
             },
             MemoryMapEvent::UpdatePpuMode(ppu_tick_mode) => {
@@ -420,19 +417,40 @@ impl MemoryMapEntry {
 
 pub type Address = u16;
 
-pub struct BusAccessOutcome<T>(pub T, pub Vec<GameBoyStateChange>);
-
-impl<T: BusDefault> BusAccessOutcome<T> {
-    pub fn default_outcome() -> Self {
-        Self(T::DEFAULT_BUS_VALUE, vec![])
-    }
-}
 pub enum BusAccessFailure {
     NothingMappedToAddress,
     InaccessibleByCpu,
     TriedAccessingUnusableMemory,
     TriedWritingToReadOnlyMemory,
     Unimplemented,
+}
+
+impl From<BusAccessFailure> for u8 {
+    fn from(failure: BusAccessFailure) -> Self {
+        log(format_args!("{}", failure));
+        Self::DEFAULT_BUS_VALUE
+    }
+}
+
+impl From<BusAccessFailure> for u16 {
+    fn from(failure: BusAccessFailure) -> Self {
+        log(format_args!("{}", failure));
+        Self::DEFAULT_BUS_VALUE
+    }
+}
+
+impl From<BusAccessFailure> for InstructionOutcome {
+    fn from(failure: BusAccessFailure) -> Self {
+        log(format_args!("{}", failure));
+        Self::DEFAULT_BUS_VALUE
+    }
+}
+
+impl From<BusAccessFailure> for () {
+    fn from(failure: BusAccessFailure) -> Self {
+        log(format_args!("{}", failure));
+        Self::DEFAULT_BUS_VALUE
+    }
 }
 
 impl Display for BusAccessFailure {
@@ -459,38 +477,6 @@ pub enum MemoryMapEvent {
 /// The return value for reads to inaccessible devices.
 /// Just standardizing our garbage and removing mystical numbers.
 pub const INACCESSIBLE_RETURN_VALUE: u8 = 0xFF;
-
-impl From<u8> for BusAccessOutcome<u8> {
-    fn from(value: u8) -> Self {
-        Self(value, vec![])
-    }
-}
-
-impl From<u16> for BusAccessOutcome<u16> {
-    fn from(value: u16) -> Self {
-        Self(value, vec![])
-    }
-}
-
-impl From<()> for BusAccessOutcome<()> {
-    fn from(value: ()) -> Self {
-        Self(value, vec![])
-    }
-}
-
-impl<T: BusDefault> From<BusAccessFailure> for BusAccessOutcome<T> {
-    fn from(failure: BusAccessFailure) -> Self {
-        // log(format_args!("{}", access_failure));
-        Self(T::DEFAULT_BUS_VALUE, vec![])
-    }
-}
-
-impl From<BusAccessFailure> for u8 {
-    fn from(failure: BusAccessFailure) -> Self {
-        // log(format_args!("{}", access_failure));
-        u8::DEFAULT_BUS_VALUE
-    }
-}
 
 pub trait BusDefault {
     const DEFAULT_BUS_VALUE: Self;

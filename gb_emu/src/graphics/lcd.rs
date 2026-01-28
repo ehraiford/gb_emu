@@ -1,8 +1,10 @@
 use crate::{
-    bus::{Address, BusAccessFailure, BusAccessOutcome},
-    game_boy::GameBoyStateChange,
+    bus::{Address, BusAccessFailure},
+    game_boy::{GameBoyEvent, notate_event},
     graphics::ppu::{Ppu, PpuTickMode},
 };
+
+#[derive(Default)]
 pub struct LcdRegisters {
     control_flags: u8,
 
@@ -25,13 +27,11 @@ impl LcdRegisters {
         self.ly
     }
 
-    pub fn increment_ly(&mut self) -> Vec<GameBoyStateChange> {
+    pub fn increment_ly(&mut self) {
         self.ly = (self.ly + 1) % Ppu::SCREEN_HEIGHT;
         if self.ly == self.ly_compare {
             self.set_status_flag(LcdStatusFlag::LycEqualsLy, true);
-            vec![GameBoyStateChange::Interrupt(crate::game_boy::Interrupt::LycEqualsLy)]
-        } else {
-            vec![]
+            notate_event(GameBoyEvent::Interrupt(crate::game_boy::Interrupt::LycEqualsLy));
         }
     }
 
@@ -39,20 +39,20 @@ impl LcdRegisters {
         self.ly = 0;
     }
 
-    pub fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
-        BusAccessOutcome(self.peek(address), vec![])
+    pub fn read(&mut self, address: Address) -> u8 {
+        self.peek(address)
     }
 
-    pub fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
+    pub fn write(&mut self, address: Address, value: u8) {
         let address = address - Self::START_ADDRESS;
         match address {
-            0 => return BusAccessOutcome((), self.set_control_flags(value)),
-            1 => return BusAccessFailure::TriedWritingToReadOnlyMemory.into(),
+            0 => self.set_control_flags(value),
+            1 => BusAccessFailure::TriedWritingToReadOnlyMemory.into(),
             2 => self.scy = value,
             3 => self.scx = value,
-            4 => return BusAccessFailure::TriedWritingToReadOnlyMemory.into(),
+            4 => BusAccessFailure::TriedWritingToReadOnlyMemory.into(),
             5 => self.ly_compare = value,
-            6 => return BusAccessOutcome((), vec![GameBoyStateChange::StartOamDmaTransfer(value)]),
+            6 => notate_event(GameBoyEvent::StartOamDmaTransfer(value)),
             7 => self.palette.dmg_palette = value,
             8 => self.palette.ogp0 = value,
             9 => self.palette.ogp1 = value,
@@ -60,7 +60,6 @@ impl LcdRegisters {
             0xB => self.wx = value,
             _ => unreachable!("Nothing should be able to reach to this"),
         };
-        BusAccessOutcome::default_outcome()
     }
 
     pub fn peek(&self, address: Address) -> u8 {
@@ -85,15 +84,13 @@ impl LcdRegisters {
     fn get_control_flag(&self, flag: LcdControlFlag) -> bool {
         (self.control_flags >> flag.get_index()) & 0b1 == 1
     }
-    fn set_control_flags(&mut self, value: u8) -> Vec<GameBoyStateChange> {
+    fn set_control_flags(&mut self, value: u8) {
         let enable_index = LcdControlFlag::LcdPpuEnable.get_index();
         let new_enable_val = value >> enable_index;
         let old_enable_val = self.control_flags >> enable_index;
         self.control_flags = value;
         if new_enable_val ^ old_enable_val == 1 {
-            vec![GameBoyStateChange::ChangeLCdPpuState(new_enable_val == 1)]
-        } else {
-            vec![]
+            notate_event(GameBoyEvent::ChangeLCdPpuState(new_enable_val == 1))
         }
     }
 
@@ -108,7 +105,7 @@ impl LcdRegisters {
         (self.status_flags >> shift) & mask == 1
     }
     fn set_status_flag(&mut self, flag: LcdStatusFlag, value: bool) {
-        let (shift, mask) = flag.get_shift_and_mask();
+        let (shift, _) = flag.get_shift_and_mask();
         let mut status = self.status_flags;
         status &= 0b1 << shift;
         status |= (value as u8) << shift;
@@ -120,28 +117,6 @@ impl LcdRegisters {
     fn set_ppu_mode(&mut self, mode: PpuTickMode) {
         let status = self.status_flags & !0b11;
         self.status_flags = status | u8::from(mode);
-    }
-}
-
-impl Default for LcdRegisters {
-    fn default() -> Self {
-        let mut this = Self {
-            control_flags: Default::default(),
-            ly: Default::default(),
-            ly_compare: Default::default(),
-            status_flags: Default::default(),
-            scy: Default::default(),
-            scx: Default::default(),
-            wy: Default::default(),
-            wx: Default::default(),
-            palette: Default::default(),
-        };
-
-        // for (address, value) in IoSection::Lcd.get_default_value_mapping() {
-        //     this.write(address, value);
-        // }
-
-        this
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::{
-    bus::{Address, BusAccessOutcome, BusAccessible, MemoryTarget},
+    bus::{Address, BusAccessible, MemoryTarget},
     cartridge::{
         external_ram::ExternalRam,
         header::Header,
@@ -53,7 +53,7 @@ impl Cartridge {
         Ok(())
     }
 
-    pub fn read(&mut self, address: Address, device: CartridgeDevice) -> BusAccessOutcome<u8> {
+    pub fn read(&mut self, address: Address, device: CartridgeDevice) -> u8 {
         match device {
             CartridgeDevice::RomBank00 => self.rom_bank_00.read(address),
             CartridgeDevice::BankableRom => self
@@ -64,7 +64,7 @@ impl Cartridge {
                 .read(address, ControlledMemoryDevice::ExternalRam),
         }
     }
-    pub fn write(&mut self, address: Address, device: CartridgeDevice, value: u8) -> BusAccessOutcome<()> {
+    pub fn write(&mut self, address: Address, device: CartridgeDevice, value: u8) {
         match device {
             CartridgeDevice::RomBank00 => self.rom_bank_00.write(address, value),
             CartridgeDevice::BankableRom => {
@@ -164,13 +164,13 @@ impl ControlledMemory {
         }
     }
 
-    pub fn read(&mut self, address: Address, device: ControlledMemoryDevice) -> BusAccessOutcome<u8> {
+    pub fn read(&mut self, address: Address, device: ControlledMemoryDevice) -> u8 {
         match device {
             ControlledMemoryDevice::BankableRom => self.bankable_roms.read(address),
             ControlledMemoryDevice::ExternalRam => self.external_ram.read(address),
         }
     }
-    pub fn write(&mut self, address: Address, device: ControlledMemoryDevice, value: u8) -> BusAccessOutcome<()> {
+    pub fn write(&mut self, address: Address, device: ControlledMemoryDevice, value: u8) {
         match device {
             ControlledMemoryDevice::BankableRom => self.bankable_roms.write(address, value),
             ControlledMemoryDevice::ExternalRam => self.external_ram.write(address, value),

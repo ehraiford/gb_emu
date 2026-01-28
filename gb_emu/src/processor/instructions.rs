@@ -370,6 +370,5 @@ impl TryFrom<Operand> for SignedEightBitOperand {
 pub enum InstructionOutcome {
     TookConditionalBranch(u16),
     Ok,
-    ChangeGameBoyMode(GameBoyMode),
     ExplicitlySetPC,
 }

@@ -1,6 +1,6 @@
 use crate::{
-    bus::{Address, BusAccessFailure, BusAccessOutcome, BusAccessible, MemoryTarget},
-    game_boy::GameBoyStateChange,
+    bus::{Address, BusAccessFailure, BusAccessible, MemoryTarget},
+    game_boy::{GameBoyEvent, notate_event},
     graphics::{lcd::LcdRegisters, oam::PriorityMode},
 };
 
@@ -13,7 +13,7 @@ impl IoRegisters {}
 impl BusAccessible for IoRegisters {
     const MM_DEVICE: MemoryTarget = MemoryTarget::IoRegisters;
 
-    fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
+    fn read(&mut self, address: Address) -> u8 {
         let Some(section) = IoSection::from_address(address) else {
             return BusAccessFailure::NothingMappedToAddress.into();
         };
@@ -28,9 +28,7 @@ impl BusAccessible for IoRegisters {
             IoSection::Lcd => self.lcd_registers.read(address),
             IoSection::Keys => todo!(),
             IoSection::VramBankSelect => todo!(),
-            IoSection::BootRomMappingControl => {
-                BusAccessOutcome(u8::from(BusAccessFailure::TriedAccessingUnusableMemory), vec![])
-            },
+            IoSection::BootRomMappingControl => BusAccessFailure::TriedAccessingUnusableMemory.into(),
             IoSection::Ir => todo!(),
             IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(),
             IoSection::ObjectPriorityMode => todo!(),
@@ -39,7 +37,7 @@ impl BusAccessible for IoRegisters {
         }
     }
 
-    fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
+    fn write(&mut self, address: Address, value: u8) {
         let Some(section) = IoSection::from_address(address) else {
             return BusAccessFailure::NothingMappedToAddress.into();
         };
@@ -50,21 +48,18 @@ impl BusAccessible for IoRegisters {
             IoSection::TimerAndDivider => BusAccessFailure::Unimplemented.into(),
             IoSection::Interrupts => BusAccessFailure::Unimplemented.into(),
             IoSection::Audio => BusAccessFailure::Unimplemented.into(),
-            IoSection::WavePattern => todo!(),
+            IoSection::WavePattern => BusAccessFailure::Unimplemented.into(),
             IoSection::Lcd => self.lcd_registers.write(address, value),
             IoSection::Keys => BusAccessFailure::Unimplemented.into(),
             IoSection::VramBankSelect => BusAccessFailure::Unimplemented.into(),
-            IoSection::BootRomMappingControl => BusAccessOutcome((), vec![GameBoyStateChange::UnmapBootRom]),
+            IoSection::BootRomMappingControl => notate_event(GameBoyEvent::UnmapBootRom),
             IoSection::Ir => BusAccessFailure::Unimplemented.into(),
             IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(),
-            IoSection::ObjectPriorityMode => BusAccessOutcome(
-                (),
-                vec![GameBoyStateChange::ChangeObjectPriorityMode(PriorityMode::from(value))],
-            ),
-            IoSection::WramBankSelect => {
-                BusAccessOutcome((), vec![GameBoyStateChange::ChangeSelectedWorkRam(value & 0b111)])
+            IoSection::ObjectPriorityMode => {
+                notate_event(GameBoyEvent::ChangeObjectPriorityMode(PriorityMode::from(value)))
             },
-            IoSection::VramDma => todo!(),
+            IoSection::WramBankSelect => BusAccessFailure::Unimplemented.into(),
+            IoSection::VramDma => BusAccessFailure::Unimplemented.into(),
         }
     }
 

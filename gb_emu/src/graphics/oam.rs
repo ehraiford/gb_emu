@@ -1,4 +1,4 @@
-use crate::bus::{Address, BusAccessFailure, BusAccessOutcome, BusAccessible, MemoryTarget};
+use crate::bus::{Address, BusAccessible, MemoryTarget};
 
 pub struct ObjectAttributeMemory {
     objects: [Sprite; Self::NUM_OAM_SPRITES],
@@ -29,13 +29,13 @@ impl ObjectAttributeMemory {
 impl BusAccessible for ObjectAttributeMemory {
     const MM_DEVICE: MemoryTarget = MemoryTarget::ObjectAttributeMemory;
 
-    fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
+    fn read(&mut self, address: Address) -> u8 {
         let (index, byte_num) = Self::convert_address_to_sprite_and_byte_numbers(address);
 
         self.objects[index].get_byte(byte_num).into()
     }
 
-    fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
+    fn write(&mut self, address: Address, value: u8) {
         let (index, byte_num) = Self::convert_address_to_sprite_and_byte_numbers(address);
 
         self.objects[index].set_byte(byte_num, value).into()

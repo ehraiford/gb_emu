@@ -1,6 +1,6 @@
 use crate::{
-    bus::{Address, Bus, BusAccessOutcome},
-    game_boy::{GameBoyMode, GameBoyStateChange, TCycles},
+    bus::{Address, Bus},
+    game_boy::{GameBoyEvent, GameBoyMode, TCycles, notate_event},
     helper_functions::log,
     processor::instructions::{
         EightBitOperand, Instruction, InstructionError, InstructionOutcome, OpCode, Operand, OperandType,
@@ -11,16 +11,14 @@ use crate::{
 pub struct Cpu {
     registers: [u16; 6],
     ime: bool,
-    pub executed_instructions: Vec<(&'static Instruction, Address)>,
 }
 
 impl Cpu {
-    pub fn tick(&mut self, bus: &mut Bus) -> (TCycles, Vec<GameBoyStateChange>) {
+    pub fn tick(&mut self, bus: &mut Bus) -> TCycles {
         let pc = self.get_pc();
 
-        let BusAccessOutcome(instruction, mut changes) = bus.read_next_instruction(pc);
-        let BusAccessOutcome(instruction_outcome, mut execution_changes) =
-            CpuOperationContext::new(self, bus).perform_instruction(instruction);
+        let instruction = bus.read_next_instruction(pc);
+        let instruction_outcome = CpuOperationContext::new(self, bus).perform_instruction(instruction);
 
         let mut taken_cycles = instruction.cycles as u64;
         let mut pc_offset = instruction.bytes;
@@ -31,14 +29,12 @@ impl Cpu {
                 pc_offset = 0;
             },
             InstructionOutcome::Ok => (),
-            InstructionOutcome::ChangeGameBoyMode(mode) => changes.push(GameBoyStateChange::ChangeGameBoyMode(mode)),
             InstructionOutcome::ExplicitlySetPC => pc_offset = 0,
         };
 
         self.increase_pc(pc_offset);
-        changes.append(&mut execution_changes);
 
-        (TCycles(taken_cycles), changes)
+        TCycles(taken_cycles)
     }
 
     pub fn enable_interrupts(&mut self) {
@@ -184,11 +180,7 @@ impl Cpu {
 
 impl Default for Cpu {
     fn default() -> Self {
-        Self {
-            registers: Default::default(),
-            ime: Default::default(),
-            executed_instructions: Default::default(),
-        }
+        Self { registers: Default::default(), ime: Default::default() }
     }
 }
 
@@ -242,13 +234,13 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         Self { cpu, bus }
     }
 
-    fn push_to_stack(&mut self, value: u16) -> BusAccessOutcome<()> {
+    fn push_to_stack(&mut self, value: u16) {
         let new_sp = self.cpu.get_sp().wrapping_sub(2);
         self.cpu.set_sp(new_sp);
         self.bus.write_u16(new_sp, value)
     }
 
-    fn pop_from_stack(&mut self) -> BusAccessOutcome<u16> {
+    fn pop_from_stack(&mut self) -> u16 {
         let sp = self.cpu.get_sp();
         self.cpu.set_sp(sp.wrapping_add(2));
         self.bus.read_u16(sp)
@@ -270,7 +262,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         self.cpu.set_flags(z, n, h, c)
     }
 
-    fn get_u8_operand(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<u8> {
+    fn get_u8_operand(&mut self, operand: &EightBitOperand) -> u8 {
         match operand {
             EightBitOperand::A => self.cpu.get_a().into(),
             EightBitOperand::B => self.cpu.get_b().into(),
@@ -283,20 +275,16 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             EightBitOperand::BCPointer => self.bus.read(self.cpu.get_bc()),
             EightBitOperand::DEPointer => self.bus.read(self.cpu.get_de()),
             EightBitOperand::A16Pointer => {
-                let BusAccessOutcome(pointer, mut side_effects) = self.bus.read_u16(self.cpu.get_pc() + 1);
-                let BusAccessOutcome(value, mut side_effects_second_access) = self.bus.read(pointer);
-                side_effects.append(&mut side_effects_second_access);
-                BusAccessOutcome(value, side_effects)
+                let pointer = self.bus.read_u16(self.cpu.get_pc() + 1);
+                self.bus.read(pointer)
             },
             EightBitOperand::FF00OffsetByA8 => {
-                let BusAccessOutcome(address, mut changes) = self.bus.read(self.cpu.get_pc() + 1);
-                let BusAccessOutcome(value, mut changes_second_access) = self.bus.read(0xFF00 + address as u16);
-                changes.append(&mut changes_second_access);
-                BusAccessOutcome(value, changes)
+                let offset = self.bus.read(self.cpu.get_pc() + 1);
+                self.bus.read(0xFF00 + offset as u16)
             },
             EightBitOperand::FF00OffsetByC => self.bus.read(0xFF00 + self.cpu.get_c() as u16),
             EightBitOperand::N8 => self.bus.read(self.cpu.get_pc() + 1),
-            EightBitOperand::Immediate(val) => BusAccessOutcome(*val, vec![]),
+            EightBitOperand::Immediate(val) => *val,
             EightBitOperand::HLIPointer => {
                 let hl = self.cpu.get_hl();
                 self.cpu.set_hl(hl.wrapping_add(1));
@@ -310,72 +298,58 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         }
     }
 
-    fn set_u8_operand(&mut self, operand: &EightBitOperand, value: u8) -> Vec<GameBoyStateChange> {
+    fn set_u8_operand(&mut self, operand: &EightBitOperand, value: u8) {
         match operand {
             EightBitOperand::A => {
                 self.cpu.set_a(value);
-                vec![]
             },
             EightBitOperand::A16Pointer => {
-                let BusAccessOutcome(pointer, mut side_effects) = self.bus.read_u16(self.cpu.get_pc() + 1);
-                let mut side_effects_second_access = self.bus.write(pointer, value).1;
-                side_effects.append(&mut side_effects_second_access);
-                side_effects
+                let pointer = self.bus.read_u16(self.cpu.get_pc() + 1);
+                self.bus.write(pointer, value);
             },
             EightBitOperand::B => {
                 self.cpu.set_b(value);
-                vec![]
             },
             EightBitOperand::HLIPointer => {
                 let hl = self.cpu.get_hl();
                 self.cpu.set_hl(hl.wrapping_add(1));
-                return self.bus.write(hl, value).1;
+                self.bus.write(hl, value);
             },
             EightBitOperand::HLDPointer => {
                 let hl = self.cpu.get_hl();
                 self.cpu.set_hl(hl.wrapping_sub(1));
-                return self.bus.write(hl, value).1;
+                self.bus.write(hl, value);
             },
-            EightBitOperand::HLPointer => return self.bus.write(self.cpu.get_hl(), value).1,
-            EightBitOperand::DEPointer => return self.bus.write(self.cpu.get_de(), value).1,
-            EightBitOperand::BCPointer => return self.bus.write(self.cpu.get_bc(), value).1,
+            EightBitOperand::HLPointer => self.bus.write(self.cpu.get_hl(), value),
+            EightBitOperand::DEPointer => self.bus.write(self.cpu.get_de(), value),
+            EightBitOperand::BCPointer => self.bus.write(self.cpu.get_bc(), value),
             EightBitOperand::L => {
                 self.cpu.set_l(value);
-                vec![]
             },
             EightBitOperand::C => {
                 self.cpu.set_c(value);
-                vec![]
             },
             EightBitOperand::D => {
                 self.cpu.set_d(value);
-                vec![]
             },
             EightBitOperand::E => {
                 self.cpu.set_e(value);
-                vec![]
             },
             EightBitOperand::FF00OffsetByA8 => {
-                let BusAccessOutcome(address, mut changes) = self.bus.read(self.cpu.get_pc() + 1);
-                let mut changes_second_access = self.bus.write(0xFF00 + address as u16, value).1;
-                changes.append(&mut changes_second_access);
-                changes
+                let address = self.bus.read(self.cpu.get_pc() + 1);
+                self.bus.write(0xFF00 + address as u16, value);
             },
-            EightBitOperand::FF00OffsetByC => return self.bus.write(0xFF00 + self.cpu.get_c() as u16, value).1,
-            EightBitOperand::H => {
-                self.cpu.set_h(value);
-                vec![]
-            },
+            EightBitOperand::FF00OffsetByC => self.bus.write(0xFF00 + self.cpu.get_c() as u16, value),
+            EightBitOperand::H => self.cpu.set_h(value),
             _ => unreachable!("There shouldn't be any places this is called that reaches here."),
         }
     }
 
-    fn get_i8_operand(&mut self) -> BusAccessOutcome<i8> {
-        let BusAccessOutcome(value, side_effects) = self.bus.read(self.cpu.get_pc() + 1);
-        BusAccessOutcome(value as i8, side_effects)
+    fn get_i8_operand(&mut self) -> i8 {
+        self.bus.read(self.cpu.get_pc() + 1) as i8
     }
 
-    fn get_u16_operand(&mut self, operand: &SixteenBitOperand) -> BusAccessOutcome<u16> {
+    fn get_u16_operand(&mut self, operand: &SixteenBitOperand) -> u16 {
         match operand {
             SixteenBitOperand::BC => self.cpu.get_bc().into(),
             SixteenBitOperand::DE => self.cpu.get_de().into(),
@@ -384,11 +358,10 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             SixteenBitOperand::SP => self.cpu.get_sp().into(),
             SixteenBitOperand::A16 => self.bus.read_u16(self.cpu.get_pc() + 1),
             SixteenBitOperand::N16 => self.bus.read_u16(self.cpu.get_pc() + 1),
-            SixteenBitOperand::Immediate(imm) => BusAccessOutcome(*imm, vec![]),
+            SixteenBitOperand::Immediate(imm) => *imm,
             SixteenBitOperand::E8 => {
-                let BusAccessOutcome(value, changes) = self.bus.read(self.cpu.get_pc() + 1);
-                let unsigned_value = (value as i8) as u16;
-                BusAccessOutcome(unsigned_value, changes)
+                let value = self.bus.read(self.cpu.get_pc() + 1);
+                (value as i8) as u16
             },
         }
     }
@@ -404,9 +377,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         }
     }
 
-    pub fn perform_instruction(&mut self, instruction: &'static Instruction) -> BusAccessOutcome<InstructionOutcome> {
-        self.cpu.executed_instructions.push((instruction, self.cpu.get_pc()));
-
+    pub fn perform_instruction(&mut self, instruction: &'static Instruction) -> InstructionOutcome {
         match instruction.op_code {
             OpCode::Adc => self.add_with_carry(&EightBitOperand::try_from(instruction.operands[1]).unwrap()),
             OpCode::Add => match OperandType::from(instruction.operands[0]) {
@@ -537,9 +508,9 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         }
     }
 
-    fn add_with_carry(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
+    fn add_with_carry(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
         let a = self.get_a();
-        let BusAccessOutcome(operand_value, side_effects) = self.get_u8_operand(operand);
+        let operand_value = self.get_u8_operand(operand);
         let carry = self.cpu.get_flag(Flag::Carry);
 
         let (middle_result, overflowed_middle) = a.overflowing_add(operand_value);
@@ -553,28 +524,24 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             overflowed_middle | overflowed_end,
         );
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn add_8_bit(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
+    fn add_8_bit(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
         let a = self.get_a();
-        let BusAccessOutcome(operand_value, side_effects) = self.get_u8_operand(operand);
+        let operand_value = self.get_u8_operand(operand);
 
         let (result, overflowed) = a.overflowing_add(operand_value);
 
         self.set_a(result);
         self.set_flags(result == 0, false, bit_3_overflow(vec![a, operand_value]), overflowed);
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn add_16_bit(
-        &mut self,
-        operand0: &SixteenBitOperand,
-        operand1: &SixteenBitOperand,
-    ) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(operand0_value, mut side_effects) = self.get_u16_operand(operand0);
-        let BusAccessOutcome(operand1_value, mut side_effects_2nd_access) = self.get_u16_operand(operand1);
+    fn add_16_bit(&mut self, operand0: &SixteenBitOperand, operand1: &SixteenBitOperand) -> InstructionOutcome {
+        let operand0_value = self.get_u16_operand(operand0);
+        let operand1_value = self.get_u16_operand(operand1);
 
         let (result, overflowed) = operand0_value.overflowing_add(operand1_value);
 
@@ -587,12 +554,11 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             overflowed,
         );
 
-        side_effects.append(&mut side_effects_2nd_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn and(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(operand_value, side_effects) = self.get_u8_operand(operand);
+    fn and(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
+        let operand_value = self.get_u8_operand(operand);
         let a = self.get_a();
 
         let result = operand_value & a;
@@ -600,51 +566,45 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         self.set_a(result);
         self.set_flags(result == 0, false, true, false);
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn bit(&mut self, operand0: &EightBitOperand, operand1: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(test_bit, mut side_effects) = self.get_u8_operand(operand0);
-        let BusAccessOutcome(byte, mut side_effects_2nd_access) = self.get_u8_operand(operand1);
+    fn bit(&mut self, operand0: &EightBitOperand, operand1: &EightBitOperand) -> InstructionOutcome {
+        let test_bit = self.get_u8_operand(operand0);
+        let byte = self.get_u8_operand(operand1);
 
         let result = (byte >> test_bit) & 0b1;
 
         self.set_flags(result == 0, false, true, self.cpu.get_flag(Flag::Carry));
 
-        side_effects.append(&mut side_effects_2nd_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn call(&mut self, address: &SixteenBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let mut side_effects = self.push_to_stack(self.cpu.get_pc() + 3).1;
-        let mut side_effects_2nd_access = self.jump(address).1;
+    fn call(&mut self, address: &SixteenBitOperand) -> InstructionOutcome {
+        self.push_to_stack(self.cpu.get_pc() + 3);
+        self.jump(address);
 
-        side_effects.append(&mut side_effects_2nd_access);
-        BusAccessOutcome(InstructionOutcome::ExplicitlySetPC, side_effects)
+        InstructionOutcome::ExplicitlySetPC
     }
 
-    fn call_conditional(
-        &mut self,
-        condition: &Condition,
-        address: &SixteenBitOperand,
-    ) -> BusAccessOutcome<InstructionOutcome> {
+    fn call_conditional(&mut self, condition: &Condition, address: &SixteenBitOperand) -> InstructionOutcome {
         if self.check_condition(condition) {
-            let side_effects = self.call(address).1;
-            BusAccessOutcome(InstructionOutcome::TookConditionalBranch(12), side_effects)
+            self.call(address);
+            InstructionOutcome::TookConditionalBranch(12)
         } else {
-            BusAccessOutcome::default_outcome()
+            InstructionOutcome::Ok
         }
     }
 
-    fn complement_carry_flag(&mut self) -> BusAccessOutcome<InstructionOutcome> {
+    fn complement_carry_flag(&mut self) -> InstructionOutcome {
         let carry = self.cpu.get_flag(Flag::Carry);
         self.cpu.set_flag(Flag::Carry, !carry);
 
-        BusAccessOutcome::default_outcome()
+        InstructionOutcome::Ok
     }
 
-    fn compare(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(operand_value, side_effects) = self.get_u8_operand(&operand);
+    fn compare(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
+        let operand_value = self.get_u8_operand(&operand);
         let a = self.get_a();
         self.set_flags(
             a == operand_value,
@@ -653,10 +613,10 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             a < operand_value,
         );
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn complement(&mut self) -> BusAccessOutcome<InstructionOutcome> {
+    fn complement(&mut self) -> InstructionOutcome {
         let a = self.get_a();
         self.set_a(!a);
 
@@ -667,10 +627,10 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             self.cpu.get_flag(Flag::Carry),
         );
 
-        BusAccessOutcome::default_outcome()
+        InstructionOutcome::Ok
     }
 
-    fn decimal_adjust_accumulator(&mut self) -> BusAccessOutcome<InstructionOutcome> {
+    fn decimal_adjust_accumulator(&mut self) -> InstructionOutcome {
         let mut adjustment = 0;
         match self.cpu.get_flag(Flag::Subtraction) {
             true => {
@@ -695,12 +655,12 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         }
     }
 
-    fn decrement_8_bit(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(operand_value, mut side_effects) = self.get_u8_operand(operand);
+    fn decrement_8_bit(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
+        let operand_value = self.get_u8_operand(operand);
 
         let result = operand_value.wrapping_sub(1);
 
-        let mut side_effects_2nd_access = self.set_u8_operand(operand, result);
+        self.set_u8_operand(operand, result);
         self.set_flags(
             result == 0,
             true,
@@ -708,22 +668,21 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             self.cpu.get_flag(Flag::Carry),
         );
 
-        side_effects.append(&mut side_effects_2nd_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn decrement_16_bit(&mut self, operand: &SixteenBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(operand_value, side_effects) = self.get_u16_operand(operand);
+    fn decrement_16_bit(&mut self, operand: &SixteenBitOperand) -> InstructionOutcome {
+        let operand_value = self.get_u16_operand(operand);
 
         let result = operand_value.wrapping_sub(1);
 
         self.set_u16_operand(operand, result);
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn increment_8_bit(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(operand_value, side_effects) = self.get_u8_operand(operand);
+    fn increment_8_bit(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
+        let operand_value = self.get_u8_operand(operand);
 
         let result = operand_value.wrapping_add(1);
 
@@ -735,107 +694,88 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             self.cpu.get_flag(Flag::Carry),
         );
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn increment_16_bit(&mut self, operand: &SixteenBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(operand_value, side_effects) = self.get_u16_operand(operand);
+    fn increment_16_bit(&mut self, operand: &SixteenBitOperand) -> InstructionOutcome {
+        let operand_value = self.get_u16_operand(operand);
 
         let result = operand_value.wrapping_add(1);
 
         self.set_u16_operand(operand, result);
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn jump(&mut self, operand: &SixteenBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(address, side_effects) = self.get_u16_operand(operand);
+    fn jump(&mut self, operand: &SixteenBitOperand) -> InstructionOutcome {
+        let address = self.get_u16_operand(operand);
         self.cpu.set_pc(address);
 
-        BusAccessOutcome(InstructionOutcome::ExplicitlySetPC, side_effects)
+        InstructionOutcome::ExplicitlySetPC
     }
 
-    fn jump_conditional(
-        &mut self,
-        condition: &Condition,
-        address: &SixteenBitOperand,
-    ) -> BusAccessOutcome<InstructionOutcome> {
+    fn jump_conditional(&mut self, condition: &Condition, address: &SixteenBitOperand) -> InstructionOutcome {
         if self.check_condition(condition) {
-            let side_effects = self.jump(address).1;
-            BusAccessOutcome(InstructionOutcome::TookConditionalBranch(4), side_effects)
+            self.jump(address);
+            InstructionOutcome::TookConditionalBranch(4)
         } else {
-            BusAccessOutcome(InstructionOutcome::Ok, vec![])
+            InstructionOutcome::Ok
         }
     }
 
-    fn jump_relative(&mut self, _operand: &SignedEightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(offset, side_effects) = self.get_i8_operand();
+    fn jump_relative(&mut self, _operand: &SignedEightBitOperand) -> InstructionOutcome {
+        let offset = self.get_i8_operand();
         let jump_address = offset as i16 + self.cpu.get_pc() as i16 + 2;
 
         self.cpu.set_pc(jump_address as u16);
 
-        BusAccessOutcome(InstructionOutcome::ExplicitlySetPC, side_effects)
+        InstructionOutcome::ExplicitlySetPC
     }
 
     fn jump_relative_conditional(
         &mut self,
         condition: &Condition,
         operand: &SignedEightBitOperand,
-    ) -> BusAccessOutcome<InstructionOutcome> {
+    ) -> InstructionOutcome {
         if self.check_condition(condition) {
-            let side_effects = self.jump_relative(operand).1;
-            BusAccessOutcome(InstructionOutcome::TookConditionalBranch(4), side_effects)
+            self.jump_relative(operand);
+            InstructionOutcome::TookConditionalBranch(4)
         } else {
-            BusAccessOutcome(InstructionOutcome::Ok, vec![])
+            InstructionOutcome::Ok
         }
     }
 
-    fn load_8_bit(
-        &mut self,
-        operand0: &EightBitOperand,
-        operand1: &EightBitOperand,
-    ) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(value, mut side_effects) = self.get_u8_operand(operand1);
-        let mut side_effects_2nd_access = self.set_u8_operand(operand0, value);
+    fn load_8_bit(&mut self, operand0: &EightBitOperand, operand1: &EightBitOperand) -> InstructionOutcome {
+        let value = self.get_u8_operand(operand1);
+        self.set_u8_operand(operand0, value);
 
-        side_effects.append(&mut side_effects_2nd_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn load_16_bit(
-        &mut self,
-        operand0: &SixteenBitOperand,
-        operand1: &SixteenBitOperand,
-    ) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(value, side_effects) = self.get_u16_operand(operand1);
+    fn load_16_bit(&mut self, operand0: &SixteenBitOperand, operand1: &SixteenBitOperand) -> InstructionOutcome {
+        let value = self.get_u16_operand(operand1);
         self.set_u16_operand(operand0, value);
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn load_a16_pointer_sp(&mut self) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(address, mut side_effects) = self.get_u16_operand(&SixteenBitOperand::A16);
-        let sp = self.get_u16_operand(&SixteenBitOperand::SP).0;
-        let mut side_effects_second_access = self.bus.write_u16(address, sp).1;
+    fn load_a16_pointer_sp(&mut self) -> InstructionOutcome {
+        let address = self.get_u16_operand(&SixteenBitOperand::A16);
+        let sp = self.get_u16_operand(&SixteenBitOperand::SP);
+        self.bus.write_u16(address, sp);
 
-        side_effects.append(&mut side_effects_second_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn load_high(
-        &mut self,
-        operand0: &EightBitOperand,
-        operand1: &EightBitOperand,
-    ) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(value, mut side_effects) = self.get_u8_operand(operand1);
-        let mut side_effects_2nd_access = self.set_u8_operand(operand0, value);
+    fn load_high(&mut self, operand0: &EightBitOperand, operand1: &EightBitOperand) -> InstructionOutcome {
+        let value = self.get_u8_operand(operand1);
+        self.set_u8_operand(operand0, value);
 
-        side_effects.append(&mut side_effects_2nd_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn or(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(value, side_effects) = self.get_u8_operand(operand);
+    fn or(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
+        let value = self.get_u8_operand(operand);
         let a = self.get_a();
 
         let result = value | a;
@@ -843,166 +783,154 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         self.set_a(result);
         self.cpu.set_flags(result == 0, false, false, false);
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn pop(&mut self, operand: &SixteenBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(value, side_effects) = self.pop_from_stack();
+    fn pop(&mut self, operand: &SixteenBitOperand) -> InstructionOutcome {
+        let value = self.pop_from_stack();
 
         self.set_u16_operand(operand, value);
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn push(&mut self, operand: &SixteenBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(value, mut side_effects) = self.get_u16_operand(operand);
+    fn push(&mut self, operand: &SixteenBitOperand) -> InstructionOutcome {
+        let value = self.get_u16_operand(operand);
 
-        let mut side_effects_2nd_access = self.push_to_stack(value).1;
+        self.push_to_stack(value);
 
-        side_effects.append(&mut side_effects_2nd_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn clear_bit(
-        &mut self,
-        operand0: &EightBitOperand,
-        operand1: &EightBitOperand,
-    ) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(bit_number, mut side_effects) = self.get_u8_operand(operand0);
-        let BusAccessOutcome(byte, mut side_effects_2nd_access) = self.get_u8_operand(operand1);
+    fn clear_bit(&mut self, operand0: &EightBitOperand, operand1: &EightBitOperand) -> InstructionOutcome {
+        let bit_number = self.get_u8_operand(operand0);
+        let byte = self.get_u8_operand(operand1);
 
         let mask = !(1 << bit_number);
         let result = byte & mask;
 
-        let mut side_effects_3rd_access = self.set_u8_operand(operand1, result);
+        self.set_u8_operand(operand1, result);
 
-        side_effects.append(&mut side_effects_2nd_access);
-        side_effects.append(&mut side_effects_3rd_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn ret(&mut self) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(new_pc, side_effects) = self.pop_from_stack();
+    fn ret(&mut self) -> InstructionOutcome {
+        let new_pc = self.pop_from_stack();
         self.cpu.set_pc(new_pc);
 
-        BusAccessOutcome(InstructionOutcome::ExplicitlySetPC, side_effects)
+        InstructionOutcome::ExplicitlySetPC
     }
 
-    fn return_conditional(&mut self, condition: &Condition) -> BusAccessOutcome<InstructionOutcome> {
+    fn return_conditional(&mut self, condition: &Condition) -> InstructionOutcome {
         if self.check_condition(condition) {
-            let side_effects = self.ret().1;
-            BusAccessOutcome(InstructionOutcome::TookConditionalBranch(12), side_effects)
+            self.ret();
+            InstructionOutcome::TookConditionalBranch(12)
         } else {
-            BusAccessOutcome(InstructionOutcome::Ok, vec![])
+            InstructionOutcome::Ok
         }
     }
 
-    fn return_from_interrupt(&mut self) -> BusAccessOutcome<InstructionOutcome> {
+    fn return_from_interrupt(&mut self) -> InstructionOutcome {
         self.enable_interrupts();
         self.ret()
     }
 
-    fn rotate_left_through_carry(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(value, mut side_effects) = self.get_u8_operand(operand);
+    fn rotate_left_through_carry(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
+        let value = self.get_u8_operand(operand);
         let carry = self.cpu.get_flag(Flag::Carry);
 
         let new_carry = (value >> 7) == 1;
         let result = (value << 1) | carry as u8;
 
-        let mut side_effects_2nd_access = self.set_u8_operand(operand, result);
+        self.set_u8_operand(operand, result);
 
         self.cpu.set_flags(result == 0, false, false, new_carry);
 
-        side_effects.append(&mut side_effects_2nd_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn rotate_left_through_carry_a(&mut self) -> BusAccessOutcome<InstructionOutcome> {
-        let side_effects = self.rotate_left_through_carry(&EightBitOperand::A).1;
+    fn rotate_left_through_carry_a(&mut self) -> InstructionOutcome {
+        self.rotate_left_through_carry(&EightBitOperand::A);
 
         self.cpu.set_flag(Flag::Zero, false);
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn rotate_left_into_carry(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(value, mut side_effects) = self.get_u8_operand(operand);
+    fn rotate_left_into_carry(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
+        let value = self.get_u8_operand(operand);
 
         let new_carry = value >> 7;
         let result = (value << 1) | new_carry;
 
-        let mut side_effects_2nd_access = self.set_u8_operand(operand, result);
+        self.set_u8_operand(operand, result);
 
         self.cpu.set_flags(result == 0, false, false, new_carry == 1);
 
-        side_effects.append(&mut side_effects_2nd_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn rotate_left_into_carry_a(&mut self) -> BusAccessOutcome<InstructionOutcome> {
-        let side_effects = self.rotate_left_into_carry(&EightBitOperand::A).1;
+    fn rotate_left_into_carry_a(&mut self) -> InstructionOutcome {
+        self.rotate_left_into_carry(&EightBitOperand::A);
 
         self.cpu.set_flag(Flag::Zero, false);
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn rotate_right_through_carry(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(value, mut side_effects) = self.get_u8_operand(operand);
+    fn rotate_right_through_carry(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
+        let value = self.get_u8_operand(operand);
         let carry = (self.cpu.get_flag(Flag::Carry) as u8) << 7;
 
         let new_carry = (value & 1) == 1;
         let result = (value >> 1) | carry;
 
-        let mut side_effects_2nd_access = self.set_u8_operand(operand, result);
+        self.set_u8_operand(operand, result);
 
         self.cpu.set_flags(result == 0, false, false, new_carry);
 
-        side_effects.append(&mut side_effects_2nd_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn rotate_right_through_carry_a(&mut self) -> BusAccessOutcome<InstructionOutcome> {
-        let side_effects = self.rotate_right_through_carry(&EightBitOperand::A).1;
+    fn rotate_right_through_carry_a(&mut self) -> InstructionOutcome {
+        self.rotate_right_through_carry(&EightBitOperand::A);
 
         self.cpu.set_flag(Flag::Zero, false);
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn rotate_right_into_carry(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(value, mut side_effects) = self.get_u8_operand(operand);
+    fn rotate_right_into_carry(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
+        let value = self.get_u8_operand(operand);
 
         let new_carry = value << 7;
         let result = (value >> 1) | new_carry;
 
-        let mut side_effects_2nd_access = self.set_u8_operand(operand, result);
+        self.set_u8_operand(operand, result);
 
         self.cpu.set_flags(result == 0, false, false, new_carry != 0);
 
-        side_effects.append(&mut side_effects_2nd_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn rotate_right_into_carry_a(&mut self) -> BusAccessOutcome<InstructionOutcome> {
-        let side_effects = self.rotate_right_into_carry(&EightBitOperand::A).1;
+    fn rotate_right_into_carry_a(&mut self) -> InstructionOutcome {
+        self.rotate_right_into_carry(&EightBitOperand::A);
 
         self.cpu.set_flag(Flag::Zero, false);
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn call_vector(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(value, mut side_effects) = self.get_u8_operand(operand);
-        let mut side_effects_2nd_access = self.call(&SixteenBitOperand::Immediate(value as u16)).1;
+    fn call_vector(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
+        let value = self.get_u8_operand(operand);
+        self.call(&SixteenBitOperand::Immediate(value as u16));
 
-        side_effects.append(&mut side_effects_2nd_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn subtract_with_carry(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
+    fn subtract_with_carry(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
         let a = self.get_a();
-        let BusAccessOutcome(operand_value, side_effects) = self.get_u8_operand(operand);
+        let operand_value = self.get_u8_operand(operand);
         let carry = self.cpu.get_flag(Flag::Carry);
 
         let (middle_result, overflowed_middle) = a.overflowing_sub(operand_value);
@@ -1016,101 +944,91 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             overflowed_middle | overflowed_end,
         );
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn set_carry_flag(&mut self) -> BusAccessOutcome<InstructionOutcome> {
+    fn set_carry_flag(&mut self) -> InstructionOutcome {
         self.cpu.set_flag(Flag::Carry, true);
 
         self.set_flags(self.cpu.get_flag(Flag::Zero), false, false, true);
 
-        BusAccessOutcome(InstructionOutcome::Ok, vec![])
+        InstructionOutcome::Ok
     }
 
-    fn set_bit(
-        &mut self,
-        operand0: &EightBitOperand,
-        operand1: &EightBitOperand,
-    ) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(bit_number, mut side_effects) = self.get_u8_operand(operand0);
-        let BusAccessOutcome(byte, mut side_effects_2nd_access) = self.get_u8_operand(operand1);
+    fn set_bit(&mut self, operand0: &EightBitOperand, operand1: &EightBitOperand) -> InstructionOutcome {
+        let bit_number = self.get_u8_operand(operand0);
+        let byte = self.get_u8_operand(operand1);
 
         let mask = 1 << bit_number;
         let result = byte | mask;
 
-        let mut side_effects_3rd_access = self.set_u8_operand(operand1, result);
+        self.set_u8_operand(operand1, result);
 
-        side_effects.append(&mut side_effects_2nd_access);
-        side_effects.append(&mut side_effects_3rd_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn shift_left_arithmetically(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(value, mut side_effects) = self.get_u8_operand(operand);
+    fn shift_left_arithmetically(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
+        let value = self.get_u8_operand(operand);
 
         let new_carry = value >> 7 == 1;
         let result = value << 1;
 
-        let mut side_effects_second_access = self.set_u8_operand(operand, result);
+        self.set_u8_operand(operand, result);
         self.cpu.set_flags(result == 0, false, false, new_carry);
 
-        side_effects.append(&mut side_effects_second_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn shift_right_arithmetically(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(value, mut side_effects) = self.get_u8_operand(operand);
+    fn shift_right_arithmetically(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
+        let value = self.get_u8_operand(operand);
         let sign = value >> 7;
 
         let new_carry = value & 1 == 1;
         let result = (value >> 1) | sign;
 
-        let mut side_effects_second_access = self.set_u8_operand(operand, result);
+        self.set_u8_operand(operand, result);
         self.cpu.set_flags(result == 0, false, false, new_carry);
 
-        side_effects.append(&mut side_effects_second_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn shift_right_logically(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(value, mut side_effects) = self.get_u8_operand(operand);
+    fn shift_right_logically(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
+        let value = self.get_u8_operand(operand);
 
         let new_carry = value & 1 == 1;
         let result = value >> 1;
 
-        let mut side_effects_second_access = self.set_u8_operand(operand, result);
+        self.set_u8_operand(operand, result);
         self.cpu.set_flags(result == 0, false, false, new_carry);
 
-        side_effects.append(&mut side_effects_second_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn subtract(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
+    fn subtract(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
         let a = self.get_a();
-        let BusAccessOutcome(operand_value, side_effects) = self.get_u8_operand(operand);
+        let operand_value = self.get_u8_operand(operand);
 
         let (result, borrowed) = a.overflowing_sub(operand_value);
 
         self.set_a(result);
         self.set_flags(result == 0, true, bit_4_borrow(a, operand_value, false), borrowed);
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn swap(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(operand_value, mut side_effects) = self.get_u8_operand(operand);
+    fn swap(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
+        let operand_value = self.get_u8_operand(operand);
 
         let result = operand_value.rotate_left(4);
 
-        let mut side_effects_second_access = self.set_u8_operand(operand, result);
+        self.set_u8_operand(operand, result);
         self.set_flags(result == 0, false, false, false);
 
-        side_effects.append(&mut side_effects_second_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn xor(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let BusAccessOutcome(operand_value, side_effects) = self.get_u8_operand(operand);
+    fn xor(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
+        let operand_value = self.get_u8_operand(operand);
         let a = self.get_a();
 
         let result = a ^ operand_value;
@@ -1118,31 +1036,32 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         self.set_a(result);
         self.cpu.set_flags(result == 0, false, false, false);
 
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        InstructionOutcome::Ok
     }
 
-    fn disable_interrupts(&mut self) -> BusAccessOutcome<InstructionOutcome> {
+    fn disable_interrupts(&mut self) -> InstructionOutcome {
         self.cpu.disable_interrupts();
-
-        BusAccessOutcome::default_outcome()
+        InstructionOutcome::Ok
     }
 
-    fn enable_interrupts(&mut self) -> BusAccessOutcome<InstructionOutcome> {
+    fn enable_interrupts(&mut self) -> InstructionOutcome {
         self.cpu.enable_interrupts();
 
-        BusAccessOutcome(InstructionOutcome::Ok, vec![])
+        InstructionOutcome::Ok
     }
 
-    fn halt(&mut self) -> BusAccessOutcome<InstructionOutcome> {
-        BusAccessOutcome(InstructionOutcome::ChangeGameBoyMode(GameBoyMode::Halted), vec![])
+    fn halt(&mut self) -> InstructionOutcome {
+        notate_event(GameBoyEvent::ChangeGameBoyMode(GameBoyMode::Halted));
+        InstructionOutcome::Ok
     }
 
-    fn nop(&self) -> BusAccessOutcome<InstructionOutcome> {
-        BusAccessOutcome::default_outcome()
+    fn nop(&self) -> InstructionOutcome {
+        InstructionOutcome::Ok
     }
 
-    fn stop(&mut self) -> BusAccessOutcome<InstructionOutcome> {
-        BusAccessOutcome(InstructionOutcome::ChangeGameBoyMode(GameBoyMode::Stopped), vec![])
+    fn stop(&mut self) -> InstructionOutcome {
+        notate_event(GameBoyEvent::ChangeGameBoyMode(GameBoyMode::Stopped));
+        InstructionOutcome::Ok
     }
 }
 
@@ -1178,7 +1097,6 @@ mod test {
             // our try from will panic if there's a None at the end so we don't need to actually check it.
             // Just calling it for every byte will work.
             let instruction_result = <&Instruction>::try_from(bytes);
-
             // the try_from should only fail on the invalid opcodes
             if instruction_result.is_err() {
                 assert!(INVALID_BYTES.contains(&bytes[0]));
