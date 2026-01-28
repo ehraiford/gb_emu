@@ -96,7 +96,9 @@ impl Bus {
 
     pub fn print_graphics_data(&self) {
         println!("Graphics Data:");
-        self.v_ram.print_all_tiles();
+        self.v_ram.print_logo();
+        // self.v_ram.print_tiles_in_a_row(2, 10, 40);
+        // self.v_ram.print_all_tiles();
     }
 
     pub fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
@@ -143,9 +145,6 @@ impl Bus {
         let Some(device) = self.get_cpu_accessible_device_from_address(address) else {
             return BusAccessFailure::InaccessibleByCpu.into();
         };
-        // if device == MemoryTarget::VideoRam {
-        //     println!("VRAM Address: {address:04x}");
-        // }
         match device {
             MemoryTarget::BootRom => self.boot_rom.write(address, value),
             MemoryTarget::RomBank00 => self.cartridge.write(address, CartridgeDevice::RomBank00, value),
@@ -175,6 +174,10 @@ impl Bus {
 
     pub fn set_object_priority_mode(&mut self, mode: PriorityMode) {
         self.oam.set_priority_mode(mode)
+    }
+
+    pub fn reset_ly(&mut self) {
+        self.io_registers.lcd_registers.reset_ly();
     }
 
     pub fn oam_dma_transfer(&mut self, address: Address, value: u8) {
@@ -451,14 +454,6 @@ pub enum MemoryMapEvent {
     UpdatePpuMode(PpuTickMode),
     StartOamDataTransfer,
     EndOamDataTransfer,
-}
-
-enum CpuAccessibilityTarget {
-    Cartridge,
-    VideoRam,
-    WorkRam,
-    ObjectAttributeMemory,
-    IoRegisters,
 }
 
 /// The return value for reads to inaccessible devices.
