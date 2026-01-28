@@ -52,7 +52,7 @@ class Operation:
         return "&[" + ", ".join(operands) + "]"
 
     def get_instantiation(self) -> str:
-        return "Instruction::new(OpCode::" + self.name + ", " + self.get_operands() + ", " + str(self.cycles[0]) + ", " + str(self.bytes)  + ")"
+        return "Instruction::new(OpCode::" + self.name + ", " + self.get_operands() + ", " + str(self.cycles[-1]) + ", " + str(self.bytes)  + ")"
 
 
 with open("./opcodes.json", mode = 'r') as file:

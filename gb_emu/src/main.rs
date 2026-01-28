@@ -19,7 +19,7 @@ mod os_interface;
 mod processor;
 
 const TEST_ROM: &str = &r"C:\Users\evanr\OneDrive\Desktop\Games\Dr. Mario (World) (Rev 1).gb";
-const TEST_CYCLES: u64 = 1_000_000_000;
+const TEST_CYCLES: u64 = 0x849fc0;
 
 fn main() {
     #[cfg(feature = "disassemble")]
@@ -35,7 +35,7 @@ fn main() {
     }
 }
 
-fn read_test_data() -> Vec<u8> {
+pub fn read_test_data() -> Vec<u8> {
     fs::read(TEST_ROM).unwrap()
 }
 
