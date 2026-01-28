@@ -1,6 +1,7 @@
 use crate::{
     bus::{Address, Bus, BusAccessOutcome},
-    game_boy::{GameBoyMode, GameBoyStateChange, MCycles},
+    game_boy::{GameBoyMode, GameBoyStateChange, TCycles},
+    helper_functions::log,
     processor::instructions::{
         EightBitOperand, Instruction, InstructionError, InstructionOutcome, OpCode, Operand, OperandType,
         SignedEightBitOperand, SixteenBitOperand,
@@ -14,7 +15,7 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn tick(&mut self, bus: &mut Bus) -> (MCycles, Vec<GameBoyStateChange>) {
+    pub fn tick(&mut self, bus: &mut Bus) -> (TCycles, Vec<GameBoyStateChange>) {
         let pc = self.get_pc();
 
         let BusAccessOutcome(instruction, mut changes) = bus.read_next_instruction(pc);
@@ -37,7 +38,7 @@ impl Cpu {
         self.increase_pc(pc_offset);
         changes.append(&mut execution_changes);
 
-        (MCycles(taken_cycles), changes)
+        (TCycles(taken_cycles), changes)
     }
 
     pub fn enable_interrupts(&mut self) {
@@ -133,7 +134,7 @@ impl Cpu {
         self.registers[0]
     }
     fn set_af(&mut self, value: u16) {
-        self.registers[0] = value;
+        self.registers[0] = value & 0xFFF0;
     }
 
     fn get_bc(&self) -> u16 {
@@ -290,11 +291,6 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             EightBitOperand::FF00OffsetByA8 => {
                 let BusAccessOutcome(address, mut changes) = self.bus.read(self.cpu.get_pc() + 1);
                 let BusAccessOutcome(value, mut changes_second_access) = self.bus.read(0xFF00 + address as u16);
-                // println!(
-                //     "FF00 Offset by A8: {} from address 0x{:04x}",
-                //     value,
-                //     0xFF00 + address as u16
-                // );
                 changes.append(&mut changes_second_access);
                 BusAccessOutcome(value, changes)
             },
@@ -409,12 +405,6 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     }
 
     pub fn perform_instruction(&mut self, instruction: &'static Instruction) -> BusAccessOutcome<InstructionOutcome> {
-        // if instruction.op_code != OpCode::Nop {
-        //     log(format_args!(
-        //         "Performing: {instruction} from Address 0x{:04x}",
-        //         self.cpu.get_pc()
-        //     ));
-        // }
         self.cpu.executed_instructions.push((instruction, self.cpu.get_pc()));
 
         match instruction.op_code {
@@ -423,13 +413,10 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
                 OperandType::EightBitOperand => {
                     self.add_8_bit(&EightBitOperand::try_from(instruction.operands[1]).unwrap())
                 },
-                OperandType::SixteenBitOperand => {
-                    println!("instruction: {}", instruction);
-                    self.add_16_bit(
-                        &SixteenBitOperand::try_from(instruction.operands[0]).unwrap(),
-                        &SixteenBitOperand::try_from(instruction.operands[1]).unwrap(),
-                    )
-                },
+                OperandType::SixteenBitOperand => self.add_16_bit(
+                    &SixteenBitOperand::try_from(instruction.operands[0]).unwrap(),
+                    &SixteenBitOperand::try_from(instruction.operands[1]).unwrap(),
+                ),
                 _ => unreachable!("There shouldn't be any places this is called that reaches here."),
             },
             OpCode::And => self.and(&EightBitOperand::try_from(instruction.operands[1]).unwrap()),
@@ -596,7 +583,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         self.set_flags(
             self.cpu.get_flag(Flag::Zero),
             false,
-            bit_7_overflow(vec![operand0_value, operand1_value]),
+            bit_11_overflow(vec![operand0_value, operand1_value]),
             overflowed,
         );
 
@@ -629,13 +616,11 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     }
 
     fn call(&mut self, address: &SixteenBitOperand) -> BusAccessOutcome<InstructionOutcome> {
-        let next_address = self.cpu.get_pc() + 3;
-        let mut side_effects = self.push_to_stack(next_address).1;
-
+        let mut side_effects = self.push_to_stack(self.cpu.get_pc() + 3).1;
         let mut side_effects_2nd_access = self.jump(address).1;
 
         side_effects.append(&mut side_effects_2nd_access);
-        BusAccessOutcome(InstructionOutcome::Ok, side_effects)
+        BusAccessOutcome(InstructionOutcome::ExplicitlySetPC, side_effects)
     }
 
     fn call_conditional(
@@ -645,7 +630,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     ) -> BusAccessOutcome<InstructionOutcome> {
         if self.check_condition(condition) {
             let side_effects = self.call(address).1;
-            BusAccessOutcome(InstructionOutcome::TookConditionalBranch(3), side_effects)
+            BusAccessOutcome(InstructionOutcome::TookConditionalBranch(12), side_effects)
         } else {
             BusAccessOutcome::default_outcome()
         }
@@ -661,7 +646,6 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     fn compare(&mut self, operand: &EightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
         let BusAccessOutcome(operand_value, side_effects) = self.get_u8_operand(&operand);
         let a = self.get_a();
-        // println!("Compare A ({a}) and N8 ({operand_value})");
         self.set_flags(
             a == operand_value,
             true,
@@ -778,7 +762,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     ) -> BusAccessOutcome<InstructionOutcome> {
         if self.check_condition(condition) {
             let side_effects = self.jump(address).1;
-            BusAccessOutcome(InstructionOutcome::TookConditionalBranch(1), side_effects)
+            BusAccessOutcome(InstructionOutcome::TookConditionalBranch(4), side_effects)
         } else {
             BusAccessOutcome(InstructionOutcome::Ok, vec![])
         }
@@ -786,9 +770,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
 
     fn jump_relative(&mut self, _operand: &SignedEightBitOperand) -> BusAccessOutcome<InstructionOutcome> {
         let BusAccessOutcome(offset, side_effects) = self.get_i8_operand();
-        let next_address = (self.cpu.get_pc() + 2) as i16;
-
-        let jump_address = offset as i16 + next_address;
+        let jump_address = offset as i16 + self.cpu.get_pc() as i16 + 2;
 
         self.cpu.set_pc(jump_address as u16);
 
@@ -802,7 +784,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     ) -> BusAccessOutcome<InstructionOutcome> {
         if self.check_condition(condition) {
             let side_effects = self.jump_relative(operand).1;
-            BusAccessOutcome(InstructionOutcome::TookConditionalBranch(1), side_effects)
+            BusAccessOutcome(InstructionOutcome::TookConditionalBranch(4), side_effects)
         } else {
             BusAccessOutcome(InstructionOutcome::Ok, vec![])
         }
@@ -909,7 +891,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     fn return_conditional(&mut self, condition: &Condition) -> BusAccessOutcome<InstructionOutcome> {
         if self.check_condition(condition) {
             let side_effects = self.ret().1;
-            BusAccessOutcome(InstructionOutcome::TookConditionalBranch(3), side_effects)
+            BusAccessOutcome(InstructionOutcome::TookConditionalBranch(12), side_effects)
         } else {
             BusAccessOutcome(InstructionOutcome::Ok, vec![])
         }
@@ -1174,10 +1156,10 @@ fn bit_3_overflow(operands: Vec<u8>) -> bool {
     result > 0x0F
 }
 
-fn bit_7_overflow(operands: Vec<u16>) -> bool {
+fn bit_11_overflow(operands: Vec<u16>) -> bool {
     let mut result = 0;
-    operands.iter().for_each(|o| result += o & 0xFF);
-    result > 0xFF
+    operands.iter().for_each(|o| result += o & 0x0FFF);
+    result > 0x0FFF
 }
 
 #[cfg(test)]
