@@ -35,6 +35,10 @@ impl LcdRegisters {
         }
     }
 
+    pub fn reset_ly(&mut self) {
+        self.ly = 0;
+    }
+
     pub fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
         BusAccessOutcome(self.peek(address), vec![])
     }

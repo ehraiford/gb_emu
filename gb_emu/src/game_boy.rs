@@ -2,10 +2,7 @@ use crate::{
     bus::{Bus, MemoryMapEvent, MemoryTarget},
     cartridge::cartridge::Cartridge,
     dma::OamDma,
-    graphics::{
-        lcd,
-        ppu::{Dots, Ppu, PpuOperationContext, PpuTickMode},
-    },
+    graphics::ppu::{Ppu, PpuTickMode},
     helper_functions::log,
     os_interface::profiling::TrackedData,
     processor::cpu::Cpu,
@@ -54,10 +51,10 @@ impl GameBoy {
     }
 
     fn tick_cpu(&mut self) -> Vec<GameBoyStateChange> {
-        let (m_cycles, changes) = self.cpu.tick(&mut self.bus);
-
-        self.state.elapsed_cpu_cycles += m_cycles.into();
-        self.state.elapsed_cpu_cycles = m_cycles.into();
+        let (t_cycles, changes) = self.cpu.tick(&mut self.bus);
+        // println!("Elapsed t cycles: {}", t_cycles.0);
+        self.state.elapsed_cpu_cycles += t_cycles;
+        self.state.last_instruction_t_cycles = t_cycles;
 
         changes
     }
@@ -119,7 +116,6 @@ impl GameBoy {
     fn handle_change(&mut self, change: GameBoyStateChange) {
         match change {
             GameBoyStateChange::UnmapBootRom => self.bus.handle_memory_map_event(MemoryMapEvent::UnmapBootRom),
-            // GameBoyStateChange::UnmapBootRom => self.state.elapsed_cpu_cycles = TCycles(u32::MAX as u64),
             GameBoyStateChange::ChangeGameBoyMode(mode) => self.mode_transition(mode),
             GameBoyStateChange::ChangeSelectedWorkRam(bank_num) => {
                 self.bus.set_active_bank_number(MemoryTarget::BankableWorkRam, bank_num)
@@ -130,7 +126,10 @@ impl GameBoy {
             GameBoyStateChange::UpdatePpuMode(mode) => {
                 self.bus.handle_memory_map_event(MemoryMapEvent::UpdatePpuMode(mode))
             },
-            GameBoyStateChange::ChangeLCdPpuState(enabled) => self.state.ppu_active = enabled,
+            GameBoyStateChange::ChangeLCdPpuState(enabled) => {
+                self.bus.reset_ly();
+                self.state.ppu_active = enabled;
+            },
             GameBoyStateChange::Interrupt(interrupt) => (),
         }
     }
@@ -156,7 +155,6 @@ impl GameBoy {
 }
 
 struct GameBoyState {
-    mode: GameBoyMode,
     elapsed_cpu_cycles: TCycles,
     last_instruction_t_cycles: TCycles,
     oam_dma_active: bool,
@@ -166,8 +164,14 @@ struct GameBoyState {
 
 impl GameBoyState {
     fn mode_transition(&mut self, new_mode: GameBoyMode) {
-        self.mode = new_mode;
-        todo!()
+        match new_mode {
+            GameBoyMode::Executing => todo!(),
+            GameBoyMode::Stopped => {
+                self.cpu_active = false;
+                self.ppu_active = false;
+            },
+            GameBoyMode::Halted => todo!(),
+        }
     }
     fn is_cpu_active(&self) -> bool {
         self.cpu_active
@@ -183,7 +187,6 @@ impl GameBoyState {
 impl Default for GameBoyState {
     fn default() -> Self {
         Self {
-            mode: Default::default(),
             elapsed_cpu_cycles: Default::default(),
             last_instruction_t_cycles: TCycles(1),
             oam_dma_active: false,

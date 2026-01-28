@@ -75,20 +75,21 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
             PpuTickMode::DrawingPixels => self.tick_drawing_pixels(),
         };
         let mut return_vec = vec![];
-        if let Some((new_mode, increment_ly)) = self.ppu.mode_tracking.process_tick(self.lcd_regs.get_ly()) {
-            if increment_ly {
-                return_vec.append(&mut self.lcd_regs.increment_ly());
-            }
+        let (new_mode, increment_ly) = self.ppu.mode_tracking.process_tick(self.lcd_regs.get_ly());
+
+        if increment_ly {
+            return_vec.append(&mut self.lcd_regs.increment_ly());
+        }
+        if let Some(new_mode) = new_mode {
             return_vec.push(GameBoyStateChange::UpdatePpuMode(new_mode));
         }
         return_vec
     }
 
     pub fn tick_dot_ppu_disabled(&mut self) -> Vec<GameBoyStateChange> {
-        if let Some((_, increment_ly)) = self.ppu.mode_tracking.process_tick(self.lcd_regs.get_ly()) {
-            if increment_ly {
-                return self.lcd_regs.increment_ly();
-            }
+        let (_, increment_ly) = self.ppu.mode_tracking.process_tick(self.lcd_regs.get_ly());
+        if increment_ly {
+            return self.lcd_regs.increment_ly();
         }
         vec![]
     }
@@ -104,19 +105,36 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
 
 struct Scanline {}
 
+impl Scanline {
+    const DOTS_PER_LINE: Dots = 456;
+}
+
 struct PpuModeTracker {
     mode: PpuTickMode,
     remaining_dots: Dots,
     extra_dots: Dots,
+    dots_to_new_line: Dots,
 }
 
 impl PpuModeTracker {
-    fn process_tick(&mut self, ly: u8) -> Option<(PpuTickMode, bool)> {
+    fn process_tick(&mut self, ly: u8) -> (Option<PpuTickMode>, bool) {
         self.remaining_dots = self.remaining_dots.saturating_sub(1);
-        if self.remaining_dots == 0 {
-            Some((self.transition_to_next_mode(ly), self.mode.starts_new_line()))
+
+        let inc_ly = self.decrement_line_countdown();
+        let new_mode = match self.remaining_dots == 0 {
+            true => Some(self.transition_to_next_mode(ly)),
+            false => None,
+        };
+
+        (new_mode, inc_ly)
+    }
+    fn decrement_line_countdown(&mut self) -> bool {
+        self.dots_to_new_line -= 1;
+        if self.dots_to_new_line == 0 {
+            self.dots_to_new_line = Scanline::DOTS_PER_LINE;
+            true
         } else {
-            None
+            false
         }
     }
     fn transition_to_next_mode(&mut self, ly: u8) -> PpuTickMode {
@@ -139,6 +157,7 @@ impl Default for PpuModeTracker {
             mode: Default::default(),
             remaining_dots: Default::default(),
             extra_dots: Default::default(),
+            dots_to_new_line: Scanline::DOTS_PER_LINE,
         }
     }
 }
@@ -154,13 +173,6 @@ pub enum PpuTickMode {
 }
 
 impl PpuTickMode {
-    /// Tells whether or not transitioning into this state corresponds to a new line number (ie ly += 1)
-    fn starts_new_line(&self) -> bool {
-        match self {
-            PpuTickMode::VerticalBlank | PpuTickMode::OamScan => true,
-            PpuTickMode::HorizontalBlank | PpuTickMode::DrawingPixels => false,
-        }
-    }
     fn get_default_length(&self) -> Dots {
         match self {
             PpuTickMode::HorizontalBlank => 204,
@@ -172,7 +184,7 @@ impl PpuTickMode {
     fn get_next_mode(&self, ly: u8) -> Self {
         match self {
             PpuTickMode::HorizontalBlank => {
-                if ly < Ppu::START_LINE_FOR_MODE_1 {
+                if (ly + 1) < Ppu::START_LINE_FOR_MODE_1 {
                     PpuTickMode::OamScan
                 } else {
                     PpuTickMode::VerticalBlank
