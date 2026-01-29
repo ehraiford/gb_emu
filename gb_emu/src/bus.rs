@@ -261,10 +261,7 @@ struct MemoryMap {
 impl MemoryMap {
     fn handle_memory_map_event(&mut self, event: MemoryMapEvent) {
         match event {
-            MemoryMapEvent::UnmapBootRom => {
-                println!("Unmapping bootrom");
-                self.map[0].device = MemoryTarget::RomBank00;
-            },
+            MemoryMapEvent::UnmapBootRom => self.map[0].device = MemoryTarget::RomBank00,
             MemoryMapEvent::UpdatePpuMode(ppu_tick_mode) => {
                 let inaccessible = ppu_tick_mode.get_cpu_inaccessible_video_targets();
                 let accessible = ppu_tick_mode.get_cpu_accessible_video_targets();

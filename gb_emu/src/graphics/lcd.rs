@@ -27,12 +27,13 @@ impl LcdRegisters {
         self.ly
     }
 
-    pub fn increment_ly(&mut self) {
+    pub fn increment_ly(&mut self) -> u8 {
         self.ly = (self.ly + 1) % Ppu::SCREEN_HEIGHT;
         if self.ly == self.ly_compare {
             self.set_status_flag(LcdStatusFlag::LycEqualsLy, true);
             notate_event(GameBoyEvent::Interrupt(crate::game_boy::Interrupt::LycEqualsLy));
         }
+        self.ly
     }
 
     pub fn reset_ly(&mut self) {

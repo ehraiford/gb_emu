@@ -74,13 +74,23 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
             PpuTickMode::OamScan => self.tick_oam_scan(),
             PpuTickMode::DrawingPixels => self.tick_drawing_pixels(),
         };
-        self.ppu.mode_tracking.process_tick(self.lcd_regs.get_ly());
+
+        let result = self.ppu.mode_tracking.process_tick(self.lcd_regs.get_ly());
+
+        if result.increment_ly {
+            self.lcd_regs.increment_ly();
+        }
+
+        if let Some(mode) = result.new_mode {
+            notate_event(GameBoyEvent::UpdatePpuMode(mode));
+        }
     }
 
     pub fn tick_dot_ppu_disabled(&mut self) {
-        let increment_ly = self.ppu.mode_tracking.process_tick(self.lcd_regs.get_ly());
-        if increment_ly {
-            return self.lcd_regs.increment_ly();
+        let result = self.ppu.mode_tracking.process_tick(self.lcd_regs.get_ly());
+
+        if result.increment_ly {
+            self.lcd_regs.increment_ly();
         }
     }
 
@@ -106,11 +116,22 @@ struct PpuModeTracker {
     dots_to_new_line: Dots,
 }
 
+struct PpuTickResult {
+    increment_ly: bool,
+    new_mode: Option<PpuTickMode>,
+}
+
 impl PpuModeTracker {
-    fn process_tick(&mut self, ly: u8) -> bool {
-        self.decrement_mode_dots(ly);
-        self.decrement_line_countdown()
+    fn process_tick(&mut self, ly: u8) -> PpuTickResult {
+        let increment_ly = self.decrement_line_countdown();
+
+        let effective_ly = if increment_ly { ly.wrapping_add(1) } else { ly };
+
+        let new_mode = self.decrement_mode_dots(effective_ly);
+
+        PpuTickResult { increment_ly, new_mode }
     }
+
     fn decrement_line_countdown(&mut self) -> bool {
         self.dots_to_new_line -= 1;
         if self.dots_to_new_line == 0 {
@@ -120,21 +141,23 @@ impl PpuModeTracker {
             false
         }
     }
-    fn decrement_mode_dots(&mut self, ly: u8) {
+
+    fn decrement_mode_dots(&mut self, ly: u8) -> Option<PpuTickMode> {
         self.remaining_dots = self.remaining_dots.saturating_sub(1);
 
         if self.remaining_dots == 0 {
             self.mode = self.mode.get_next_mode(ly);
             self.remaining_dots = self.mode.get_default_length();
 
-            // Extra time spent on Drawing Pixels is made up by less time in Horizontal Blank
             if self.mode == PpuTickMode::HorizontalBlank {
                 self.remaining_dots -= self.extra_dots;
             }
             self.extra_dots = 0;
 
-            notate_event(GameBoyEvent::UpdatePpuMode(self.mode));
-        };
+            Some(self.mode)
+        } else {
+            None
+        }
     }
 }
 
