@@ -1,5 +1,5 @@
 use crate::{
-    bus::{Address, BusAccessFailure, BusAccessOutcome},
+    bus::{Address, BusAccessFailure},
     cartridge::cartridge::ROM_BANK_SIZE,
 };
 
@@ -9,11 +9,11 @@ pub struct RomBank {
 }
 
 impl RomBank {
-    pub fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
+    pub fn read(&mut self, address: Address) -> u8 {
         self.data[address as usize].into()
     }
 
-    pub fn write(&mut self, _: Address, _: u8) -> BusAccessOutcome<()> {
+    pub fn write(&mut self, _: Address, _: u8) {
         BusAccessFailure::TriedWritingToReadOnlyMemory.into()
     }
 
@@ -46,13 +46,12 @@ impl<const SIZE: usize> RamBank<SIZE> {
         Default::default()
     }
 
-    pub fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
+    pub fn read(&mut self, address: Address) -> u8 {
         self.data[address as usize].into()
     }
 
-    pub fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
+    pub fn write(&mut self, address: Address, value: u8) {
         self.data[address as usize] = value;
-        BusAccessOutcome::default_outcome()
     }
 
     pub fn peek(&self, address: Address) -> u8 {
@@ -95,16 +94,16 @@ impl<const SIZE: usize> BankableRam<SIZE> {
         self.active_bank_num = bank_num;
     }
 
-    pub fn read(&mut self, address: Address) -> BusAccessOutcome<u8> {
+    pub fn read(&mut self, address: Address) -> u8 {
         let Some(bank_number) = self.get_active_bank_number() else {
-            return BusAccessOutcome::from(BusAccessFailure::NothingMappedToAddress);
+            return BusAccessFailure::NothingMappedToAddress.into();
         };
         self.banks[bank_number as usize].read(address)
     }
 
-    pub fn write(&mut self, address: Address, value: u8) -> BusAccessOutcome<()> {
+    pub fn write(&mut self, address: Address, value: u8) {
         let Some(bank_number) = self.get_active_bank_number() else {
-            return BusAccessOutcome::from(BusAccessFailure::NothingMappedToAddress);
+            return BusAccessFailure::NothingMappedToAddress.into();
         };
         self.banks[bank_number as usize].write(address, value)
     }

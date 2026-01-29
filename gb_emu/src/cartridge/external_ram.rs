@@ -20,11 +20,11 @@ impl ExternalRam {
 impl BusAccessible for ExternalRam {
     const MM_DEVICE: crate::bus::MemoryTarget = crate::bus::MemoryTarget::ExternalRam;
 
-    fn read(&mut self, address: Address) -> crate::bus::BusAccessOutcome<u8> {
+    fn read(&mut self, address: Address) -> u8 {
         self.bankable_ram.read(Self::local(address))
     }
 
-    fn write(&mut self, address: Address, value: u8) -> crate::bus::BusAccessOutcome<()> {
+    fn write(&mut self, address: Address, value: u8) -> () {
         self.bankable_ram.write(Self::local(address), value)
     }
 

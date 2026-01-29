@@ -1,6 +1,6 @@
 use crate::{
     bus::MemoryTarget,
-    game_boy::GameBoyStateChange,
+    game_boy::{GameBoyEvent, notate_event},
     graphics::{lcd::LcdRegisters, oam::ObjectAttributeMemory, video_ram::VideoRam},
 };
 pub struct Ppu {
@@ -21,7 +21,7 @@ impl Ppu {
         v_ram: &mut VideoRam,
         oam: &mut ObjectAttributeMemory,
         lcd_regs: &mut LcdRegisters,
-    ) -> Vec<GameBoyStateChange> {
+    ) {
         let mut context = PpuOperationContext::new(self, v_ram, oam, lcd_regs);
         context.tick_dot_ppu_enabled()
     }
@@ -30,7 +30,7 @@ impl Ppu {
         v_ram: &mut VideoRam,
         oam: &mut ObjectAttributeMemory,
         lcd_regs: &mut LcdRegisters,
-    ) -> Vec<GameBoyStateChange> {
+    ) {
         let mut context = PpuOperationContext::new(self, v_ram, oam, lcd_regs);
         context.tick_dot_ppu_disabled()
     }
@@ -67,31 +67,31 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
 
     fn tick_vertical_blank(&mut self) {}
 
-    pub fn tick_dot_ppu_enabled(&mut self) -> Vec<GameBoyStateChange> {
+    pub fn tick_dot_ppu_enabled(&mut self) {
         match self.ppu.get_mode() {
             PpuTickMode::HorizontalBlank => self.tick_horizontal_blank(),
             PpuTickMode::VerticalBlank => self.tick_vertical_blank(),
             PpuTickMode::OamScan => self.tick_oam_scan(),
             PpuTickMode::DrawingPixels => self.tick_drawing_pixels(),
         };
-        let mut return_vec = vec![];
-        let (new_mode, increment_ly) = self.ppu.mode_tracking.process_tick(self.lcd_regs.get_ly());
 
-        if increment_ly {
-            return_vec.append(&mut self.lcd_regs.increment_ly());
+        let result = self.ppu.mode_tracking.process_tick(self.lcd_regs.get_ly());
+
+        if result.increment_ly {
+            self.lcd_regs.increment_ly();
         }
-        if let Some(new_mode) = new_mode {
-            return_vec.push(GameBoyStateChange::UpdatePpuMode(new_mode));
+
+        if let Some(mode) = result.new_mode {
+            notate_event(GameBoyEvent::UpdatePpuMode(mode));
         }
-        return_vec
     }
 
-    pub fn tick_dot_ppu_disabled(&mut self) -> Vec<GameBoyStateChange> {
-        let (_, increment_ly) = self.ppu.mode_tracking.process_tick(self.lcd_regs.get_ly());
-        if increment_ly {
-            return self.lcd_regs.increment_ly();
+    pub fn tick_dot_ppu_disabled(&mut self) {
+        let result = self.ppu.mode_tracking.process_tick(self.lcd_regs.get_ly());
+
+        if result.increment_ly {
+            self.lcd_regs.increment_ly();
         }
-        vec![]
     }
 
     fn get_scanline(&mut self) -> Scanline {
@@ -116,18 +116,22 @@ struct PpuModeTracker {
     dots_to_new_line: Dots,
 }
 
+struct PpuTickResult {
+    increment_ly: bool,
+    new_mode: Option<PpuTickMode>,
+}
+
 impl PpuModeTracker {
-    fn process_tick(&mut self, ly: u8) -> (Option<PpuTickMode>, bool) {
-        self.remaining_dots = self.remaining_dots.saturating_sub(1);
+    fn process_tick(&mut self, ly: u8) -> PpuTickResult {
+        let increment_ly = self.decrement_line_countdown();
 
-        let inc_ly = self.decrement_line_countdown();
-        let new_mode = match self.remaining_dots == 0 {
-            true => Some(self.transition_to_next_mode(ly)),
-            false => None,
-        };
+        let effective_ly = if increment_ly { ly.wrapping_add(1) } else { ly };
 
-        (new_mode, inc_ly)
+        let new_mode = self.decrement_mode_dots(effective_ly);
+
+        PpuTickResult { increment_ly, new_mode }
     }
+
     fn decrement_line_countdown(&mut self) -> bool {
         self.dots_to_new_line -= 1;
         if self.dots_to_new_line == 0 {
@@ -137,17 +141,23 @@ impl PpuModeTracker {
             false
         }
     }
-    fn transition_to_next_mode(&mut self, ly: u8) -> PpuTickMode {
-        self.mode = self.mode.get_next_mode(ly);
-        self.remaining_dots = self.mode.get_default_length();
 
-        // Extra time spent on Drawing Pixels is made up by less time in Horizontal Blank
-        if self.mode == PpuTickMode::HorizontalBlank {
-            self.remaining_dots -= self.extra_dots;
+    fn decrement_mode_dots(&mut self, ly: u8) -> Option<PpuTickMode> {
+        self.remaining_dots = self.remaining_dots.saturating_sub(1);
+
+        if self.remaining_dots == 0 {
+            self.mode = self.mode.get_next_mode(ly);
+            self.remaining_dots = self.mode.get_default_length();
+
+            if self.mode == PpuTickMode::HorizontalBlank {
+                self.remaining_dots -= self.extra_dots;
+            }
+            self.extra_dots = 0;
+
+            Some(self.mode)
+        } else {
+            None
         }
-        self.extra_dots = 0;
-
-        self.mode
     }
 }
 

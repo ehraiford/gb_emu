@@ -1,14 +1,14 @@
-use crate::bus::{Address, BusAccessFailure, BusAccessOutcome};
+use crate::bus::{Address, BusAccessFailure};
 
 pub struct BootRom {
     data: &'static [u8; BOOTROM.len()],
 }
 
 impl BootRom {
-    pub fn read(&self, address: Address) -> BusAccessOutcome<u8> {
-        BusAccessOutcome(self.data[address as usize], vec![])
+    pub fn read(&self, address: Address) -> u8 {
+        self.data[address as usize]
     }
-    pub fn write(&mut self, _address: Address, _value: u8) -> BusAccessOutcome<()> {
+    pub fn write(&mut self, _address: Address, _value: u8) -> () {
         BusAccessFailure::TriedWritingToReadOnlyMemory.into()
     }
 }

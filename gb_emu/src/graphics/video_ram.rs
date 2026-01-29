@@ -71,15 +71,12 @@ impl VideoRam {
         self.ram_banks[0].print_tiles_in_a_row(0, 0x01, shift);
         self.ram_banks[0].print_tiles_in_a_row(0, shift, 0x30);
     }
-    // pub fn found_logo_in_memory(&self) -> bool {
-
-    // }
 }
 
 impl BusAccessible for VideoRam {
     const MM_DEVICE: MemoryTarget = MemoryTarget::VideoRam;
 
-    fn read(&mut self, address: Address) -> crate::bus::BusAccessOutcome<u8> {
+    fn read(&mut self, address: Address) -> u8 {
         if address < Self::TILE_MAP_START_ADDR {
             let address = Self::local(address);
             let byte_index = TileByteIndex::address_to_index(address);
@@ -90,7 +87,7 @@ impl BusAccessible for VideoRam {
         }
     }
 
-    fn write(&mut self, address: Address, value: u8) -> crate::bus::BusAccessOutcome<()> {
+    fn write(&mut self, address: Address, value: u8) {
         if address < Self::TILE_MAP_START_ADDR {
             let address = Self::local(address);
 
@@ -118,6 +115,23 @@ impl BusAccessible for VideoRam {
         }
     }
 }
+
+// XXXX            XXXX                                                          XXXX
+// XXXX            XXXX                                                          XXXX
+// XXXXXX          XXXX                                                          XXXX
+// XXXXXX          XXXX                                                          XXXX
+// XXXXXX    XXXX                          XX                                    XXXX
+// XXXXXX    XXXX                          XX                                    XXXX
+// XXXX  XX  XXXX          XX  XXXX    XXXX        XXXX    XXXX  XXXX      XXXXXXXXXX    XXXXXXXX
+// XXXX  XX  XXXX          XX  XXXX    XXXX        XXXX    XXXX  XXXX      XXXXXXXXXX    XXXXXXXX
+//           XXXX          XXXX  XXXX  XXXX          XXXX  XXXXXX          XX    XXXX  XXXX
+//           XXXX          XXXX  XXXX  XXXX          XXXX  XXXXXX          XX    XX            XXXX
+//         XXXXXX  XXXX  XX        XX  XXXX  XXXXXX        XXXX            XX    XXXX  XXXX
+//         XXXXXX  XXXX  XX        XX  XXXX  XXXXXX        XXXX            XX    XXXX  XXXX        X X  X X
+// XXXX            XXXX  XX        XX  XXXX  XXXX          XXXX    XXXX  XX        XX  XXXX        X XXX  X
+//         XXXXXX  XXXX  XX        XX  XXXX  XXXX          XXXX    XXXX  XX        XX  XXXX        X X  X X
+// XXXX            XXXX  XXXX    XX            XXXX        XXXX    XXXX            XX    XXXXXXXX   X    X
+// XXXX            XXXX  XXXX    XX            XXXX        XXXX    XXXX            XX    XXXXXXXX    XXXX
 
 impl Default for VideoRam {
     fn default() -> Self {

@@ -27,11 +27,11 @@ impl PartOfCartridge for BankableRoms {
 impl BusAccessible for BankableRoms {
     const MM_DEVICE: crate::bus::MemoryTarget = crate::bus::MemoryTarget::BankableRom;
 
-    fn read(&mut self, address: Address) -> crate::bus::BusAccessOutcome<u8> {
+    fn read(&mut self, address: Address) -> u8 {
         self.banks[self.active_bank_num as usize].read(Self::local(address))
     }
 
-    fn write(&mut self, address: Address, value: u8) -> crate::bus::BusAccessOutcome<()> {
+    fn write(&mut self, address: Address, value: u8) {
         self.banks[self.active_bank_num as usize].write(Self::local(address), value)
     }
 
@@ -69,11 +69,11 @@ impl PartOfCartridge for RomBank00 {
 impl BusAccessible for RomBank00 {
     const MM_DEVICE: crate::bus::MemoryTarget = crate::bus::MemoryTarget::RomBank00;
 
-    fn read(&mut self, address: Address) -> crate::bus::BusAccessOutcome<u8> {
+    fn read(&mut self, address: Address) -> u8 {
         self.bank.read(Self::local(address))
     }
 
-    fn write(&mut self, address: Address, value: u8) -> crate::bus::BusAccessOutcome<()> {
+    fn write(&mut self, address: Address, value: u8) {
         self.bank.write(Self::local(address), value)
     }
 
