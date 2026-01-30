@@ -101,10 +101,15 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
     fn tick_drawing_pixels(&mut self) {
         // self.ppu.sprite_fetcher.tick(&self.lcd_regs, self.v_ram);
         self.ppu.background_fetcher.tick(&self.lcd_regs, self.v_ram);
-        if self.ppu.pushed_pixels_this_line < 160 {
-            let pixel = self.ppu.background_fetcher.pop_pixel();
-            self.ppu.pushed_pixels_this_line += 1;
-            self.ppu.pixel_buffer_sender.send(pixel.into()).unwrap();
+        if self.ppu.background_fetcher.queue.length() >= 8 {
+            if self.ppu.pushed_pixels_this_line < 160 {
+                let pixel = self.ppu.background_fetcher.pop_pixel();
+                self.ppu.pushed_pixels_this_line += 1;
+                self.ppu.pixel_buffer_sender.send(pixel.into()).unwrap();
+            }
+        } else {
+            self.ppu.mode_tracking.extra_dots += 1;
+            self.ppu.mode_tracking.remaining_dots += 1;
         }
     }
 
@@ -131,7 +136,7 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
             if mode == PpuTickMode::DrawingPixels {
                 self.ppu.clear_queues();
                 self.ppu.background_fetcher.reset_for_new_scanline();
-
+                // println!("Pushed {} pixels this line", self.ppu.pushed_pixels_this_line);
                 self.ppu.pushed_pixels_this_line = 0;
             }
         }
@@ -369,7 +374,7 @@ impl BackGroundFifo {
                 let access_method = lcd.get_background_window_tiles_address_mode();
                 let map = lcd.get_target_tilemap(self.pixels_popped);
 
-                let (row, column, in_sprite_row) = self.get_tile_location(lcd);
+                let (column, row, in_sprite_row) = self.get_tile_location(lcd);
                 let tile_number = v_ram.get_tile_index_from_map(&map, row, column);
 
                 self.mode = FifoMode::GetTileDataLow {

@@ -109,6 +109,9 @@ impl<const MAX_SIZE: usize, T: Default + Copy> StackAllocQueue<T, MAX_SIZE> {
     pub fn clear_queue(&mut self) {
         self.length = 0;
     }
+    pub fn length(&self) -> u8 {
+        self.length
+    }
 }
 
 pub trait WrappingIncrement {

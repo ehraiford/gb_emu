@@ -101,6 +101,9 @@ impl VideoRam {
                 for pixel in pixel_group[line_num] {
                     pixels.push(pixel);
                 }
+                for _ in 0..96 {
+                    pixels.push(Pixel::default());
+                }
             }
         }
         pixels
