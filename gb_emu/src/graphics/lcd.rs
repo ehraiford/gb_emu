@@ -21,12 +21,22 @@ pub struct LcdRegisters {
     wy: u8,
     wx: u8,
 
-    palette: Palette,
+    bgp: u8,
+    obp0: u8,
+    obp1: u8,
 }
 
 impl LcdRegisters {
     const START_ADDRESS: Address = 0xFF40;
     pub const MAX_LY: u8 = 153;
+
+    pub fn apply_bg_palette(&self, raw_color_id: u8) -> u8 {
+        self.bgp >> (raw_color_id * 2) & 0b11
+    }
+
+    pub fn get_bgp(&self) -> u8 {
+        self.bgp
+    }
 
     pub fn get_ly(&self) -> u8 {
         self.ly
@@ -40,7 +50,7 @@ impl LcdRegisters {
     }
 
     pub fn increment_ly(&mut self) -> u8 {
-        let new_value = (self.ly + 1) % Self::MAX_LY;
+        let new_value = (self.ly + 1) % (Self::MAX_LY + 1);
         self.set_ly(new_value);
         self.get_ly()
     }
@@ -106,9 +116,9 @@ impl LcdRegisters {
             4 => BusAccessFailure::TriedWritingToReadOnlyMemory.into(),
             5 => self.ly_compare = value,
             6 => notate_event(GameBoyEvent::StartOamDmaTransfer(value)),
-            7 => self.palette.dmg_palette = value,
-            8 => self.palette.ogp0 = value,
-            9 => self.palette.ogp1 = value,
+            7 => self.bgp = value,
+            8 => self.obp0 = value,
+            9 => self.obp1 = value,
             0xA => self.wy = value,
             0xB => self.wx = value,
             _ => unreachable!("Nothing should be able to reach to this"),
@@ -125,9 +135,9 @@ impl LcdRegisters {
             4 => self.ly,
             5 => self.ly_compare,
             6 => BusAccessFailure::TriedAccessingUnusableMemory.into(),
-            7 => self.palette.dmg_palette,
-            8 => self.palette.ogp0,
-            9 => self.palette.ogp1,
+            7 => self.bgp,
+            8 => self.obp0,
+            9 => self.obp1,
             0xA => self.wy,
             0xB => self.wx,
             _ => unreachable!("Nothing should be able to reach to this"),
@@ -219,56 +229,15 @@ impl LcdStatusFlag {
     }
 }
 
-const DMG_PALETTE_ADDRESS: Address = 0xFF47;
-
-pub struct Palette {
-    dmg_palette: u8,
-    ogp0: u8,
-    ogp1: u8,
-    cgb_palettes: [u8; 64],
-}
-
-impl Palette {
-    pub fn get_dmg_palette(&self) -> [MonochromeColor; 4] {
-        [
-            MonochromeColor::from(self.dmg_palette & 0b11),
-            MonochromeColor::from((self.dmg_palette >> 2) & 0b11),
-            MonochromeColor::from((self.dmg_palette >> 4) & 0b11),
-            MonochromeColor::from((self.dmg_palette >> 6) & 0b11),
-        ]
-    }
-
-    fn get_cgb(&self) -> u8 {
-        todo!()
-    }
-    fn set_cgb(&mut self, _value: u8) {
-        todo!()
-    }
-}
-
-impl Default for Palette {
-    fn default() -> Self {
-        Self { dmg_palette: 0, cgb_palettes: [0; 64], ogp0: 0, ogp1: 0 }
-    }
-}
-
-#[repr(u8)]
-#[derive(Default, Clone, Copy, Debug)]
-enum MonochromeColor {
-    #[default]
-    White = 0,
-    LightGray,
-    DarkGray,
-    Black,
-}
-
-impl From<u8> for MonochromeColor {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => Self::White,
-            1 => Self::LightGray,
-            2 => Self::DarkGray,
-            _ => Self::Black,
-        }
-    }
+pub enum LcdRegister {
+    LY,
+    LYC,
+    STAT,
+    SCY,
+    SCX,
+    WY,
+    WX,
+    BGP,
+    OBP1,
+    OBP0,
 }

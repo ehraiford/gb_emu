@@ -87,7 +87,9 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
                     pixels_to_ignore -= 1;
                 } else {
                     let pixel = self.ppu.background_fetcher.pop_pixel();
-                    self.ppu.pixel_buffer_sender.send(pixel.into()).unwrap();
+                    // todo: Fix this. This is very hacky. I just want something before I finish for the week.
+                    let colored_pixel = Pixel::new(self.lcd_regs.apply_bg_palette(pixel.color_number));
+                    self.ppu.pixel_buffer_sender.send(colored_pixel.into()).unwrap();
                     pixels_to_push -= 1;
                 }
             }
@@ -148,7 +150,7 @@ impl PpuModeTracker {
     fn process_tick_horizontal_blank(&mut self, ly: u8) -> PpuTickResult {
         if self.remaining_dots_in_line == 0 {
             self.remaining_dots_in_line = DOTS_PER_LINE;
-            if ly < SCREEN_HEIGHT {
+            if ly < SCREEN_HEIGHT - 1 {
                 let new_mode = PpuTickMode::OamScan { remaining_cycles: 80 };
                 self.mode = new_mode;
                 PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
@@ -164,21 +166,20 @@ impl PpuModeTracker {
     }
 
     fn process_tick_vertical_blank(&mut self, ly: u8) -> PpuTickResult {
-        match (self.remaining_dots_in_line == 0, ly == LcdRegisters::MAX_LY) {
-            (true, true) => {
-                self.remaining_dots_in_line = DOTS_PER_LINE;
+        if self.remaining_dots_in_line == 0 {
+            self.remaining_dots_in_line = DOTS_PER_LINE;
+
+            if ly >= LcdRegisters::MAX_LY {
                 let new_mode = PpuTickMode::OamScan { remaining_cycles: 80 };
                 self.mode = new_mode;
                 PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
-            },
-            (true, false) => {
-                self.remaining_dots_in_line = DOTS_PER_LINE;
+            } else {
                 let new_mode = PpuTickMode::VerticalBlank;
-                notate_event(GameBoyEvent::Interrupt(Interrupt::VBlank));
                 self.mode = new_mode;
                 PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
-            },
-            _ => PpuTickResult { increment_ly: false, new_mode: None },
+            }
+        } else {
+            PpuTickResult { increment_ly: false, new_mode: None }
         }
     }
 
@@ -211,7 +212,6 @@ impl PpuModeTracker {
 
     fn process_tick(&mut self, ly: u8, scx: u8) -> PpuTickResult {
         self.remaining_dots_in_line -= 1;
-
         match self.mode {
             PpuTickMode::HorizontalBlank => self.process_tick_horizontal_blank(ly),
             PpuTickMode::VerticalBlank => self.process_tick_vertical_blank(ly),
