@@ -1,7 +1,10 @@
 use crate::{
     bus::{Address, BusAccessFailure},
     game_boy::{GameBoyEvent, notate_event},
-    graphics::ppu::{Ppu, PpuTickMode},
+    graphics::{
+        ppu::{Ppu, PpuTickMode},
+        video_ram::{AccessMethod, TargetTileMap},
+    },
 };
 
 #[derive(Default)]
@@ -28,7 +31,7 @@ impl LcdRegisters {
     }
 
     pub fn increment_ly(&mut self) -> u8 {
-        self.ly = (self.ly + 1) % Ppu::SCREEN_HEIGHT;
+        self.ly = (self.ly + 1) % Ppu::MAX_LY;
         if self.ly == self.ly_compare {
             self.set_status_flag(LcdStatusFlag::LycEqualsLy, true);
             notate_event(GameBoyEvent::Interrupt(crate::game_boy::Interrupt::LycEqualsLy));
@@ -38,6 +41,45 @@ impl LcdRegisters {
 
     pub fn reset_ly(&mut self) {
         self.ly = 0;
+    }
+
+    pub fn get_scx(&self) -> u8 {
+        self.scx
+    }
+    pub fn get_scy(&self) -> u8 {
+        self.scy
+    }
+    pub fn get_wx(&self) -> u8 {
+        self.wx
+    }
+    pub fn get_wy(&self) -> u8 {
+        self.wy
+    }
+
+    pub fn get_target_tilemap(&self, x_coordinate: u8) -> TargetTileMap {
+        match self.coordinate_in_window(x_coordinate) {
+            true => match self.get_control_flag(LcdControlFlag::WindowTileMap) {
+                true => TargetTileMap::At0x9C00,
+                false => TargetTileMap::At0x9800,
+            },
+            false => match self.get_control_flag(LcdControlFlag::BackgroundTileMap) {
+                true => TargetTileMap::At0x9C00,
+                false => TargetTileMap::At0x9800,
+            },
+        }
+    }
+
+    pub fn get_background_window_tiles_address_mode(&self) -> AccessMethod {
+        match self.get_control_flag(LcdControlFlag::BackgroundWindowTiles) {
+            true => AccessMethod::Method8000,
+            false => AccessMethod::Method8800,
+        }
+    }
+
+    pub fn coordinate_in_window(&self, x_coordinate: u8) -> bool {
+        self.get_control_flag(LcdControlFlag::BackgroundWindowEnablePriority)
+            && self.ly >= self.wy
+            && x_coordinate >= self.wx.saturating_sub(7)
     }
 
     pub fn read(&mut self, address: Address) -> u8 {

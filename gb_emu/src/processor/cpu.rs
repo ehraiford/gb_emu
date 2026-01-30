@@ -1,7 +1,7 @@
 use crate::{
     bus::{Address, Bus},
     game_boy::{GameBoyEvent, GameBoyMode, TCycles, notate_event},
-    helper_functions::log,
+    helpers::log,
     processor::instructions::{
         EightBitOperand, Instruction, InstructionError, InstructionOutcome, OpCode, Operand, OperandType,
         SignedEightBitOperand, SixteenBitOperand,

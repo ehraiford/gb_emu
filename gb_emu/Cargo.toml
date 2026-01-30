@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 pixels = "0.15"
-winit = "0.30.12"
+minifb = "0.28.0"
 
 [features]
 disassemble = []

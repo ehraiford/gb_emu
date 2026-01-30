@@ -1,11 +1,15 @@
-use std::sync::{Mutex, OnceLock};
+use std::{
+    sync::{Mutex, OnceLock},
+    thread::sleep,
+    time::{Duration, Instant},
+};
 
 use crate::{
     bus::{Bus, MemoryMapEvent, MemoryTarget},
     cartridge::cartridge::Cartridge,
     dma::OamDma,
-    graphics::ppu::{Ppu, PpuTickMode},
-    helper_functions::log,
+    graphics::ppu::{Ppu, PpuOperationContext, PpuTickMode},
+    helpers::log,
     os_interface::profiling::TrackedData,
     processor::cpu::Cpu,
 };
@@ -47,13 +51,34 @@ impl GameBoy {
 
     pub fn test_looping(&mut self, cycles: u64) {
         let tracked_data = TrackedData::new();
+        let desired_duration = Duration::from_secs_f64(1.0 / 4194304.0);
+        let mut next_checkin = 16_667;
         while self.state.elapsed_cpu_cycles.0 < cycles {
-            self.tick();
+            let start = Instant::now();
+
+            while self.state.elapsed_cpu_cycles.0 < next_checkin {
+                self.tick();
+            }
+
+            let expected_duration = desired_duration.mul_f64(16_667.0);
+
+            let elapsed_time = start.elapsed();
+            if expected_duration > elapsed_time {
+                std::thread::sleep(expected_duration - elapsed_time);
+            }
+
+            next_checkin = self.state.elapsed_cpu_cycles.0 + 16_667;
         }
 
         tracked_data.log_from_gameboy(self);
 
-        self.bus.print_graphics_data();
+        self.print_graphics_data();
+    }
+
+    fn print_graphics_data(&mut self) {
+        let (v_ram, oam, lcd_regs) = self.bus.get_ppu_context_mem();
+        let context = PpuOperationContext::new(&mut self.ppu, v_ram, oam, lcd_regs);
+        context.print_graphics_data();
     }
 
     fn tick_cpu(&mut self) {
@@ -62,10 +87,10 @@ impl GameBoy {
 
         self.state.cpu_lockstep_catchup = t_cycles;
 
-        if self.cpu.get_pc() == 0x3e {
-            self.bus.print_graphics_data();
-            panic!();
-        }
+        // if self.cpu.get_pc() == 0x3e {
+        //     self.bus.print_graphics_data();
+        //     panic!();
+        // }
     }
 
     fn tick_oam_dma(&mut self) {
@@ -87,7 +112,7 @@ impl GameBoy {
         self.ppu.tick_ppu_disabled(v_ram, oam, lcd_regs)
     }
 
-    fn tick(&mut self) {
+    pub fn tick(&mut self) {
         if self.state.is_cpu_active() {
             self.tick_cpu();
         } else {

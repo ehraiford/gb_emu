@@ -1,9 +1,10 @@
+use std::i8;
+
 use crate::bus::{Address, BusAccessible, MemoryTarget};
 
 pub struct VideoRam {
     ram_banks: Vec<VideoRamBank>,
     tile_maps: TileMaps,
-    cpu_accessible: bool,
 }
 
 impl VideoRam {
@@ -13,15 +14,24 @@ impl VideoRam {
         Self {
             ram_banks: vec![Default::default()],
             tile_maps: Default::default(),
-            cpu_accessible: true,
         }
     }
     pub fn new_cgb() -> Self {
         Self {
             ram_banks: vec![Default::default(); 2],
             tile_maps: Default::default(),
-            cpu_accessible: true,
         }
+    }
+
+    fn get_tilemap_tiles(&self, map: &TargetTileMap, map_number: u8, method: AccessMethod) -> [&Tile; 32] {
+        std::array::from_fn(|i| {
+            let index = self.tile_maps.get_tile_index(map, map_number, i as u8);
+            self.get_tile(method, index)
+        })
+    }
+
+    pub fn get_tile_index_from_map(&self, map: &TargetTileMap, row: u8, column: u8) -> u8 {
+        self.tile_maps.get_tile_index(map, row, column)
     }
 
     /// todo!("This will need to point to the correct one when there's multiple"
@@ -38,17 +48,23 @@ impl VideoRam {
         &self.ram_banks[bank_num]
     }
 
-    pub(super) fn get_8000_method(&self, tile_number: u8) -> &Tile {
+    pub fn get_tile_byte(&self, method: AccessMethod, tile_number: u8, byte_number: u8) -> u8 {
+        let tile = self.get_tile(method, tile_number);
+        tile.get_byte(byte_number as usize)
+    }
+
+    pub fn get_tile(&self, method: AccessMethod, tile_number: u8) -> &Tile {
+        match method {
+            AccessMethod::Method8000 => self.get_8000_method(tile_number),
+            AccessMethod::Method8800 => self.get_8800_method(tile_number as i8),
+        }
+    }
+
+    fn get_8000_method(&self, tile_number: u8) -> &Tile {
         self.get_ram_bank().get_8000_method(tile_number as usize)
     }
-    pub(super) fn get_8800_method(&self, tile_number: i8) -> &Tile {
+    fn get_8800_method(&self, tile_number: i8) -> &Tile {
         self.get_ram_bank().get_8800_method(tile_number)
-    }
-    pub(super) fn get_8000_method_mut(&mut self, tile_number: u8) -> &mut Tile {
-        self.get_ram_bank_mut().get_8000_method_mut(tile_number as usize)
-    }
-    pub(super) fn get_8800_method_mut(&mut self, tile_number: i8) -> &mut Tile {
-        self.get_ram_bank_mut().get_8800_method_mut(tile_number)
     }
 
     pub fn print_all_tiles(&self) {
@@ -70,6 +86,24 @@ impl VideoRam {
         let shift = 0xd;
         self.ram_banks[0].print_tiles_in_a_row(0, 0x01, shift);
         self.ram_banks[0].print_tiles_in_a_row(0, shift, 0x30);
+    }
+
+    pub fn get_logo(&self) -> Vec<Pixel> {
+        let mut tiles = Vec::new();
+        for i in 1..34 {
+            tiles.push(self.ram_banks[0].tiles[0][i]);
+        }
+
+        let mut pixels = Vec::new();
+        let as_pixels: Vec<_> = tiles.iter().map(|t| t.get_pixels()).collect();
+        for line_num in 0..8 {
+            for pixel_group in &as_pixels {
+                for pixel in pixel_group[line_num] {
+                    pixels.push(pixel);
+                }
+            }
+        }
+        pixels
     }
 }
 
@@ -116,23 +150,6 @@ impl BusAccessible for VideoRam {
     }
 }
 
-// XXXX            XXXX                                                          XXXX
-// XXXX            XXXX                                                          XXXX
-// XXXXXX          XXXX                                                          XXXX
-// XXXXXX          XXXX                                                          XXXX
-// XXXXXX    XXXX                          XX                                    XXXX
-// XXXXXX    XXXX                          XX                                    XXXX
-// XXXX  XX  XXXX          XX  XXXX    XXXX        XXXX    XXXX  XXXX      XXXXXXXXXX    XXXXXXXX
-// XXXX  XX  XXXX          XX  XXXX    XXXX        XXXX    XXXX  XXXX      XXXXXXXXXX    XXXXXXXX
-//           XXXX          XXXX  XXXX  XXXX          XXXX  XXXXXX          XX    XXXX  XXXX
-//           XXXX          XXXX  XXXX  XXXX          XXXX  XXXXXX          XX    XX            XXXX
-//         XXXXXX  XXXX  XX        XX  XXXX  XXXXXX        XXXX            XX    XXXX  XXXX
-//         XXXXXX  XXXX  XX        XX  XXXX  XXXXXX        XXXX            XX    XXXX  XXXX        X X  X X
-// XXXX            XXXX  XX        XX  XXXX  XXXX          XXXX    XXXX  XX        XX  XXXX        X XXX  X
-//         XXXXXX  XXXX  XX        XX  XXXX  XXXX          XXXX    XXXX  XX        XX  XXXX        X X  X X
-// XXXX            XXXX  XXXX    XX            XXXX        XXXX    XXXX            XX    XXXXXXXX   X    X
-// XXXX            XXXX  XXXX    XX            XXXX        XXXX    XXXX            XX    XXXXXXXX    XXXX
-
 impl Default for VideoRam {
     fn default() -> Self {
         Self::new_gb()
@@ -175,14 +192,6 @@ impl VideoRamBank {
         let tile_index = tile_number.abs() as usize;
         &self.tiles[block_number][tile_index]
     }
-    fn get_8000_method_mut(&mut self, tile_number: usize) -> &mut Tile {
-        &mut self.tiles[tile_number / 128][tile_number % 128]
-    }
-    fn get_8800_method_mut(&mut self, tile_number: i8) -> &mut Tile {
-        let block_number = (tile_number >= 0) as usize + 1;
-        let tile_index = tile_number.abs() as usize;
-        &mut self.tiles[block_number][tile_index]
-    }
 
     fn set_byte(&mut self, byte_index: TileByteIndex, value: u8) {
         self.tiles[byte_index.block_number][byte_index.tile_index].set_byte(byte_index.byte_index, value);
@@ -196,6 +205,13 @@ impl Default for VideoRamBank {
     fn default() -> Self {
         Self { tiles: [[Default::default(); 128]; 3] }
     }
+}
+
+#[derive(Clone, Copy, Default, Debug)]
+pub enum AccessMethod {
+    #[default]
+    Method8000,
+    Method8800,
 }
 
 #[derive(Default, Copy, Clone)]
@@ -252,22 +268,23 @@ impl Tile {
 }
 
 #[derive(Copy, Clone)]
-struct Pixel {
+pub struct Pixel {
     pub color_number: u8,
 }
 
 impl Pixel {
-    fn new(color_number: u8) -> Self {
+    pub fn new(color_number: u8) -> Self {
         Self { color_number }
     }
 
-    fn from_byte(byte: u8) -> [Self; 4] {
-        [
-            Self::new(byte & 0b11),
-            Self::new(byte >> 2 & 0b11),
-            Self::new(byte >> 4 & 0b11),
-            Self::new(byte >> 6 & 0b11),
-        ]
+    pub fn from_bytes(low_byte: u8, high_byte: u8) -> [Self; 8] {
+        std::array::from_fn(|i| {
+            let bit_index = 7 - i;
+            let low_bit = (low_byte >> bit_index) & 1;
+            let high_bit = (high_byte >> bit_index) & 1;
+            let color = (high_bit << 1) | low_bit;
+            Pixel::new(color)
+        })
     }
     fn print_in_terminal(&self) {
         // print!("\x1b[48;5;{}m  \x1b[0m", TEST_COLORS[self.color_number as usize]);
@@ -290,32 +307,48 @@ impl Default for Pixel {
         Self { color_number: Default::default() }
     }
 }
+impl From<Pixel> for u32 {
+    fn from(value: Pixel) -> Self {
+        let shade = match value.color_number {
+            0 => 0xFF,
+            1 => 0xAA,
+            2 => 0x55,
+            3 => 0x00,
+            _ => unreachable!(),
+        };
+        // minifb wants 0x00RRGGBB
+        ((shade as u32) << 16) | ((shade as u32) << 8) | (shade as u32)
+    }
+}
 
 pub const TEST_COLORS: [u8; 4] = [0, 82, 28, 22];
 
 #[derive(Clone, Copy)]
 struct TileMap {
-    tile_map: [u8; 32 * 32],
+    tile_map: [[u8; 32]; 32],
 }
 
 impl TileMap {
     fn get_byte(&self, index: usize) -> u8 {
-        self.tile_map[index]
+        self.tile_map[index / 32][index % 32]
     }
     fn set_byte(&mut self, index: usize, value: u8) {
-        self.tile_map[index] = value;
+        self.tile_map[index / 32][index % 32] = value;
+    }
+    fn get_byte_from_coords(&self, row: u8, column: u8) -> u8 {
+        self.tile_map[row as usize][column as usize]
     }
 }
 
 impl Default for TileMap {
     fn default() -> Self {
-        Self { tile_map: [Default::default(); 32 * 32] }
+        Self { tile_map: [[Default::default(); 32]; 32] }
     }
 }
 
 #[derive(Default, Clone, Copy)]
 struct TileMaps {
-    tile_maps: [TileMap; 2],
+    tile_map_bank: [TileMap; 2],
 }
 
 impl TileMaps {
@@ -325,16 +358,34 @@ impl TileMaps {
         let tile_map_index = (address as usize) / Self::TILE_MAP_SIZE;
         let in_map_index = (address as usize) % Self::TILE_MAP_SIZE;
 
-        self.tile_maps[tile_map_index].get_byte(in_map_index)
+        self.tile_map_bank[tile_map_index].get_byte(in_map_index)
     }
     fn set_byte(&mut self, address: Address, value: u8) {
         let tile_map_index = (address as usize) / Self::TILE_MAP_SIZE;
         let in_map_index = (address as usize) % Self::TILE_MAP_SIZE;
 
-        self.tile_maps[tile_map_index].set_byte(in_map_index, value);
+        self.tile_map_bank[tile_map_index].set_byte(in_map_index, value);
+    }
+
+    pub fn get_tile_index(&self, map: &TargetTileMap, row: u8, column: u8) -> u8 {
+        self.tile_map_bank[usize::from(*map)].get_byte_from_coords(row, column)
     }
 }
 
+#[derive(Default, Clone, Copy)]
+pub enum TargetTileMap {
+    #[default]
+    At0x9800,
+    At0x9C00,
+}
+impl From<TargetTileMap> for usize {
+    fn from(map: TargetTileMap) -> usize {
+        match map {
+            TargetTileMap::At0x9800 => 0,
+            TargetTileMap::At0x9C00 => 1,
+        }
+    }
+}
 #[derive(Debug)]
 struct TileByteIndex {
     block_number: usize,

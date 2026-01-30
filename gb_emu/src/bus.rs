@@ -9,7 +9,7 @@ use crate::{
         ppu::PpuTickMode,
         video_ram::VideoRam,
     },
-    helper_functions::{concat_2_bytes, log},
+    helpers::{concat_2_bytes, log},
     interrupts::InterruptEnableRegister,
     io_registers::IoRegisters,
     onboard_memory::{
@@ -88,13 +88,6 @@ impl Bus {
         // log("Next instruction is: {:?}", instruction.op_code);
 
         outcome
-    }
-
-    pub fn print_graphics_data(&self) {
-        println!("Graphics Data:");
-        self.v_ram.print_logo();
-        // self.v_ram.print_tiles_in_a_row(2, 10, 40);
-        // self.v_ram.print_all_tiles();
     }
 
     pub fn read(&mut self, address: Address) -> u8 {

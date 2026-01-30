@@ -4,14 +4,14 @@ use std::{
     path::PathBuf,
 };
 
-use crate::{cartridge::cartridge::Cartridge, game_boy::GameBoy, helper_functions::disassemble};
+use crate::{cartridge::cartridge::Cartridge, game_boy::GameBoy, helpers::disassemble};
 
 mod bus;
 mod cartridge;
 mod dma;
 mod game_boy;
 mod graphics;
-mod helper_functions;
+mod helpers;
 mod interrupts;
 mod io_registers;
 mod onboard_memory;
@@ -19,7 +19,8 @@ mod os_interface;
 mod processor;
 
 const TEST_ROM: &str = &r"C:\Users\evanr\OneDrive\Desktop\Games\Dr. Mario (World) (Rev 1).gb";
-const TEST_CYCLES: u64 = 0x849fc0;
+// const TEST_CYCLES: u64 = 0x849fc0;
+const TEST_CYCLES: u64 = 1_000_000_00;
 
 fn main() {
     #[cfg(feature = "disassemble")]
