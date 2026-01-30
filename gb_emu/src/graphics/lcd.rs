@@ -5,6 +5,7 @@ use crate::{
         ppu::{Ppu, PpuTickMode},
         video_ram::{AccessMethod, TargetTileMap},
     },
+    interrupts::Interrupt,
 };
 
 #[derive(Default)]
@@ -31,17 +32,21 @@ impl LcdRegisters {
         self.ly
     }
 
-    pub fn increment_ly(&mut self) -> u8 {
-        self.ly = (self.ly + 1) % Self::MAX_LY;
-        if self.ly == self.ly_compare {
-            self.set_status_flag(LcdStatusFlag::LycEqualsLy, true);
-            notate_event(GameBoyEvent::Interrupt(crate::game_boy::Interrupt::LycEqualsLy));
+    fn set_ly(&mut self, value: u8) {
+        self.ly = value;
+        if self.ly == self.ly_compare && self.get_status_flag(LcdStatusFlag::LycEqualsLy) {
+            notate_event(GameBoyEvent::Interrupt(Interrupt::Lcd));
         }
-        self.ly
+    }
+
+    pub fn increment_ly(&mut self) -> u8 {
+        let new_value = (self.ly + 1) % Self::MAX_LY;
+        self.set_ly(new_value);
+        self.get_ly()
     }
 
     pub fn reset_ly(&mut self) {
-        self.ly = 0;
+        self.set_ly(0)
     }
 
     pub fn get_scx(&self) -> u8 {
@@ -95,7 +100,7 @@ impl LcdRegisters {
         let address = address - Self::START_ADDRESS;
         match address {
             0 => self.set_control_flags(value),
-            1 => BusAccessFailure::TriedWritingToReadOnlyMemory.into(),
+            1 => self.status_flags = value,
             2 => self.scy = value,
             3 => self.scx = value,
             4 => BusAccessFailure::TriedWritingToReadOnlyMemory.into(),

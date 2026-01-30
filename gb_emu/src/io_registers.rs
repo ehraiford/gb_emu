@@ -1,11 +1,15 @@
 use crate::{
+    audio::Audio,
     bus::{Address, BusAccessFailure, BusAccessible, MemoryTarget},
     game_boy::{GameBoyEvent, notate_event},
     graphics::{lcd::LcdRegisters, oam::PriorityMode},
+    interrupts::InterruptFlagRegister,
 };
 
 pub struct IoRegisters {
     pub lcd_registers: LcdRegisters,
+    pub interrupt_flag_register: InterruptFlagRegister,
+    pub audio: Audio,
 }
 
 impl IoRegisters {}
@@ -19,18 +23,18 @@ impl BusAccessible for IoRegisters {
         };
 
         match section {
-            IoSection::JoypadInput => BusAccessFailure::Unimplemented.into(),
+            IoSection::JoypadInput => todo!(),
             IoSection::SerialTransfer => BusAccessFailure::Unimplemented.into(),
             IoSection::TimerAndDivider => todo!(),
-            IoSection::Interrupts => todo!(),
-            IoSection::Audio => todo!(),
+            IoSection::Interrupts => self.interrupt_flag_register.get(),
+            IoSection::Audio => self.audio.get(address),
             IoSection::WavePattern => todo!(),
             IoSection::Lcd => self.lcd_registers.read(address),
             IoSection::Keys => todo!(),
             IoSection::VramBankSelect => todo!(),
             IoSection::BootRomMappingControl => BusAccessFailure::TriedAccessingUnusableMemory.into(),
             IoSection::Ir => todo!(),
-            IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(),
+            IoSection::BgObjPalettes => todo!(),
             IoSection::ObjectPriorityMode => todo!(),
             IoSection::WramBankSelect => todo!(),
             IoSection::VramDma => todo!(),
@@ -43,23 +47,23 @@ impl BusAccessible for IoRegisters {
         };
 
         match section {
-            IoSection::JoypadInput => BusAccessFailure::Unimplemented.into(),
+            IoSection::JoypadInput => todo!(),
             IoSection::SerialTransfer => BusAccessFailure::Unimplemented.into(),
-            IoSection::TimerAndDivider => BusAccessFailure::Unimplemented.into(),
-            IoSection::Interrupts => BusAccessFailure::Unimplemented.into(),
-            IoSection::Audio => BusAccessFailure::Unimplemented.into(),
-            IoSection::WavePattern => BusAccessFailure::Unimplemented.into(),
+            IoSection::TimerAndDivider => todo!(),
+            IoSection::Interrupts => self.interrupt_flag_register.set(value),
+            IoSection::Audio => self.audio.set(address, value),
+            IoSection::WavePattern => todo!(),
             IoSection::Lcd => self.lcd_registers.write(address, value),
-            IoSection::Keys => BusAccessFailure::Unimplemented.into(),
-            IoSection::VramBankSelect => BusAccessFailure::Unimplemented.into(),
+            IoSection::Keys => todo!(),
+            IoSection::VramBankSelect => todo!(),
             IoSection::BootRomMappingControl => notate_event(GameBoyEvent::UnmapBootRom),
-            IoSection::Ir => BusAccessFailure::Unimplemented.into(),
-            IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(),
+            IoSection::Ir => todo!(),
+            IoSection::BgObjPalettes => todo!(),
             IoSection::ObjectPriorityMode => {
                 notate_event(GameBoyEvent::ChangeObjectPriorityMode(PriorityMode::from(value)))
             },
-            IoSection::WramBankSelect => BusAccessFailure::Unimplemented.into(),
-            IoSection::VramDma => BusAccessFailure::Unimplemented.into(),
+            IoSection::WramBankSelect => todo!(),
+            IoSection::VramDma => todo!(),
         }
     }
 
@@ -69,19 +73,19 @@ impl BusAccessible for IoRegisters {
         };
         match section {
             IoSection::JoypadInput => todo!(),
-            IoSection::SerialTransfer => todo!(),
+            IoSection::SerialTransfer => BusAccessFailure::Unimplemented.into(),
             IoSection::TimerAndDivider => todo!(),
-            IoSection::Interrupts => todo!(),
-            IoSection::Audio => todo!(),
+            IoSection::Interrupts => self.interrupt_flag_register.get(),
+            IoSection::Audio => self.audio.get(address),
             IoSection::WavePattern => todo!(),
             IoSection::Lcd => self.lcd_registers.peek(address),
             IoSection::Keys => todo!(),
             IoSection::VramBankSelect => todo!(),
             IoSection::BootRomMappingControl => u8::from(BusAccessFailure::TriedAccessingUnusableMemory),
-            IoSection::Ir => BusAccessFailure::Unimplemented.into(),
-            IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(),
-            IoSection::ObjectPriorityMode => BusAccessFailure::Unimplemented.into(),
-            IoSection::WramBankSelect => BusAccessFailure::Unimplemented.into(),
+            IoSection::Ir => todo!(),
+            IoSection::BgObjPalettes => todo!(),
+            IoSection::ObjectPriorityMode => todo!(),
+            IoSection::WramBankSelect => todo!(),
             IoSection::VramDma => todo!(),
         }
     }
@@ -89,7 +93,11 @@ impl BusAccessible for IoRegisters {
 
 impl Default for IoRegisters {
     fn default() -> Self {
-        Self { lcd_registers: Default::default() }
+        Self {
+            lcd_registers: Default::default(),
+            interrupt_flag_register: Default::default(),
+            audio: Default::default(),
+        }
     }
 }
 

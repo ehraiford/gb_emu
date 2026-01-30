@@ -10,7 +10,7 @@ use crate::{
         video_ram::VideoRam,
     },
     helpers::{concat_2_bytes, log},
-    interrupts::InterruptEnableRegister,
+    interrupts::{Interrupt, InterruptEnableRegister},
     io_registers::IoRegisters,
     onboard_memory::{
         bootrom::BootRom,
@@ -52,6 +52,23 @@ impl Bus {
 
     fn get_device_from_address(&self, address: Address) -> MemoryTarget {
         self.memory_map.get_device_from_address(address)
+    }
+
+    pub fn raise_interrupt_flag(&mut self, interrupt: &Interrupt) {
+        self.io_registers.interrupt_flag_register.raise_flag(interrupt);
+    }
+
+    pub fn lower_interrupt_flag(&mut self, interrupt: &Interrupt) {
+        self.io_registers.interrupt_flag_register.lower_flag(interrupt);
+    }
+
+    pub fn interrupt_triggerable(&self, interrupt: &Interrupt) -> bool {
+        self.ie.is_interrupt_triggerable(interrupt)
+    }
+
+    pub fn try_get_interrupt(&self) -> Option<Interrupt> {
+        let ie = self.ie.get_value();
+        self.io_registers.interrupt_flag_register.try_get_interrupt(ie)
     }
 
     pub fn get_ppu_context_mem(&mut self) -> (&mut VideoRam, &mut ObjectAttributeMemory, &mut LcdRegisters) {

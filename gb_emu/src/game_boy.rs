@@ -9,6 +9,7 @@ use crate::{
     dma::OamDma,
     graphics::ppu::{Ppu, PpuOperationContext, PpuTickMode},
     helpers::log,
+    interrupts::Interrupt,
     os_interface::profiling::TrackedData,
     processor::cpu::Cpu,
 };
@@ -104,7 +105,6 @@ impl GameBoy {
         } else {
             self.state.cpu_lockstep_catchup = TCycles(1);
         }
-        self.handle_changes();
         while self.state.cpu_lockstep_catchup.0 != 0 {
             if self.state.is_ppu_active() {
                 self.tick_ppu_enabled();
@@ -127,7 +127,6 @@ impl GameBoy {
         match change {
             GameBoyEvent::UnmapBootRom => self.bus.handle_memory_map_event(MemoryMapEvent::UnmapBootRom),
             GameBoyEvent::ChangeGameBoyMode(mode) => self.mode_transition(mode),
-
             GameBoyEvent::ChangeObjectPriorityMode(mode) => self.bus.set_object_priority_mode(mode),
             GameBoyEvent::StartOamDmaTransfer(input) => self.initiate_dma_transfer(input),
             GameBoyEvent::EndOamDmaTransfer => self.end_dma_transfer(),
@@ -137,7 +136,9 @@ impl GameBoy {
                 self.state.ppu_active = enabled;
                 self.ppu.enable();
             },
-            GameBoyEvent::Interrupt(interrupt) => (),
+            GameBoyEvent::Interrupt(interrupt) => self.bus.raise_interrupt_flag(&interrupt),
+            GameBoyEvent::IeTriggered => notate_event(GameBoyEvent::EnableInterrupts),
+            GameBoyEvent::EnableInterrupts => self.cpu.enable_interrupts(),
         }
     }
 
@@ -241,11 +242,8 @@ pub enum GameBoyEvent {
     UpdatePpuMode(PpuTickMode),
     EndOamDmaTransfer,
     Interrupt(Interrupt),
-}
-
-#[derive(Debug)]
-pub enum Interrupt {
-    LycEqualsLy,
+    IeTriggered, // Facilitates the delay between executing IE and actually enabling interrupts
+    EnableInterrupts,
 }
 
 pub type Enabled = bool;
