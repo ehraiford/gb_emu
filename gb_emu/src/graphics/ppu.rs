@@ -8,7 +8,8 @@ use crate::{
         oam::ObjectAttributeMemory,
         video_ram::{AccessMethod, Pixel, VideoRam},
     },
-    helpers::{StackAllocQueue, WrappingIncrement},
+    helpers::StackAllocQueue,
+    interrupts::Interrupt,
     os_interface::graphics,
 };
 
@@ -117,7 +118,7 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
         let result = self
             .ppu
             .mode_tracking
-            .process_tick_ppu_enabled(self.lcd_regs.get_ly(), self.lcd_regs.get_scx());
+            .process_tick(self.lcd_regs.get_ly(), self.lcd_regs.get_scx());
 
         if result.increment_ly {
             self.lcd_regs.increment_ly();
@@ -144,65 +145,79 @@ struct PpuTickResult {
 }
 
 impl PpuModeTracker {
-    fn process_tick_ppu_enabled(&mut self, ly: u8, scx: u8) -> PpuTickResult {
+    fn process_tick_horizontal_blank(&mut self, ly: u8) -> PpuTickResult {
+        if self.remaining_dots_in_line == 0 {
+            self.remaining_dots_in_line = DOTS_PER_LINE;
+            if ly < SCREEN_HEIGHT {
+                let new_mode = PpuTickMode::OamScan { remaining_cycles: 80 };
+                self.mode = new_mode;
+                PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
+            } else {
+                notate_event(GameBoyEvent::Interrupt(Interrupt::VBlank));
+                let new_mode = PpuTickMode::VerticalBlank;
+                self.mode = new_mode;
+                PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
+            }
+        } else {
+            PpuTickResult { increment_ly: false, new_mode: None }
+        }
+    }
+
+    fn process_tick_vertical_blank(&mut self, ly: u8) -> PpuTickResult {
+        match (self.remaining_dots_in_line == 0, ly == LcdRegisters::MAX_LY) {
+            (true, true) => {
+                self.remaining_dots_in_line = DOTS_PER_LINE;
+                let new_mode = PpuTickMode::OamScan { remaining_cycles: 80 };
+                self.mode = new_mode;
+                PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
+            },
+            (true, false) => {
+                self.remaining_dots_in_line = DOTS_PER_LINE;
+                let new_mode = PpuTickMode::VerticalBlank;
+                notate_event(GameBoyEvent::Interrupt(Interrupt::VBlank));
+                self.mode = new_mode;
+                PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
+            },
+            _ => PpuTickResult { increment_ly: false, new_mode: None },
+        }
+    }
+
+    fn process_tick_oam_scan(&mut self, mut remaining_cycles: u8, scx: u8) -> PpuTickResult {
+        remaining_cycles -= 1;
+        if remaining_cycles == 0 {
+            let new_mode = PpuTickMode::DrawingPixels { pixels_left_to_push: 160, pixels_left_to_ignore: scx % 8 };
+            self.mode = new_mode;
+            PpuTickResult { increment_ly: false, new_mode: Some(new_mode) }
+        } else {
+            self.mode = PpuTickMode::OamScan { remaining_cycles };
+            PpuTickResult { increment_ly: false, new_mode: None }
+        }
+    }
+
+    fn process_tick_drawing_pixels(&mut self, pixels_left_to_push: u8) -> PpuTickResult {
+        if self.remaining_dots_in_line == 0 {
+            panic!();
+        }
+        if pixels_left_to_push == 0 {
+            self.mode = PpuTickMode::HorizontalBlank;
+            PpuTickResult {
+                increment_ly: false,
+                new_mode: Some(PpuTickMode::HorizontalBlank),
+            }
+        } else {
+            PpuTickResult { increment_ly: false, new_mode: None }
+        }
+    }
+
+    fn process_tick(&mut self, ly: u8, scx: u8) -> PpuTickResult {
         self.remaining_dots_in_line -= 1;
 
         match self.mode {
-            PpuTickMode::HorizontalBlank => {
-                if self.remaining_dots_in_line == 0 {
-                    self.remaining_dots_in_line = DOTS_PER_LINE;
-                    if ly < SCREEN_HEIGHT {
-                        let new_mode = PpuTickMode::OamScan { remaining_cycles: 80 };
-                        self.mode = new_mode;
-                        PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
-                    } else {
-                        let new_mode = PpuTickMode::VerticalBlank;
-                        self.mode = new_mode;
-                        PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
-                    }
-                } else {
-                    PpuTickResult { increment_ly: false, new_mode: None }
-                }
-            },
-            PpuTickMode::VerticalBlank => match (self.remaining_dots_in_line == 0, ly == LcdRegisters::MAX_LY) {
-                (true, true) => {
-                    self.remaining_dots_in_line = DOTS_PER_LINE;
-                    let new_mode = PpuTickMode::OamScan { remaining_cycles: 80 };
-                    self.mode = new_mode;
-                    PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
-                },
-                (true, false) => {
-                    self.remaining_dots_in_line = DOTS_PER_LINE;
-                    let new_mode = PpuTickMode::VerticalBlank;
-                    self.mode = new_mode;
-                    PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
-                },
-                _ => PpuTickResult { increment_ly: false, new_mode: None },
-            },
-            PpuTickMode::OamScan { ref mut remaining_cycles } => {
-                *remaining_cycles -= 1;
-                if *remaining_cycles == 0 {
-                    let new_mode =
-                        PpuTickMode::DrawingPixels { pixels_left_to_push: 160, pixels_left_to_ignore: scx % 8 };
-                    self.mode = new_mode;
-                    PpuTickResult { increment_ly: false, new_mode: Some(new_mode) }
-                } else {
-                    PpuTickResult { increment_ly: false, new_mode: None }
-                }
-            },
+            PpuTickMode::HorizontalBlank => self.process_tick_horizontal_blank(ly),
+            PpuTickMode::VerticalBlank => self.process_tick_vertical_blank(ly),
+            PpuTickMode::OamScan { remaining_cycles } => self.process_tick_oam_scan(remaining_cycles, scx),
             PpuTickMode::DrawingPixels { pixels_left_to_push, pixels_left_to_ignore: _ } => {
-                if self.remaining_dots_in_line == 0 {
-                    panic!();
-                }
-                if pixels_left_to_push == 0 {
-                    self.mode = PpuTickMode::HorizontalBlank;
-                    PpuTickResult {
-                        increment_ly: false,
-                        new_mode: Some(PpuTickMode::HorizontalBlank),
-                    }
-                } else {
-                    PpuTickResult { increment_ly: false, new_mode: None }
-                }
+                self.process_tick_drawing_pixels(pixels_left_to_push)
             },
         }
     }
@@ -312,33 +327,32 @@ impl BackGroundFifo {
         self.tiles_fetched = 0;
     }
 
-    fn current_tile_is_window_tile(&self, lcd: &LcdRegisters) -> bool {
-        lcd.window_enabled() && lcd.coordinate_in_window(self.pixels_popped)
+    fn current_tile_is_window_tile(&self, lcd: &LcdRegisters, fetcher_x: u8) -> bool {
+        lcd.window_enabled() && lcd.coordinate_in_window(fetcher_x)
     }
 
     fn get_tile_location(&mut self, lcd: &LcdRegisters) -> (u8, u8, u8) {
-        if self.current_tile_is_window_tile(lcd) {
-            let window_x = self.pixels_popped.saturating_sub(lcd.get_wx().saturating_sub(7));
+        // Use the fetcher's progress (tiles_fetched * 8) rather than the pixels already on screen.
+        // This ensures the fetcher switches to the Window tilemap at the correct dot.
+        let fetcher_x = self.tiles_fetched * 8;
+
+        if self.current_tile_is_window_tile(lcd, fetcher_x) {
+            let window_x = fetcher_x.saturating_sub(lcd.get_wx().saturating_sub(7));
             let window_y = lcd.get_ly() - lcd.get_wy();
 
-            let column = window_x / 8;
-            let row = window_y / 8;
-            let pixel_row = window_y % 8;
-
-            (column, row, pixel_row)
+            (window_x / 8, window_y / 8, window_y % 8)
         } else {
+            let scx = lcd.get_scx();
             let calced_y = (lcd.get_ly() + lcd.get_scy()) & 0xFF;
-            (
-                ((lcd.get_scx() / 8) + self.tiles_fetched) & 0x1F,
-                calced_y >> 3,
-                calced_y & 7,
-            )
+            let fetcher_bg_x = (scx.wrapping_add(fetcher_x)) & 0xFF;
+
+            (fetcher_bg_x / 8, calced_y >> 3, calced_y & 7)
         }
     }
 
     fn tick(&mut self, lcd: &LcdRegisters, v_ram: &VideoRam) {
         // first check if we should act this cycle.
-        // This is used to force the first four modes to take two cycles
+        // This is used to force the modes to take two cycles
         if self.mode.should_sleep() {
             self.mode.sleep();
             return;
@@ -347,11 +361,17 @@ impl BackGroundFifo {
         match self.mode {
             FifoMode::GetTile { sleep_cycle: _ } => {
                 let access_method = lcd.get_background_window_tiles_address_mode();
-                let map = lcd.get_target_tilemap(self.pixels_popped);
+
+                // DECISION: Use fetcher X (tiles_fetched * 8) to choose the tilemap
+                let fetcher_x = self.tiles_fetched * 8;
+                let map = lcd.get_target_tilemap(fetcher_x);
 
                 let (column, row, in_sprite_row) = self.get_tile_location(lcd);
                 let tile_number = v_ram.get_tile_index_from_map(&map, row, column);
-                self.tiles_fetched = self.tiles_fetched.wrapping_increment(32);
+
+                // Increment tiles_fetched AFTER fetching so the first tile is 0
+                self.tiles_fetched = self.tiles_fetched.wrapping_add(1);
+
                 self.mode = FifoMode::GetTileDataLow {
                     sleep_cycle: true,
                     access_method,
@@ -393,11 +413,13 @@ impl BackGroundFifo {
     }
 
     fn pop_pixel(&mut self) -> Pixel {
-        self.pixels_popped = self.pixels_popped.wrapping_increment(SCREEN_WIDTH);
-        self.queue.pop_unchecked()
+        let pixel = self.queue.pop_unchecked();
+        // pixels_popped should justbe a simple counter from 0..160
+        self.pixels_popped += 1;
+        pixel
     }
     fn pop_ignored_pixel(&mut self) {
-        self.pop_pixel();
+        self.queue.pop_unchecked();
     }
 
     fn clear_queue(&mut self) {
