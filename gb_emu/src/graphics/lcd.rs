@@ -5,7 +5,7 @@ use crate::{
         ppu::{Ppu, PpuTickMode},
         video_ram::{AccessMethod, TargetTileMap},
     },
-    interrupts::Interrupt,
+    io_devices::interrupts::Interrupt,
 };
 
 #[derive(Default)]

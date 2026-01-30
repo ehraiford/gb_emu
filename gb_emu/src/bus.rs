@@ -2,7 +2,6 @@ use std::fmt::Display;
 
 use crate::{
     cartridge::cartridge::{Cartridge, CartridgeDevice},
-    game_boy::GameBoyEvent,
     graphics::{
         lcd::LcdRegisters,
         oam::{ObjectAttributeMemory, PriorityMode},
@@ -10,8 +9,8 @@ use crate::{
         video_ram::VideoRam,
     },
     helpers::{concat_2_bytes, log},
-    interrupts::{Interrupt, InterruptEnableRegister},
-    io_registers::IoRegisters,
+    io_devices::interrupts::{Interrupt, InterruptEnableRegister},
+    io_devices::io_registers::IoRegisters,
     onboard_memory::{
         bootrom::BootRom,
         h_ram::HighRam,
@@ -60,10 +59,6 @@ impl Bus {
 
     pub fn lower_interrupt_flag(&mut self, interrupt: &Interrupt) {
         self.io_registers.interrupt_flag_register.lower_flag(interrupt);
-    }
-
-    pub fn interrupt_triggerable(&self, interrupt: &Interrupt) -> bool {
-        self.ie.is_interrupt_triggerable(interrupt)
     }
 
     pub fn try_get_interrupt(&self) -> Option<Interrupt> {
@@ -168,16 +163,6 @@ impl Bus {
         }
     }
 
-    pub fn set_active_bank_number(&mut self, device: MemoryTarget, bank_num: u8) {
-        match device {
-            MemoryTarget::BankableRom => todo!(),
-            MemoryTarget::VideoRam => todo!(),
-            MemoryTarget::ExternalRam => todo!(),
-            MemoryTarget::BankableWorkRam => self.bankable_w_ram.set_active_bank_number(bank_num),
-            _ => unreachable!("There shouldn't be any instances where this is called. All bankable memory is above."),
-        }
-    }
-
     pub fn set_object_priority_mode(&mut self, mode: PriorityMode) {
         self.oam.set_priority_mode(mode)
     }
@@ -250,13 +235,6 @@ pub trait BusAccessible {
 
     fn local(global: Address) -> Address {
         global - Self::MM_DEVICE.get_base_address()
-    }
-
-    fn base_address(&self) -> Address {
-        Self::MM_DEVICE.get_base_address()
-    }
-    fn end_address(&self) -> Address {
-        Self::MM_DEVICE.get_end_address_inclusive()
     }
 
     fn read(&mut self, address: Address) -> u8;

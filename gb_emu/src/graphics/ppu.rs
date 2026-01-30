@@ -9,7 +9,7 @@ use crate::{
         video_ram::{AccessMethod, Pixel, VideoRam},
     },
     helpers::StackAllocQueue,
-    interrupts::Interrupt,
+    io_devices::interrupts::Interrupt,
     os_interface::graphics,
 };
 

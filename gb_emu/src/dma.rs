@@ -17,10 +17,6 @@ impl<'a, 'b, 'c> OamDma {
         MemoryTarget::ObjectAttributeMemory.get_base_address() + 160 - self.remaining_bytes as u16
     }
 
-    pub fn is_active(&self) -> bool {
-        self.remaining_bytes != 0
-    }
-
     pub fn initiate_transfer(&mut self, input: u8) {
         self.remaining_bytes = Self::TOTAL_TRANSFER_SIZE;
         self.source_address = Self::determine_source_address(input);

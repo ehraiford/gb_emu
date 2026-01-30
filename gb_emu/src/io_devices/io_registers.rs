@@ -1,9 +1,9 @@
 use crate::{
-    audio::Audio,
     bus::{Address, BusAccessFailure, BusAccessible, MemoryTarget},
     game_boy::{GameBoyEvent, notate_event},
     graphics::{lcd::LcdRegisters, oam::PriorityMode},
-    interrupts::InterruptFlagRegister,
+    io_devices::audio::Audio,
+    io_devices::interrupts::InterruptFlagRegister,
 };
 
 pub struct IoRegisters {

@@ -4,12 +4,11 @@ use std::{
 };
 
 use crate::{
-    bus::{Bus, MemoryMapEvent, MemoryTarget},
+    bus::{Bus, MemoryMapEvent},
     cartridge::cartridge::Cartridge,
     dma::OamDma,
-    graphics::ppu::{Ppu, PpuOperationContext, PpuTickMode},
-    helpers::log,
-    interrupts::Interrupt,
+    graphics::ppu::{Ppu, PpuTickMode},
+    io_devices::interrupts::Interrupt,
     os_interface::profiling::TrackedData,
     processor::cpu::Cpu,
 };
@@ -247,9 +246,3 @@ pub enum GameBoyEvent {
 }
 
 pub type Enabled = bool;
-
-pub enum HardwareType {
-    Dmg,
-    Cgb,
-    Sgb,
-}

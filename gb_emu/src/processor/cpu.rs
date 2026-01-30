@@ -1,8 +1,8 @@
 use crate::{
-    bus::{Address, Bus},
+    bus::Bus,
     game_boy::{GameBoyEvent, GameBoyMode, TCycles, notate_event},
     helpers::log,
-    interrupts::Interrupt,
+    io_devices::interrupts::Interrupt,
     processor::instructions::{
         EightBitOperand, Instruction, InstructionError, InstructionOutcome, OpCode, Operand, OperandType,
         SignedEightBitOperand, SixteenBitOperand,
