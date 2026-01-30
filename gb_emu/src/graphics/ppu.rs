@@ -15,12 +15,15 @@ use crate::{
 pub const SCREEN_WIDTH: u8 = 160;
 pub const SCREEN_HEIGHT: u8 = 144;
 pub const SCREEN_SIZE: usize = SCREEN_HEIGHT as usize * SCREEN_WIDTH as usize;
+const DOTS_PER_LINE: Dots = 456;
+
 pub struct Ppu {
     mode_tracking: PpuModeTracker,
     sprite_fetcher: BackGroundFifo,
     background_fetcher: BackGroundFifo,
     pixel_buffer_sender: Sender<u32>,
     pushed_pixels_this_line: u8,
+    pixels_to_ignore: u8,
 }
 
 impl Ppu {
@@ -49,9 +52,12 @@ impl Ppu {
         context.tick_dot_ppu_disabled()
     }
 
-    fn clear_queues(&mut self) {
+    fn reset_for_new_scanline(&mut self, scx: u8) {
         self.background_fetcher.clear_queue();
         self.sprite_fetcher.clear_queue();
+        self.background_fetcher.reset_for_new_scanline();
+        self.pushed_pixels_this_line = 0;
+        self.pixels_to_ignore = scx % 8;
     }
 }
 
@@ -63,6 +69,7 @@ impl Default for Ppu {
             background_fetcher: BackGroundFifo::default(),
             pixel_buffer_sender: graphics::start_window_thread(),
             pushed_pixels_this_line: 0,
+            pixels_to_ignore: 0,
         }
     }
 }
@@ -104,8 +111,12 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
         if self.ppu.background_fetcher.queue.length() >= 8 {
             if self.ppu.pushed_pixels_this_line < 160 {
                 let pixel = self.ppu.background_fetcher.pop_pixel();
-                self.ppu.pushed_pixels_this_line += 1;
-                self.ppu.pixel_buffer_sender.send(pixel.into()).unwrap();
+                if self.ppu.pixels_to_ignore == 0 {
+                    self.ppu.pushed_pixels_this_line += 1;
+                    self.ppu.pixel_buffer_sender.send(pixel.into()).unwrap();
+                } else {
+                    self.ppu.pixels_to_ignore -= 1;
+                }
             }
         } else {
             self.ppu.mode_tracking.extra_dots += 1;
@@ -134,10 +145,8 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
         if let Some(mode) = result.new_mode {
             notate_event(GameBoyEvent::UpdatePpuMode(mode));
             if mode == PpuTickMode::DrawingPixels {
-                self.ppu.clear_queues();
-                self.ppu.background_fetcher.reset_for_new_scanline();
+                self.ppu.reset_for_new_scanline(self.lcd_regs.get_scx());
                 // println!("Pushed {} pixels this line", self.ppu.pushed_pixels_this_line);
-                self.ppu.pushed_pixels_this_line = 0;
             }
         }
     }
@@ -149,12 +158,6 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
             self.lcd_regs.increment_ly();
         }
     }
-}
-
-struct Scanline {}
-
-impl Scanline {
-    const DOTS_PER_LINE: Dots = 456;
 }
 
 struct PpuModeTracker {
@@ -183,7 +186,7 @@ impl PpuModeTracker {
     fn decrement_line_countdown(&mut self) -> bool {
         self.dots_to_new_line -= 1;
         if self.dots_to_new_line == 0 {
-            self.dots_to_new_line = Scanline::DOTS_PER_LINE;
+            self.dots_to_new_line = DOTS_PER_LINE;
             true
         } else {
             false
@@ -215,7 +218,7 @@ impl Default for PpuModeTracker {
             mode: Default::default(),
             remaining_dots: Default::default(),
             extra_dots: Default::default(),
-            dots_to_new_line: Scanline::DOTS_PER_LINE,
+            dots_to_new_line: DOTS_PER_LINE,
         }
     }
 }
@@ -338,7 +341,7 @@ impl BackGroundFifo {
     }
 
     fn current_tile_is_window_tile(&self, lcd: &LcdRegisters) -> bool {
-        lcd.coordinate_in_window(self.pixels_popped)
+        lcd.window_enabled() && lcd.get_ly() >= lcd.get_wy() && lcd.coordinate_in_window(self.pixels_popped)
     }
 
     fn get_tile_location(&mut self, lcd: &LcdRegisters) -> (u8, u8, u8) {

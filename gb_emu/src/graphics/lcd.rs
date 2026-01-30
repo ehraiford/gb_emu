@@ -82,6 +82,10 @@ impl LcdRegisters {
             && x_coordinate >= self.wx.saturating_sub(7)
     }
 
+    pub fn window_enabled(&self) -> bool {
+        self.get_control_flag(LcdControlFlag::WindowEnable)
+    }
+
     pub fn read(&mut self, address: Address) -> u8 {
         self.peek(address)
     }
