@@ -1,6 +1,5 @@
 use std::{
     sync::{Mutex, OnceLock},
-    thread::sleep,
     time::{Duration, Instant},
 };
 
@@ -71,14 +70,6 @@ impl GameBoy {
         }
 
         tracked_data.log_from_gameboy(self);
-
-        self.print_graphics_data();
-    }
-
-    fn print_graphics_data(&mut self) {
-        let (v_ram, oam, lcd_regs) = self.bus.get_ppu_context_mem();
-        let context = PpuOperationContext::new(&mut self.ppu, v_ram, oam, lcd_regs);
-        context.print_graphics_data();
     }
 
     fn tick_cpu(&mut self) {
@@ -104,12 +95,7 @@ impl GameBoy {
     fn tick_ppu_enabled(&mut self) {
         let (v_ram, oam, lcd_regs) = self.bus.get_ppu_context_mem();
 
-        self.ppu.tick_ppu_enabled(v_ram, oam, lcd_regs)
-    }
-
-    fn tick_ppu_disabled(&mut self) {
-        let (v_ram, oam, lcd_regs) = self.bus.get_ppu_context_mem();
-        self.ppu.tick_ppu_disabled(v_ram, oam, lcd_regs)
+        self.ppu.tick(v_ram, oam, lcd_regs)
     }
 
     pub fn tick(&mut self) {
@@ -122,8 +108,6 @@ impl GameBoy {
         while self.state.cpu_lockstep_catchup.0 != 0 {
             if self.state.is_ppu_active() {
                 self.tick_ppu_enabled();
-            } else {
-                self.tick_ppu_disabled();
             }
             if self.state.is_oam_dma_active() {
                 self.tick_oam_dma();
@@ -151,6 +135,7 @@ impl GameBoy {
             GameBoyEvent::ChangeLCdPpuState(enabled) => {
                 self.bus.reset_ly();
                 self.state.ppu_active = enabled;
+                self.ppu.enable();
             },
             GameBoyEvent::Interrupt(interrupt) => (),
         }

@@ -25,13 +25,14 @@ pub struct LcdRegisters {
 
 impl LcdRegisters {
     const START_ADDRESS: Address = 0xFF40;
+    pub const MAX_LY: u8 = 153;
 
     pub fn get_ly(&self) -> u8 {
         self.ly
     }
 
     pub fn increment_ly(&mut self) -> u8 {
-        self.ly = (self.ly + 1) % Ppu::MAX_LY;
+        self.ly = (self.ly + 1) % Self::MAX_LY;
         if self.ly == self.ly_compare {
             self.set_status_flag(LcdStatusFlag::LycEqualsLy, true);
             notate_event(GameBoyEvent::Interrupt(crate::game_boy::Interrupt::LycEqualsLy));
@@ -158,9 +159,7 @@ impl LcdRegisters {
         status |= (value as u8) << shift;
         self.status_flags = status;
     }
-    pub fn get_ppu_mode(&self) -> PpuTickMode {
-        PpuTickMode::from(self.status_flags)
-    }
+
     fn set_ppu_mode(&mut self, mode: PpuTickMode) {
         let status = self.status_flags & !0b11;
         self.status_flags = status | u8::from(mode);

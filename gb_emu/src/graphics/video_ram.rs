@@ -23,13 +23,6 @@ impl VideoRam {
         }
     }
 
-    fn get_tilemap_tiles(&self, map: &TargetTileMap, map_number: u8, method: AccessMethod) -> [&Tile; 32] {
-        std::array::from_fn(|i| {
-            let index = self.tile_maps.get_tile_index(map, map_number, i as u8);
-            self.get_tile(method, index)
-        })
-    }
-
     pub fn get_tile_index_from_map(&self, map: &TargetTileMap, row: u8, column: u8) -> u8 {
         self.tile_maps.get_tile_index(map, row, column)
     }
@@ -65,48 +58,6 @@ impl VideoRam {
     }
     fn get_8800_method(&self, tile_number: i8) -> &Tile {
         self.get_ram_bank().get_8800_method(tile_number)
-    }
-
-    pub fn print_all_tiles(&self) {
-        for (i, block) in self.ram_banks[self.active_bank_num()].tiles.iter().enumerate() {
-            for (j, tile) in block.iter().enumerate() {
-                if !tile.is_blank() {
-                    println!("Block {i}, Tile {j}");
-                    tile.display_in_terminal();
-                }
-            }
-        }
-    }
-
-    pub fn print_tiles_in_a_row(&self, block_num: usize, tile_start: usize, tile_end: usize) {
-        self.ram_banks[0].print_tiles_in_a_row(block_num, tile_start, tile_end);
-    }
-
-    pub fn print_logo(&self) {
-        let shift = 0xd;
-        self.ram_banks[0].print_tiles_in_a_row(0, 0x01, shift);
-        self.ram_banks[0].print_tiles_in_a_row(0, shift, 0x30);
-    }
-
-    pub fn get_logo(&self) -> Vec<Pixel> {
-        let mut tiles = Vec::new();
-        for i in 1..34 {
-            tiles.push(self.ram_banks[0].tiles[0][i]);
-        }
-
-        let mut pixels = Vec::new();
-        let as_pixels: Vec<_> = tiles.iter().map(|t| t.get_pixels()).collect();
-        for line_num in 0..8 {
-            for pixel_group in &as_pixels {
-                for pixel in pixel_group[line_num] {
-                    pixels.push(pixel);
-                }
-                for _ in 0..96 {
-                    pixels.push(Pixel::default());
-                }
-            }
-        }
-        pixels
     }
 }
 
@@ -165,35 +116,12 @@ struct VideoRamBank {
 }
 
 impl VideoRamBank {
-    pub fn print_tiles_in_a_row(&self, block_num: usize, tile_start: usize, tile_end: usize) {
-        let mut tiles = Vec::new();
-        for i in tile_start..tile_end {
-            tiles.push(self.tiles[block_num][i]);
-        }
-        // for tile in &tiles {
-        //     for byte in tile.data {
-        //         print!("{byte:02X} ");
-        //     }
-        //     println!()
-        // }
-        let as_pixels: Vec<_> = tiles.iter().map(|t| t.get_pixels()).collect();
-        for line_num in 0..8 {
-            for pixel_group in &as_pixels {
-                for pixel in pixel_group[line_num] {
-                    pixel.print_in_terminal();
-                }
-            }
-            println!()
-        }
-    }
-
     fn get_8000_method(&self, tile_number: usize) -> &Tile {
         &self.tiles[tile_number / 128][tile_number % 128]
     }
     fn get_8800_method(&self, tile_number: i8) -> &Tile {
-        let block_number = (tile_number >= 0) as usize + 1;
-        let tile_index = tile_number.abs() as usize;
-        &self.tiles[block_number][tile_index]
+        let adjusted_index = (tile_number as i16 + 128) as usize;
+        &self.tiles[1 + (adjusted_index / 128)][adjusted_index % 128]
     }
 
     fn set_byte(&mut self, byte_index: TileByteIndex, value: u8) {
@@ -230,44 +158,6 @@ impl Tile {
     fn get_byte(&self, byte_index: usize) -> u8 {
         self.data[byte_index]
     }
-
-    fn get_pixels(&self) -> [[Pixel; 8]; 8] {
-        let mut pixels = [[Pixel::default(); 8]; 8];
-
-        for row in 0..8 {
-            let lo = self.data[row * 2];
-            let hi = self.data[row * 2 + 1];
-
-            for col in 0..8 {
-                let bit = 7 - col;
-                let color = ((hi >> bit) & 1) << 1 | ((lo >> bit) & 1);
-
-                pixels[row][col] = Pixel::new(color);
-            }
-        }
-
-        pixels
-    }
-
-    fn display_in_terminal(&self) {
-        let pixels = self.get_pixels();
-        for row in pixels {
-            for pixel in row {
-                pixel.print_in_terminal()
-            }
-            println!()
-        }
-    }
-
-    fn is_blank(&self) -> bool {
-        for byte in self.data {
-            if byte != 0 {
-                return false;
-            }
-        }
-
-        true
-    }
 }
 
 #[derive(Copy, Clone)]
@@ -288,20 +178,6 @@ impl Pixel {
             let color = (high_bit << 1) | low_bit;
             Pixel::new(color)
         })
-    }
-    fn print_in_terminal(&self) {
-        // print!("\x1b[48;5;{}m  \x1b[0m", TEST_COLORS[self.color_number as usize]);
-        print!("{}", self.as_ascii())
-        // print!("{}", self.color_number)
-    }
-    fn as_ascii(&self) -> char {
-        match self.color_number {
-            0 => ' ',
-            1 => 'X',
-            2 => 'o',
-            3 => 'X',
-            _ => unreachable!(),
-        }
     }
 }
 
