@@ -2,16 +2,15 @@ use std::fmt::Display;
 
 use crate::{
     cartridge::cartridge::{Cartridge, CartridgeDevice},
-    game_boy::GameBoyEvent,
     graphics::{
         lcd::LcdRegisters,
         oam::{ObjectAttributeMemory, PriorityMode},
         ppu::PpuTickMode,
         video_ram::VideoRam,
     },
-    helper_functions::{concat_2_bytes, log},
-    interrupts::InterruptEnableRegister,
-    io_registers::IoRegisters,
+    helpers::{concat_2_bytes, log},
+    io_devices::interrupts::{Interrupt, InterruptEnableRegister},
+    io_devices::io_registers::IoRegisters,
     onboard_memory::{
         bootrom::BootRom,
         h_ram::HighRam,
@@ -54,6 +53,19 @@ impl Bus {
         self.memory_map.get_device_from_address(address)
     }
 
+    pub fn raise_interrupt_flag(&mut self, interrupt: &Interrupt) {
+        self.io_registers.interrupt_flag_register.raise_flag(interrupt);
+    }
+
+    pub fn lower_interrupt_flag(&mut self, interrupt: &Interrupt) {
+        self.io_registers.interrupt_flag_register.lower_flag(interrupt);
+    }
+
+    pub fn try_get_interrupt(&self) -> Option<Interrupt> {
+        let ie = self.ie.get_value();
+        self.io_registers.interrupt_flag_register.try_get_interrupt(ie)
+    }
+
     pub fn get_ppu_context_mem(&mut self) -> (&mut VideoRam, &mut ObjectAttributeMemory, &mut LcdRegisters) {
         (&mut self.v_ram, &mut self.oam, &mut self.io_registers.lcd_registers)
     }
@@ -88,13 +100,6 @@ impl Bus {
         // log("Next instruction is: {:?}", instruction.op_code);
 
         outcome
-    }
-
-    pub fn print_graphics_data(&self) {
-        println!("Graphics Data:");
-        self.v_ram.print_logo();
-        // self.v_ram.print_tiles_in_a_row(2, 10, 40);
-        // self.v_ram.print_all_tiles();
     }
 
     pub fn read(&mut self, address: Address) -> u8 {
@@ -155,16 +160,6 @@ impl Bus {
             MemoryTarget::IoRegisters => self.io_registers.write(address, value),
             MemoryTarget::HighRam => self.h_ram.write(address, value),
             MemoryTarget::InterruptEnableRegister => self.ie.write(address, value),
-        }
-    }
-
-    pub fn set_active_bank_number(&mut self, device: MemoryTarget, bank_num: u8) {
-        match device {
-            MemoryTarget::BankableRom => todo!(),
-            MemoryTarget::VideoRam => todo!(),
-            MemoryTarget::ExternalRam => todo!(),
-            MemoryTarget::BankableWorkRam => self.bankable_w_ram.set_active_bank_number(bank_num),
-            _ => unreachable!("There shouldn't be any instances where this is called. All bankable memory is above."),
         }
     }
 
@@ -240,13 +235,6 @@ pub trait BusAccessible {
 
     fn local(global: Address) -> Address {
         global - Self::MM_DEVICE.get_base_address()
-    }
-
-    fn base_address(&self) -> Address {
-        Self::MM_DEVICE.get_base_address()
-    }
-    fn end_address(&self) -> Address {
-        Self::MM_DEVICE.get_end_address_inclusive()
     }
 
     fn read(&mut self, address: Address) -> u8;

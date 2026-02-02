@@ -1,6 +1,6 @@
 use crate::{
     cartridge::cartridge::{ControlledMemory, MBCType},
-    helper_functions::concat_2_bytes,
+    helpers::concat_2_bytes,
 };
 
 pub struct Header {

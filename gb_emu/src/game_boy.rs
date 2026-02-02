@@ -1,11 +1,14 @@
-use std::sync::{Mutex, OnceLock};
+use std::{
+    sync::{Mutex, OnceLock},
+    time::{Duration, Instant},
+};
 
 use crate::{
-    bus::{Bus, MemoryMapEvent, MemoryTarget},
+    bus::{Bus, MemoryMapEvent},
     cartridge::cartridge::Cartridge,
     dma::OamDma,
     graphics::ppu::{Ppu, PpuTickMode},
-    helper_functions::log,
+    io_devices::interrupts::Interrupt,
     os_interface::profiling::TrackedData,
     processor::cpu::Cpu,
 };
@@ -47,13 +50,26 @@ impl GameBoy {
 
     pub fn test_looping(&mut self, cycles: u64) {
         let tracked_data = TrackedData::new();
+        let desired_duration = Duration::from_secs_f64(1.0 / 4194304.0);
+        let mut next_checkin = 16_667;
         while self.state.elapsed_cpu_cycles.0 < cycles {
-            self.tick();
+            let start = Instant::now();
+
+            while self.state.elapsed_cpu_cycles.0 < next_checkin {
+                self.tick();
+            }
+
+            let expected_duration = desired_duration.mul_f64(16_667.0);
+
+            let elapsed_time = start.elapsed();
+            if expected_duration > elapsed_time {
+                std::thread::sleep(expected_duration - elapsed_time);
+            }
+
+            next_checkin = self.state.elapsed_cpu_cycles.0 + 16_667;
         }
 
         tracked_data.log_from_gameboy(self);
-
-        self.bus.print_graphics_data();
     }
 
     fn tick_cpu(&mut self) {
@@ -62,10 +78,10 @@ impl GameBoy {
 
         self.state.cpu_lockstep_catchup = t_cycles;
 
-        if self.cpu.get_pc() == 0x3e {
-            self.bus.print_graphics_data();
-            panic!();
-        }
+        // if self.cpu.get_pc() == 0x3e {
+        //     self.bus.print_graphics_data();
+        //     panic!();
+        // }
     }
 
     fn tick_oam_dma(&mut self) {
@@ -79,26 +95,18 @@ impl GameBoy {
     fn tick_ppu_enabled(&mut self) {
         let (v_ram, oam, lcd_regs) = self.bus.get_ppu_context_mem();
 
-        self.ppu.tick_ppu_enabled(v_ram, oam, lcd_regs)
+        self.ppu.tick(v_ram, oam, lcd_regs)
     }
 
-    fn tick_ppu_disabled(&mut self) {
-        let (v_ram, oam, lcd_regs) = self.bus.get_ppu_context_mem();
-        self.ppu.tick_ppu_disabled(v_ram, oam, lcd_regs)
-    }
-
-    fn tick(&mut self) {
+    pub fn tick(&mut self) {
         if self.state.is_cpu_active() {
             self.tick_cpu();
         } else {
             self.state.cpu_lockstep_catchup = TCycles(1);
         }
-        self.handle_changes();
         while self.state.cpu_lockstep_catchup.0 != 0 {
             if self.state.is_ppu_active() {
                 self.tick_ppu_enabled();
-            } else {
-                self.tick_ppu_disabled();
             }
             if self.state.is_oam_dma_active() {
                 self.tick_oam_dma();
@@ -118,7 +126,6 @@ impl GameBoy {
         match change {
             GameBoyEvent::UnmapBootRom => self.bus.handle_memory_map_event(MemoryMapEvent::UnmapBootRom),
             GameBoyEvent::ChangeGameBoyMode(mode) => self.mode_transition(mode),
-
             GameBoyEvent::ChangeObjectPriorityMode(mode) => self.bus.set_object_priority_mode(mode),
             GameBoyEvent::StartOamDmaTransfer(input) => self.initiate_dma_transfer(input),
             GameBoyEvent::EndOamDmaTransfer => self.end_dma_transfer(),
@@ -126,8 +133,11 @@ impl GameBoy {
             GameBoyEvent::ChangeLCdPpuState(enabled) => {
                 self.bus.reset_ly();
                 self.state.ppu_active = enabled;
+                self.ppu.enable();
             },
-            GameBoyEvent::Interrupt(interrupt) => (),
+            GameBoyEvent::Interrupt(interrupt) => self.bus.raise_interrupt_flag(&interrupt),
+            GameBoyEvent::IeTriggered => notate_event(GameBoyEvent::EnableInterrupts),
+            GameBoyEvent::EnableInterrupts => self.cpu.enable_interrupts(),
         }
     }
 
@@ -231,17 +241,8 @@ pub enum GameBoyEvent {
     UpdatePpuMode(PpuTickMode),
     EndOamDmaTransfer,
     Interrupt(Interrupt),
-}
-
-#[derive(Debug)]
-pub enum Interrupt {
-    LycEqualsLy,
+    IeTriggered, // Facilitates the delay between executing IE and actually enabling interrupts
+    EnableInterrupts,
 }
 
 pub type Enabled = bool;
-
-pub enum HardwareType {
-    Dmg,
-    Cgb,
-    Sgb,
-}

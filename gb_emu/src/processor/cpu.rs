@@ -1,7 +1,8 @@
 use crate::{
-    bus::{Address, Bus},
+    bus::Bus,
     game_boy::{GameBoyEvent, GameBoyMode, TCycles, notate_event},
-    helper_functions::log,
+    helpers::log,
+    io_devices::interrupts::Interrupt,
     processor::instructions::{
         EightBitOperand, Instruction, InstructionError, InstructionOutcome, OpCode, Operand, OperandType,
         SignedEightBitOperand, SixteenBitOperand,
@@ -17,8 +18,14 @@ impl Cpu {
     pub fn tick(&mut self, bus: &mut Bus) -> TCycles {
         let pc = self.get_pc();
 
-        let instruction = bus.read_next_instruction(pc);
-        let instruction_outcome = CpuOperationContext::new(self, bus).perform_instruction(instruction);
+        let mut operation_context = CpuOperationContext::new(self, bus);
+
+        if let Some(interrupt) = operation_context.try_get_interrupt() {
+            return operation_context.handle_interrupt(interrupt);
+        }
+
+        let instruction = operation_context.bus.read_next_instruction(pc);
+        let instruction_outcome = operation_context.perform_instruction(instruction);
 
         let mut taken_cycles = instruction.cycles as u64;
         let mut pc_offset = instruction.bytes;
@@ -35,6 +42,10 @@ impl Cpu {
         self.increase_pc(pc_offset);
 
         TCycles(taken_cycles)
+    }
+
+    pub fn interrupts_are_enabled(&self) -> bool {
+        self.ime
     }
 
     pub fn enable_interrupts(&mut self) {
@@ -232,6 +243,25 @@ pub struct CpuOperationContext<'a, 'b> {
 impl<'a, 'b> CpuOperationContext<'a, 'b> {
     pub fn new(cpu: &'a mut Cpu, bus: &'b mut Bus) -> Self {
         Self { cpu, bus }
+    }
+
+    fn handle_interrupt(&mut self, interrupt: Interrupt) -> TCycles {
+        self.bus.lower_interrupt_flag(&interrupt);
+        self.cpu.disable_interrupts();
+
+        let isr_address = interrupt.get_isr_address();
+        self.push_to_stack(self.cpu.get_pc());
+        self.jump(&SixteenBitOperand::Immediate(isr_address));
+
+        TCycles(20)
+    }
+
+    fn try_get_interrupt(&self) -> Option<Interrupt> {
+        if !self.cpu.ime {
+            return None;
+        }
+
+        self.bus.try_get_interrupt()
     }
 
     fn push_to_stack(&mut self, value: u16) {
@@ -1044,9 +1074,11 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         InstructionOutcome::Ok
     }
 
+    // Enabling interrupts has a one cycle delay so we'll simulate that by raising an event that
+    // is handled by raising ANOTHER event that is handled by setting ime to true.
+    // A little wonky, but I think it's better than having a "should_set_ime" flag that we check every cycle
     fn enable_interrupts(&mut self) -> InstructionOutcome {
-        self.cpu.enable_interrupts();
-
+        notate_event(GameBoyEvent::IeTriggered);
         InstructionOutcome::Ok
     }
 
