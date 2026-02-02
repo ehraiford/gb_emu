@@ -1,7 +1,7 @@
 use crate::bus::{Address, BusAccessible, MemoryTarget};
 
 pub struct ObjectAttributeMemory {
-    objects: [Sprite; Self::NUM_OAM_SPRITES],
+    objects: [ObjectAttributes; Self::NUM_OAM_SPRITES],
     priority_mode: PriorityMode,
 }
 
@@ -23,6 +23,10 @@ impl ObjectAttributeMemory {
     pub fn set_from_dma_transfer(&mut self, address: Address, value: u8) {
         let (index, byte_num) = Self::convert_address_to_sprite_and_byte_numbers(address);
         self.objects[index].set_byte(byte_num, value)
+    }
+
+    pub fn get_object_attributes(&self, object_number: u8) -> ObjectAttributes {
+        self.objects[object_number as usize]
     }
 }
 
@@ -57,15 +61,15 @@ impl Default for ObjectAttributeMemory {
     }
 }
 
-#[derive(Default, Clone, Copy)]
-struct Sprite {
+#[derive(Default, Clone, Copy, PartialEq)]
+pub struct ObjectAttributes {
     y_position: u8,
     x_position: u8,
     tile_index: u8,
     flags: u8,
 }
 
-impl Sprite {
+impl ObjectAttributes {
     fn get_byte(&self, byte_number: usize) -> u8 {
         match byte_number {
             0 => self.y_position,
@@ -85,12 +89,53 @@ impl Sprite {
         }
     }
 
-    fn get_flag(&self, flag: SpriteFlag) -> u8 {
+    pub fn get_tile_index(&self) -> u8 {
+        self.tile_index
+    }
+
+    pub fn get_flag(&self, flag: ObjectFlag) -> u8 {
         let (shift, mask) = flag.get_shift_and_mask();
         (self.flags >> shift) & mask
     }
 
-    fn set_flag(&mut self, flag: SpriteFlag, mut value: u8) {
+    pub fn is_x_flipped(&self) -> bool {
+        self.get_flag(ObjectFlag::XFlip) == 1
+    }
+
+    pub fn get_palette_choice(&self) -> PaletteChoice {
+        match self.get_flag(ObjectFlag::DmgPalette) {
+            0 => PaletteChoice::OBP0,
+            1 => PaletteChoice::OBP1,
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn get_background_priority(&self) -> u8 {
+        self.get_flag(ObjectFlag::Priority)
+    }
+
+    pub fn get_tile_index_and_byte_number(&self, ly: u8, obj_size: u8) -> (u8, u8) {
+        let object_y = self.get_y_position().wrapping_sub(16);
+        let mut line_in_sprite = ly.wrapping_sub(object_y);
+        if self.get_flag(ObjectFlag::YFlip) == 1 {
+            line_in_sprite = obj_size - 1 - line_in_sprite;
+        }
+
+        let mut tile_index = self.get_tile_index();
+
+        if obj_size == 16 {
+            tile_index &= 0xFE;
+
+            if line_in_sprite >= 8 {
+                tile_index |= 1;
+                line_in_sprite -= 8;
+            }
+        }
+        let byte_number = line_in_sprite * 2;
+        (tile_index, byte_number)
+    }
+
+    fn set_flag(&mut self, flag: ObjectFlag, mut value: u8) {
         let (shift, mut mask) = flag.get_shift_and_mask();
         value &= mask; // just to make sure we don't accidentally overwrite any other flag
         value <<= shift;
@@ -101,9 +146,18 @@ impl Sprite {
 
         self.flags |= value;
     }
+
+    pub fn get_y_position(&self) -> u8 {
+        self.y_position
+    }
+
+    pub fn is_at_x_position(&self, x_address: u8) -> bool {
+        let rightmost_pixel_position = self.x_position.saturating_add(8);
+        (self.x_position..rightmost_pixel_position).contains(&x_address)
+    }
 }
 
-enum SpriteFlag {
+pub enum ObjectFlag {
     Priority,
     YFlip,
     XFlip,
@@ -112,16 +166,16 @@ enum SpriteFlag {
     CgbPalette,
 }
 
-impl SpriteFlag {
+impl ObjectFlag {
     /// Gets the right shift amount and mask needed to isolate the flag from the flag register
     fn get_shift_and_mask(&self) -> (u8, u8) {
         match self {
-            SpriteFlag::Priority => (7, 0b1),
-            SpriteFlag::YFlip => (6, 0b1),
-            SpriteFlag::XFlip => (5, 0b1),
-            SpriteFlag::DmgPalette => (4, 0b1),
-            SpriteFlag::Bank => (3, 0b1),
-            SpriteFlag::CgbPalette => (0, 0b111),
+            ObjectFlag::Priority => (7, 0b1),
+            ObjectFlag::YFlip => (6, 0b1),
+            ObjectFlag::XFlip => (5, 0b1),
+            ObjectFlag::DmgPalette => (4, 0b1),
+            ObjectFlag::Bank => (3, 0b1),
+            ObjectFlag::CgbPalette => (0, 0b111),
         }
     }
 }
@@ -140,4 +194,11 @@ impl From<u8> for PriorityMode {
             _ => Self::GameBoyColor,
         }
     }
+}
+
+#[derive(Default, Copy, Clone)]
+pub enum PaletteChoice {
+    #[default]
+    OBP0,
+    OBP1,
 }

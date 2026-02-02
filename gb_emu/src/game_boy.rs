@@ -77,11 +77,6 @@ impl GameBoy {
         self.state.elapsed_cpu_cycles += t_cycles;
 
         self.state.cpu_lockstep_catchup = t_cycles;
-
-        // if self.cpu.get_pc() == 0x3e {
-        //     self.bus.print_graphics_data();
-        //     panic!();
-        // }
     }
 
     fn tick_oam_dma(&mut self) {
@@ -101,6 +96,7 @@ impl GameBoy {
     pub fn tick(&mut self) {
         if self.state.is_cpu_active() {
             self.tick_cpu();
+            self.handle_changes();
         } else {
             self.state.cpu_lockstep_catchup = TCycles(1);
         }
@@ -112,8 +108,8 @@ impl GameBoy {
                 self.tick_oam_dma();
             }
             self.state.cpu_lockstep_catchup.0 -= 1;
+            self.handle_changes();
         }
-        self.handle_changes();
     }
 
     fn handle_changes(&mut self) {
@@ -130,15 +126,27 @@ impl GameBoy {
             GameBoyEvent::StartOamDmaTransfer(input) => self.initiate_dma_transfer(input),
             GameBoyEvent::EndOamDmaTransfer => self.end_dma_transfer(),
             GameBoyEvent::UpdatePpuMode(mode) => self.bus.handle_memory_map_event(MemoryMapEvent::UpdatePpuMode(mode)),
-            GameBoyEvent::ChangeLCdPpuState(enabled) => {
-                self.bus.reset_ly();
-                self.state.ppu_active = enabled;
-                self.ppu.enable();
-            },
+            GameBoyEvent::ChangeLcdPpuState(enabled) => self.handle_change_to_lcd_ppu_state(enabled),
             GameBoyEvent::Interrupt(interrupt) => self.bus.raise_interrupt_flag(&interrupt),
             GameBoyEvent::IeTriggered => notate_event(GameBoyEvent::EnableInterrupts),
             GameBoyEvent::EnableInterrupts => self.cpu.enable_interrupts(),
+            GameBoyEvent::ObjectsDisabled => self.handle_objects_disabled(),
         }
+    }
+
+    fn handle_objects_disabled(&mut self) {
+        // DisabledObjects events should only ever be generated when the CPU writes to 0xFF40
+        // which means `cpu_lockstep_catchup` should still be the full length in TCycles of the affecting instruction
+        // So we can use that to delay mode 3 of the PPU.
+        // I don't love this shortcut because it's not resistant to reorganization
+        // but it's better than adding another assignment in the hot loop.
+        self.ppu.handle_objects_disabled(self.state.cpu_lockstep_catchup)
+    }
+
+    fn handle_change_to_lcd_ppu_state(&mut self, enabled: bool) {
+        self.bus.reset_ly();
+        self.state.ppu_active = enabled;
+        self.ppu.enable();
     }
 
     fn initiate_dma_transfer(&mut self, input: u8) {
@@ -235,7 +243,8 @@ impl std::ops::AddAssign for TCycles {
 pub enum GameBoyEvent {
     UnmapBootRom,
     ChangeGameBoyMode(GameBoyMode),
-    ChangeLCdPpuState(Enabled),
+    ChangeLcdPpuState(Enabled),
+    ObjectsDisabled,
     ChangeObjectPriorityMode(crate::graphics::oam::PriorityMode),
     StartOamDmaTransfer(u8),
     UpdatePpuMode(PpuTickMode),

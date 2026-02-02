@@ -83,7 +83,7 @@ impl<const MAX_SIZE: usize, T: Default + Copy> StackAllocQueue<T, MAX_SIZE> {
         popped_entry
     }
 
-    pub fn pop(&mut self) -> Option<T> {
+    pub fn try_pop(&mut self) -> Option<T> {
         match self.length == 0 {
             true => None,
             false => Some(self.pop_unchecked()),
