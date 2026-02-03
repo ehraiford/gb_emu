@@ -23,46 +23,59 @@ impl PixelFetchers {
         self.background_fetcher.reset_for_new_scanline();
     }
 
+    pub fn reset_window_y(&mut self) {
+        self.background_fetcher.reset_window_y();
+    }
+
     pub fn tick(&mut self, lcd: &Lcd, v_ram: &VideoRam) -> Option<ColoredPixel> {
         match self.mode {
-            FetchersMode::NewlyCheckingForPixel => {
-                self.tick_newly_check_for_pixel(lcd, v_ram);
+            FetchersMode::NormalExecution => self.tick_normal_execution(lcd, v_ram),
+            FetchersMode::HandlingObjectsDisabled { remaining_penalty } => {
+                self.tick_handling_objects_disabled(remaining_penalty, lcd)
+            },
+            FetchersMode::FetchingObject => {
+                self.tick_ppu_fetching_object(lcd, v_ram);
                 None
             },
-            FetchersMode::HandlingObjectsDisabled { remaining_penalty: remaining_instruction_penalty } => {
-                self.tick_handling_objects_disabled(remaining_instruction_penalty, lcd)
-            },
-            FetchersMode::FetchingObject => self.tick_ppu_fetching_object(lcd, v_ram),
-            FetchersMode::FetchingBackground => self.tick_background(lcd, v_ram),
+            FetchersMode::PoppingObjectPixels => return self.tick_popping_object_pixels(lcd, v_ram),
         }
     }
 
-    fn tick_newly_check_for_pixel(&mut self, lcd: &Lcd, v_ram: &VideoRam) {
-        if let Some(object_attributes) = self.object_fetcher.check_coordinates(self.pixels_displayed, lcd) {
-            self.object_fetcher.mode = ObjectFifoMode::GetDataLow { object_attributes, sleep_cycle: true };
-            self.mode = FetchersMode::FetchingObject;
-            self.tick_ppu_fetching_object(lcd, v_ram);
-        } else {
-            self.mode = FetchersMode::FetchingBackground;
-            self.tick_background(lcd, v_ram);
-        }
-    }
+    fn tick_popping_object_pixels(&mut self, lcd: &Lcd, v_ram: &VideoRam) -> Option<ColoredPixel> {
+        self.background_fetcher.tick_fetching(lcd, v_ram);
 
-    fn tick_ppu_fetching_object(&mut self, lcd: &Lcd, v_ram: &VideoRam) -> Option<ColoredPixel> {
-        self.object_fetcher.tick_fetching(lcd, v_ram);
+        if self.background_fetcher.queue.length() == 0 {
+            // we need pixels in the background queue to compare against
+            return None;
+        }
 
         if let Some(object_pixel) = self.object_fetcher.try_get_pixel() {
             let background_pixel = self.background_fetcher.pop_pixel();
-            Some(Self::arbitrate_pixels(background_pixel, object_pixel))
+            Some(Self::arbitrate_pixels(background_pixel, object_pixel, lcd))
         } else {
+            self.mode = FetchersMode::NormalExecution;
             None
         }
     }
 
-    fn tick_background(&mut self, lcd: &Lcd, v_ram: &VideoRam) -> Option<ColoredPixel> {
-        self.background_fetcher.tick_fetching(lcd, v_ram);
+    fn tick_normal_execution(&mut self, lcd: &Lcd, v_ram: &VideoRam) -> Option<ColoredPixel> {
+        if let Some(object_attributes) = self.object_fetcher.check_coordinates(self.pixels_displayed, lcd) {
+            self.object_fetcher.mode = ObjectFifoMode::GetDataLow { object_attributes, sleep_cycle: true };
+            self.mode = FetchersMode::FetchingObject;
+            self.tick_ppu_fetching_object(lcd, v_ram);
+            None
+        } else {
+            self.background_fetcher.tick_fetching(lcd, v_ram);
+            self.try_pop_background_pixel(lcd)
+        }
+    }
 
-        self.try_pop_background_pixel(lcd)
+    fn tick_ppu_fetching_object(&mut self, lcd: &Lcd, v_ram: &VideoRam) {
+        self.object_fetcher.tick_fetching(lcd, v_ram);
+
+        if self.object_fetcher.queue.length() != 0 {
+            self.mode = FetchersMode::PoppingObjectPixels;
+        }
     }
 
     fn try_pop_background_pixel(&mut self, lcd: &Lcd) -> Option<ColoredPixel> {
@@ -75,21 +88,30 @@ impl PixelFetchers {
         }
     }
 
-    fn arbitrate_pixels(background_pixel: FifoBackgroundPixel, object_pixel: FifoObjectPixel) -> ColoredPixel {
-        todo!()
+    fn arbitrate_pixels(
+        background_pixel: FifoBackgroundPixel,
+        object_pixel: FifoObjectPixel,
+        lcd: &Lcd,
+    ) -> ColoredPixel {
+        if object_pixel.is_transparent()
+            || !lcd.object_enabled()
+            || object_pixel.background_priority == 1 && background_pixel.color_number != 0
+        {
+            // Background wins
+            ColoredPixel::from_background_pixel(background_pixel, lcd.get_bgp())
+        } else {
+            // Object Wins
+            ColoredPixel::from_object_pixel(object_pixel, lcd.get_obp(object_pixel.get_palette_choice()))
+        }
     }
 
-    fn tick_handling_objects_disabled(
-        &mut self,
-        mut remaining_instruction_penalty: u8,
-        lcd: &Lcd,
-    ) -> Option<ColoredPixel> {
-        remaining_instruction_penalty -= 1;
-        if remaining_instruction_penalty == 0 {
-            self.mode = FetchersMode::NewlyCheckingForPixel;
+    fn tick_handling_objects_disabled(&mut self, mut remaining_penalty: u8, lcd: &Lcd) -> Option<ColoredPixel> {
+        remaining_penalty -= 1;
+        if remaining_penalty == 0 {
+            self.mode = FetchersMode::NormalExecution;
             self.try_pop_background_pixel(lcd)
         } else {
-            self.mode = FetchersMode::HandlingObjectsDisabled { remaining_penalty: remaining_instruction_penalty };
+            self.mode = FetchersMode::HandlingObjectsDisabled { remaining_penalty };
             None
         }
     }
@@ -106,17 +128,17 @@ impl PixelFetchers {
 #[derive(Default, PartialEq, Eq)]
 enum FetchersMode {
     #[default]
-    NewlyCheckingForPixel,
+    NormalExecution,
     HandlingObjectsDisabled {
         remaining_penalty: u8,
     },
     FetchingObject,
-    FetchingBackground,
+    PoppingObjectPixels,
 }
 
 #[derive(Default, Clone, Copy)]
-struct FifoObjectPixel {
-    color_number: u8,
+pub struct FifoObjectPixel {
+    pub color_number: u8,
     palette: PaletteChoice,
     background_priority: u8,
 }
@@ -128,6 +150,12 @@ impl FifoObjectPixel {
             palette: attributes.get_palette_choice(),
             background_priority: attributes.get_background_priority(),
         }
+    }
+    fn is_transparent(&self) -> bool {
+        self.color_number == 0
+    }
+    pub fn get_palette_choice(&self) -> PaletteChoice {
+        self.palette
     }
 }
 
@@ -275,16 +303,12 @@ struct BackGroundFifo {
     mode: BackGroundFifoMode,
     pixels_popped: u8,
     tiles_fetched: u8,
+
+    window_y: u8,
+    window_displayed_this_line: bool,
 }
 
 impl BackGroundFifo {
-    fn reset_for_new_scanline(&mut self) {
-        self.queue.clear_queue();
-        self.mode = BackGroundFifoMode::GetTile { sleep_cycle: true };
-        self.pixels_popped = 0;
-        self.tiles_fetched = 0;
-    }
-
     fn current_tile_is_window_tile(&self, lcd: &Lcd, fetcher_x: u8) -> bool {
         lcd.window_enabled() && lcd.coordinate_in_window(fetcher_x)
     }
@@ -296,9 +320,8 @@ impl BackGroundFifo {
 
         if self.current_tile_is_window_tile(lcd, fetcher_x) {
             let window_x = fetcher_x.saturating_sub(lcd.get_wx().saturating_sub(7));
-            let window_y = lcd.get_ly() - lcd.get_wy();
-
-            (window_x / 8, window_y / 8, window_y % 8)
+            self.window_displayed_this_line = true;
+            (window_x / 8, self.window_y / 8, self.window_y % 8)
         } else {
             let scx = lcd.get_scx();
             let calced_y = (lcd.get_ly() + lcd.get_scy()) & 0xFF;
@@ -380,13 +403,23 @@ impl BackGroundFifo {
 
     fn pop_pixel(&mut self) -> FifoBackgroundPixel {
         let pixel = self.queue.pop_unchecked();
-        // pixels_popped should justbe a simple counter from 0..160
         self.pixels_popped += 1;
         pixel
     }
 
-    fn clear_queue(&mut self) {
+    fn reset_for_new_scanline(&mut self) {
+        if self.window_displayed_this_line {
+            self.window_y += 1;
+            self.window_displayed_this_line = false;
+        }
         self.queue.clear_queue();
+        self.mode = BackGroundFifoMode::GetTile { sleep_cycle: true };
+        self.pixels_popped = 0;
+        self.tiles_fetched = 0;
+    }
+
+    pub fn reset_window_y(&mut self) {
+        self.window_y = 0;
     }
 }
 
@@ -397,6 +430,8 @@ impl Default for BackGroundFifo {
             mode: Default::default(),
             pixels_popped: 0,
             tiles_fetched: 0,
+            window_y: 0,
+            window_displayed_this_line: false,
         }
     }
 }

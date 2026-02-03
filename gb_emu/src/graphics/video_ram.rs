@@ -2,7 +2,7 @@ use crate::{
     bus::{Address, BusAccessible, MemoryTarget},
     graphics::{
         oam::{ObjectAttributes, ObjectFlag},
-        pixel_fetchers::FifoBackgroundPixel,
+        pixel_fetchers::{FifoBackgroundPixel, FifoObjectPixel},
     },
 };
 
@@ -210,9 +210,14 @@ pub struct ColoredPixel {
 
 impl ColoredPixel {
     pub fn from_background_pixel(raw_pixel: FifoBackgroundPixel, background_palette: u8) -> Self {
-        Self {
-            color: background_palette >> (raw_pixel.color_number * 2) & 0b11,
-        }
+        Self::from_raw_color_and_palette(raw_pixel.color_number, background_palette)
+    }
+    pub fn from_object_pixel(raw_pixel: FifoObjectPixel, palette: u8) -> Self {
+        Self::from_raw_color_and_palette(raw_pixel.color_number, palette)
+    }
+
+    fn from_raw_color_and_palette(color_number: u8, palette: u8) -> Self {
+        Self { color: palette >> (color_number * 2) & 0b11 }
     }
 }
 

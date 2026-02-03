@@ -28,7 +28,7 @@ pub struct Ppu {
 
 impl Ppu {
     pub fn enable(&mut self) {
-        self.reset_for_new_scanline();
+        self.reset_for_new_frame();
         self.mode_tracking = Default::default();
     }
 
@@ -48,6 +48,11 @@ impl Ppu {
 
     pub fn handle_objects_disabled(&mut self, instruction_length: TCycles) {
         self.pixel_fetchers.handle_objects_disabled(instruction_length);
+    }
+
+    fn reset_for_new_frame(&mut self) {
+        self.reset_for_new_scanline();
+        self.pixel_fetchers.reset_window_y();
     }
 }
 
@@ -119,15 +124,21 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
             .process_tick(self.lcd.get_ly(), self.lcd.get_scx());
 
         if result.increment_ly {
-            self.lcd.increment_ly();
-            self.ppu.reset_for_new_scanline();
+            self.go_to_next_line();
         }
 
         if let Some(mode) = result.new_mode {
-            notate_event(GameBoyEvent::UpdatePpuMode(mode));
+            notate_event(GameBoyEvent::ChangeBusAccessForPpuMode(mode));
             if let PpuTickMode::OamScan { completed_cycles: _ } = mode {
                 // println!("Pushed {} pixels this line", self.ppu.pushed_pixels_this_line);
             }
+        }
+    }
+
+    fn go_to_next_line(&mut self) {
+        match self.lcd.increment_ly() == 0 {
+            true => self.ppu.reset_for_new_scanline(),
+            false => self.ppu.reset_for_new_scanline(),
         }
     }
 }
@@ -280,82 +291,6 @@ impl From<PpuTickMode> for u8 {
     }
 }
 
-#[derive(Default, Clone, Copy)]
-struct FifoPixel {
-    color: u8,
-    palette: u8,
-    sprite_priority: u8,
-    background_priority: bool,
-}
-
-#[derive(Default)]
-struct SpriteFifo {
-    queue: StackAllocQueue<FifoPixel, 16>,
-    objects_to_be_drawn: [ObjectAttributes; 10],
-    mode: SpriteFifoMode,
-}
-
-impl SpriteFifo {
-    fn check_coordinates(&mut self, current_x: u8, lcd: &Lcd) {
-        if !lcd.object_enabled() {
-            return;
-        }
-        for atrributes in &self.objects_to_be_drawn {
-            if atrributes.is_at_x_position(current_x) {
-                self.mode = SpriteFifoMode::FetchingObject(*atrributes);
-                return;
-            }
-        }
-    }
-    fn tick(&mut self, current_x: u8, lcd: &Lcd) {
-        match self.mode {
-            SpriteFifoMode::CheckingCoordinates => self.check_coordinates(current_x, lcd),
-            SpriteFifoMode::FetchingObject(object_attributes) => {
-                todo!()
-            },
-            SpriteFifoMode::Canceled { ref mut remaining_dead_cycles } => {
-                *remaining_dead_cycles -= 1;
-                if *remaining_dead_cycles == 0 {
-                    self.mode = SpriteFifoMode::CheckingCoordinates;
-                }
-            },
-        }
-    }
-}
-
-#[derive(Default)]
-enum SpriteFifoMode {
-    #[default]
-    CheckingCoordinates,
-    FetchingObject(ObjectAttributes),
-    Canceled {
-        remaining_dead_cycles: u8,
-    },
-}
-
-#[derive(Default)]
-pub struct ObjectsOnThisLine {
-    objects: [ObjectAttributes; 10],
-    number_of_objects: u8, // cannot be more than 10
-}
-
-impl ObjectsOnThisLine {
-    fn insert(&mut self, object_attributes: ObjectAttributes) {
-        self.objects[self.number_of_objects as usize] = object_attributes;
-        self.number_of_objects += 1;
-    }
-
-    fn is_at_capacity(&self) -> bool {
-        self.number_of_objects == 10
-    }
-    pub fn borrow_objects(&self) -> &[ObjectAttributes; 10] {
-        &self.objects
-    }
-    fn reset_for_new_scanline(&mut self) {
-        self.number_of_objects = 0;
-    }
-}
-
 #[derive(Default)]
 struct OamScanner {
     objects_on_this_line: ObjectsOnThisLine,
@@ -409,6 +344,29 @@ enum OamScannerStage {
 impl Default for OamScannerStage {
     fn default() -> Self {
         Self::Scanning { object_number: 0 }
+    }
+}
+
+#[derive(Default)]
+pub struct ObjectsOnThisLine {
+    objects: [ObjectAttributes; 10],
+    number_of_objects: u8, // cannot be more than 10
+}
+
+impl ObjectsOnThisLine {
+    fn insert(&mut self, object_attributes: ObjectAttributes) {
+        self.objects[self.number_of_objects as usize] = object_attributes;
+        self.number_of_objects += 1;
+    }
+
+    fn is_at_capacity(&self) -> bool {
+        self.number_of_objects == 10
+    }
+    pub fn borrow_objects(&self) -> &[ObjectAttributes; 10] {
+        &self.objects
+    }
+    fn reset_for_new_scanline(&mut self) {
+        self.number_of_objects = 0;
     }
 }
 

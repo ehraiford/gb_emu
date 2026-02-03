@@ -2,7 +2,8 @@ use crate::{
     bus::{Address, BusAccessFailure},
     game_boy::{GameBoyEvent, notate_event},
     graphics::{
-        ppu::{Ppu, PpuTickMode},
+        oam::PaletteChoice,
+        ppu::PpuTickMode,
         video_ram::{AccessMethod, TargetTileMap},
     },
     io_devices::interrupts::Interrupt,
@@ -32,6 +33,13 @@ impl Lcd {
 
     fn get_local_address(address: Address) -> Address {
         address - Self::START_ADDRESS
+    }
+
+    pub fn get_obp(&self, palette_choice: PaletteChoice) -> u8 {
+        match palette_choice {
+            PaletteChoice::OBP0 => self.obp0,
+            PaletteChoice::OBP1 => self.obp1,
+        }
     }
 
     pub fn apply_bg_palette(&self, raw_color_id: u8) -> u8 {

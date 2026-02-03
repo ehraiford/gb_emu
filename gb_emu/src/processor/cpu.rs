@@ -1,7 +1,6 @@
 use crate::{
     bus::Bus,
     game_boy::{GameBoyEvent, GameBoyMode, TCycles, notate_event},
-    helpers::log,
     io_devices::interrupts::Interrupt,
     processor::instructions::{
         EightBitOperand, Instruction, InstructionError, InstructionOutcome, OpCode, Operand, OperandType,
@@ -257,7 +256,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     }
 
     fn try_get_interrupt(&self) -> Option<Interrupt> {
-        if !self.cpu.ime {
+        if !self.cpu.interrupts_are_enabled() {
             return None;
         }
 
