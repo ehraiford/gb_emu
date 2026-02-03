@@ -34,6 +34,7 @@ impl OamDma {
         // this lets the transfer write 1 byte every two cycles
         if self.wait_tick {
             self.wait_tick = false;
+            return;
         }
 
         let byte = bus.peek(self.source_address);

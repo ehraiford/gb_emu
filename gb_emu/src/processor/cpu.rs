@@ -951,7 +951,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     }
 
     fn call_vector(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
-        let value = self.get_u8_operand(operand);
+        let value = self.get_u8_operand(operand) * 8;
         self.call(&SixteenBitOperand::Immediate(value as u16));
 
         InstructionOutcome::Ok
