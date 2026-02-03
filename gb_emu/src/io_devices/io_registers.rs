@@ -2,11 +2,7 @@ use crate::{
     bus::{Address, BusAccessFailure, BusAccessible, MemoryTarget},
     game_boy::{GameBoyEvent, notate_event},
     graphics::{lcd::Lcd, oam::PriorityMode},
-    io_devices::{
-        audio::Audio,
-        interrupts::InterruptFlagRegister,
-        timer_divider::{self, TimerDivider},
-    },
+    io_devices::{audio::Audio, interrupts::InterruptFlagRegister, timer_divider::TimerDivider},
 };
 
 pub struct IoRegisters {
