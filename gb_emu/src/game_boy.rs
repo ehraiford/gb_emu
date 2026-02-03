@@ -107,13 +107,22 @@ impl GameBoy {
                 self.tick_peripherals_lockstep();
                 self.handle_changes();
             },
-            GameBoyMode::Stopped => {
-                self.state.cpu_lockstep_catchup = TCycles(4);
-                self.tick_peripherals_lockstep();
-                self.handle_changes();
+            GameBoyMode::Stopped => todo!(),
+            GameBoyMode::Halted => {
+                if self.has_unhandled_interrupts() {
+                    self.mode_transition(GameBoyMode::Executing);
+                    self.tick();
+                } else {
+                    self.state.cpu_lockstep_catchup = TCycles(4);
+                    self.tick_peripherals_lockstep();
+                    self.handle_changes();
+                }
             },
-            GameBoyMode::Halted => todo!(),
         }
+    }
+
+    fn has_unhandled_interrupts(&self) -> bool {
+        self.cpu.interrupts_are_enabled() && self.bus.try_get_interrupt().is_some()
     }
 
     fn handle_changes(&mut self) {
@@ -183,9 +192,9 @@ struct GameBoyState {
 impl GameBoyState {
     fn mode_transition(&mut self, new_mode: GameBoyMode, bus: &mut Bus) {
         match new_mode {
-            GameBoyMode::Executing => todo!(),
+            GameBoyMode::Executing => (),
             GameBoyMode::Stopped => bus.reset_divider_register(),
-            GameBoyMode::Halted => todo!(),
+            GameBoyMode::Halted => (),
         }
         self.mode = new_mode;
     }
