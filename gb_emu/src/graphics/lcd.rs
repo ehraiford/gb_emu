@@ -9,7 +9,7 @@ use crate::{
 };
 
 #[derive(Default)]
-pub struct LcdRegisters {
+pub struct Lcd {
     control_flags: u8,
 
     ly: u8,
@@ -26,9 +26,13 @@ pub struct LcdRegisters {
     obp1: u8,
 }
 
-impl LcdRegisters {
+impl Lcd {
     const START_ADDRESS: Address = 0xFF40;
     pub const MAX_LY: u8 = 153;
+
+    fn get_local_address(address: Address) -> Address {
+        address - Self::START_ADDRESS
+    }
 
     pub fn apply_bg_palette(&self, raw_color_id: u8) -> u8 {
         self.bgp >> (raw_color_id * 2) & 0b11
@@ -70,6 +74,17 @@ impl LcdRegisters {
     }
     pub fn get_wy(&self) -> u8 {
         self.wy
+    }
+
+    pub fn get_object_size(&self) -> u8 {
+        match self.get_control_flag(LcdControlFlag::ObjSize) {
+            true => 16,
+            false => 8,
+        }
+    }
+
+    pub fn object_enabled(&self) -> bool {
+        self.get_control_flag(LcdControlFlag::ObjEnable)
     }
 
     pub fn get_target_tilemap(&self, x_coordinate: u8) -> TargetTileMap {
@@ -148,13 +163,9 @@ impl LcdRegisters {
         (self.control_flags >> flag.get_index()) & 0b1 == 1
     }
     fn set_control_flags(&mut self, value: u8) {
-        let enable_index = LcdControlFlag::LcdPpuEnable.get_index();
-        let new_enable_val = value >> enable_index;
-        let old_enable_val = self.control_flags >> enable_index;
+        LcdControlFlag::check_for_change_in_lcd_ppu_state(self.control_flags, value);
+        LcdControlFlag::check_for_change_in_object_enable(self.control_flags, value);
         self.control_flags = value;
-        if new_enable_val ^ old_enable_val == 1 {
-            notate_event(GameBoyEvent::ChangeLCdPpuState(new_enable_val == 1))
-        }
     }
 
     fn set_control_flag(&mut self, flag: LcdControlFlag, value: bool) {
@@ -178,6 +189,13 @@ impl LcdRegisters {
     fn set_ppu_mode(&mut self, mode: PpuTickMode) {
         let status = self.status_flags & !0b11;
         self.status_flags = status | u8::from(mode);
+    }
+
+    pub fn object_on_scanline(&self, object_y_position: u8) -> bool {
+        let sprite_base = (object_y_position + self.get_object_size()) as u16;
+        let adjusted_ly = (self.get_ly() + 16) as u16;
+
+        (object_y_position as u16..sprite_base).contains(&adjusted_ly)
     }
 }
 
@@ -205,6 +223,26 @@ impl LcdControlFlag {
             LcdControlFlag::BackgroundWindowEnablePriority => 0,
         }
     }
+
+    fn check_for_change_in_lcd_ppu_state(old_register_value: u8, new_register_value: u8) {
+        let enable_index = LcdControlFlag::LcdPpuEnable.get_index();
+        let new_enable_val = new_register_value >> enable_index;
+        let old_enable_val = old_register_value >> enable_index;
+        if new_enable_val ^ old_enable_val == 1 {
+            notate_event(GameBoyEvent::ChangeLcdPpuState(new_enable_val == 1))
+        }
+    }
+
+    fn check_for_change_in_object_enable(old_register_value: u8, new_register_value: u8) {
+        let enable_index = LcdControlFlag::ObjEnable.get_index();
+        let new_enable_val = (new_register_value >> enable_index) & 0b1;
+        if new_enable_val == 0 {
+            let old_enable_val = old_register_value >> (enable_index & 0b1);
+            if old_enable_val == 1 {
+                notate_event(GameBoyEvent::ObjectsDisabled);
+            }
+        }
+    }
 }
 
 enum LcdStatusFlag {
@@ -230,14 +268,81 @@ impl LcdStatusFlag {
 }
 
 pub enum LcdRegister {
-    LY,
-    LYC,
-    STAT,
-    SCY,
-    SCX,
-    WY,
-    WX,
-    BGP,
-    OBP1,
-    OBP0,
+    Control,
+    YCoordinate,
+    YCompare,
+    Status,
+    ScrollY,
+    ScrollX,
+    WindowY,
+    WindowX,
+    BackgroundPalette,
+    ObjectPalette1,
+    ObjectPalette0,
+
+    // GameBoy Color Only
+    GameBoyColor(GBCColorPaletteRegister),
+}
+
+impl LcdRegister {
+    fn get_index(&self) -> usize {
+        match self {
+            LcdRegister::Control => 0,
+            LcdRegister::YCoordinate => 1,
+            LcdRegister::YCompare => 2,
+            LcdRegister::Status => 3,
+            LcdRegister::ScrollY => 4,
+            LcdRegister::ScrollX => 5,
+            LcdRegister::WindowY => 7,
+            LcdRegister::WindowX => 8,
+            LcdRegister::BackgroundPalette => 9,
+            LcdRegister::ObjectPalette0 => 0xA,
+            LcdRegister::ObjectPalette1 => 0xB,
+            LcdRegister::GameBoyColor(gbccolor_palette_register) => gbccolor_palette_register.get_index(),
+        }
+    }
+
+    fn from_global_address(address: Address) -> Option<Self> {
+        match Lcd::get_local_address(address) {
+            0 => Some(LcdRegister::Control),
+            1 => Some(LcdRegister::YCoordinate),
+            2 => Some(LcdRegister::YCompare),
+            3 => Some(LcdRegister::Status),
+            4 => Some(LcdRegister::ScrollY),
+            5 => Some(LcdRegister::ScrollX),
+            7 => Some(LcdRegister::WindowY),
+            8 => Some(LcdRegister::WindowX),
+            9 => Some(LcdRegister::BackgroundPalette),
+            0xA => Some(LcdRegister::ObjectPalette0),
+            0xB => Some(LcdRegister::ObjectPalette1),
+            _ => GBCColorPaletteRegister::from_global_address(address).map(|r| Self::GameBoyColor(r)),
+        }
+    }
+}
+
+pub enum GBCColorPaletteRegister {
+    BackgroundSpec,
+    BackgroundData,
+    ObjectSpec,
+    ObjectData,
+}
+
+impl GBCColorPaletteRegister {
+    fn get_index(&self) -> usize {
+        match self {
+            GBCColorPaletteRegister::BackgroundSpec => 0xC,
+            GBCColorPaletteRegister::BackgroundData => 0xD,
+            GBCColorPaletteRegister::ObjectSpec => 0xE,
+            GBCColorPaletteRegister::ObjectData => 0xF,
+        }
+    }
+    fn from_global_address(address: Address) -> Option<Self> {
+        match Lcd::get_local_address(address) {
+            0x28 => Some(Self::BackgroundSpec),
+            0x29 => Some(Self::BackgroundData),
+            0x2a => Some(Self::ObjectSpec),
+            0x2b => Some(Self::ObjectData),
+            _ => None,
+        }
+    }
 }

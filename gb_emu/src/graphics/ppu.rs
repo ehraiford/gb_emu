@@ -2,11 +2,12 @@ use std::sync::mpsc::Sender;
 
 use crate::{
     bus::MemoryTarget,
-    game_boy::{GameBoyEvent, notate_event},
+    game_boy::{GameBoyEvent, TCycles, notate_event},
     graphics::{
-        lcd::LcdRegisters,
-        oam::ObjectAttributeMemory,
-        video_ram::{AccessMethod, Pixel, VideoRam},
+        lcd::Lcd,
+        oam::{ObjectAttributeMemory, ObjectAttributes},
+        pixel_fetchers::PixelFetchers,
+        video_ram::{RawPixel, VideoRam},
     },
     helpers::StackAllocQueue,
     io_devices::interrupts::Interrupt,
@@ -20,9 +21,9 @@ const DOTS_PER_LINE: Dots = 456;
 
 pub struct Ppu {
     mode_tracking: PpuModeTracker,
-    sprite_fetcher: BackGroundFifo,
-    background_fetcher: BackGroundFifo,
+    pixel_fetchers: PixelFetchers,
     pixel_buffer_sender: Sender<u32>,
+    oam_scanner: OamScanner,
 }
 
 impl Ppu {
@@ -35,15 +36,18 @@ impl Ppu {
         &self.mode_tracking.mode
     }
 
-    pub fn tick(&mut self, v_ram: &mut VideoRam, oam: &mut ObjectAttributeMemory, lcd_regs: &mut LcdRegisters) {
-        let mut context = PpuOperationContext::new(self, v_ram, oam, lcd_regs);
-        context.tick_dot_ppu_enabled()
+    pub fn tick(&mut self, v_ram: &mut VideoRam, oam: &mut ObjectAttributeMemory, lcd: &mut Lcd) {
+        let mut context = PpuOperationContext::new(self, v_ram, oam, lcd);
+        context.tick()
     }
 
     fn reset_for_new_scanline(&mut self) {
-        self.background_fetcher.clear_queue();
-        self.sprite_fetcher.clear_queue();
-        self.background_fetcher.reset_for_new_scanline();
+        self.oam_scanner.reset_for_new_scanline();
+        self.pixel_fetchers.reset_for_new_scanline();
+    }
+
+    pub fn handle_objects_disabled(&mut self, instruction_length: TCycles) {
+        self.pixel_fetchers.handle_objects_disabled(instruction_length);
     }
 }
 
@@ -51,9 +55,9 @@ impl Default for Ppu {
     fn default() -> Self {
         Self {
             mode_tracking: PpuModeTracker::default(),
-            sprite_fetcher: BackGroundFifo::default(),
-            background_fetcher: BackGroundFifo::default(),
             pixel_buffer_sender: graphics::start_window_thread(),
+            oam_scanner: OamScanner::default(),
+            pixel_fetchers: PixelFetchers::default(),
         }
     }
 }
@@ -61,8 +65,8 @@ impl Default for Ppu {
 pub struct PpuOperationContext<'a, 'b, 'c, 'd> {
     ppu: &'a mut Ppu,
     v_ram: &'b mut VideoRam,
-    _oam: &'c mut ObjectAttributeMemory,
-    lcd_regs: &'d mut LcdRegisters,
+    oam: &'c mut ObjectAttributeMemory,
+    lcd: &'d mut Lcd,
 }
 
 impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
@@ -70,66 +74,58 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
         ppu: &'a mut Ppu,
         v_ram: &'b mut VideoRam,
         oam: &'c mut ObjectAttributeMemory,
-        lcd_regs: &'d mut LcdRegisters,
+        lcd: &'d mut Lcd,
     ) -> Self {
-        Self { ppu, v_ram, _oam: oam, lcd_regs }
+        Self { ppu, v_ram, oam, lcd }
     }
 
-    fn tick_oam_scan(&mut self) {}
+    fn tick_oam_scan(&mut self) {
+        self.ppu.oam_scanner.tick(self.oam, self.lcd);
+    }
 
-    fn tick_drawing_pixels(&mut self, mut pixels_to_ignore: u8, mut pixels_to_push: u8) -> (u8, u8) {
-        self.ppu.background_fetcher.tick(&self.lcd_regs, self.v_ram);
-
-        if self.ppu.background_fetcher.queue.length() > 0 {
-            if pixels_to_push > 0 {
-                if pixels_to_ignore > 0 {
-                    self.ppu.background_fetcher.pop_ignored_pixel();
-                    pixels_to_ignore -= 1;
-                } else {
-                    let pixel = self.ppu.background_fetcher.pop_pixel();
-                    // todo: Fix this. This is very hacky. I just want something before I finish for the week.
-                    let colored_pixel = Pixel::new(self.lcd_regs.apply_bg_palette(pixel.color_number));
-                    self.ppu.pixel_buffer_sender.send(colored_pixel.into()).unwrap();
-                    pixels_to_push -= 1;
-                }
+    fn tick_drawing_pixels(&mut self, mut pixels_left_to_ignore: u8, mut pixels_left_to_push: u8) {
+        if let Some(pixel) = self.ppu.pixel_fetchers.tick(self.lcd, self.v_ram) {
+            if pixels_left_to_ignore > 0 {
+                pixels_left_to_ignore -= 1;
+            } else {
+                self.ppu
+                    .pixel_buffer_sender
+                    .send(RawPixel { color_number: pixel.color }.into())
+                    .unwrap();
+                pixels_left_to_push -= 1;
             }
         }
-        (pixels_to_ignore, pixels_to_push)
+
+        self.ppu.mode_tracking.mode = PpuTickMode::DrawingPixels { pixels_left_to_push, pixels_left_to_ignore };
     }
 
     fn tick_horizontal_blank(&mut self) {}
 
     fn tick_vertical_blank(&mut self) {}
 
-    pub fn tick_dot_ppu_enabled(&mut self) {
+    pub fn tick(&mut self) {
         match self.ppu.get_mode() {
             PpuTickMode::HorizontalBlank => self.tick_horizontal_blank(),
             PpuTickMode::VerticalBlank => self.tick_vertical_blank(),
-            PpuTickMode::OamScan { remaining_cycles: _ } => self.tick_oam_scan(),
+            PpuTickMode::OamScan { completed_cycles: _ } => self.tick_oam_scan(),
             PpuTickMode::DrawingPixels { pixels_left_to_ignore, pixels_left_to_push } => {
-                let pixels_to_ignore = *pixels_left_to_ignore;
-                let pixels_to_push = *pixels_left_to_push;
-                let (pixels_to_ignore, pixels_to_push) = self.tick_drawing_pixels(pixels_to_ignore, pixels_to_push);
-                self.ppu.mode_tracking.mode = PpuTickMode::DrawingPixels {
-                    pixels_left_to_push: pixels_to_push,
-                    pixels_left_to_ignore: pixels_to_ignore,
-                }
+                self.tick_drawing_pixels(*pixels_left_to_ignore, *pixels_left_to_push)
             },
         };
 
         let result = self
             .ppu
             .mode_tracking
-            .process_tick(self.lcd_regs.get_ly(), self.lcd_regs.get_scx());
+            .process_tick(self.lcd.get_ly(), self.lcd.get_scx());
 
         if result.increment_ly {
-            self.lcd_regs.increment_ly();
+            self.lcd.increment_ly();
             self.ppu.reset_for_new_scanline();
         }
 
         if let Some(mode) = result.new_mode {
             notate_event(GameBoyEvent::UpdatePpuMode(mode));
-            if let PpuTickMode::OamScan { remaining_cycles: _ } = mode {
+            if let PpuTickMode::OamScan { completed_cycles: _ } = mode {
                 // println!("Pushed {} pixels this line", self.ppu.pushed_pixels_this_line);
             }
         }
@@ -151,7 +147,7 @@ impl PpuModeTracker {
         if self.remaining_dots_in_line == 0 {
             self.remaining_dots_in_line = DOTS_PER_LINE;
             if ly < SCREEN_HEIGHT - 1 {
-                let new_mode = PpuTickMode::OamScan { remaining_cycles: 80 };
+                let new_mode = PpuTickMode::OamScan { completed_cycles: 0 };
                 self.mode = new_mode;
                 PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
             } else {
@@ -169,8 +165,8 @@ impl PpuModeTracker {
         if self.remaining_dots_in_line == 0 {
             self.remaining_dots_in_line = DOTS_PER_LINE;
 
-            if ly >= LcdRegisters::MAX_LY {
-                let new_mode = PpuTickMode::OamScan { remaining_cycles: 80 };
+            if ly >= Lcd::MAX_LY {
+                let new_mode = PpuTickMode::OamScan { completed_cycles: 0 };
                 self.mode = new_mode;
                 PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
             } else {
@@ -183,14 +179,14 @@ impl PpuModeTracker {
         }
     }
 
-    fn process_tick_oam_scan(&mut self, mut remaining_cycles: u8, scx: u8) -> PpuTickResult {
-        remaining_cycles -= 1;
-        if remaining_cycles == 0 {
+    fn process_tick_oam_scan(&mut self, mut completed_cycles: u8, scx: u8) -> PpuTickResult {
+        completed_cycles += 1;
+        if completed_cycles == 80 {
             let new_mode = PpuTickMode::DrawingPixels { pixels_left_to_push: 160, pixels_left_to_ignore: scx % 8 };
             self.mode = new_mode;
             PpuTickResult { increment_ly: false, new_mode: Some(new_mode) }
         } else {
-            self.mode = PpuTickMode::OamScan { remaining_cycles };
+            self.mode = PpuTickMode::OamScan { completed_cycles };
             PpuTickResult { increment_ly: false, new_mode: None }
         }
     }
@@ -199,6 +195,7 @@ impl PpuModeTracker {
         if self.remaining_dots_in_line == 0 {
             panic!();
         }
+
         if pixels_left_to_push == 0 {
             self.mode = PpuTickMode::HorizontalBlank;
             PpuTickResult {
@@ -215,7 +212,7 @@ impl PpuModeTracker {
         match self.mode {
             PpuTickMode::HorizontalBlank => self.process_tick_horizontal_blank(ly),
             PpuTickMode::VerticalBlank => self.process_tick_vertical_blank(ly),
-            PpuTickMode::OamScan { remaining_cycles } => self.process_tick_oam_scan(remaining_cycles, scx),
+            PpuTickMode::OamScan { completed_cycles } => self.process_tick_oam_scan(completed_cycles, scx),
             PpuTickMode::DrawingPixels { pixels_left_to_push, pixels_left_to_ignore: _ } => {
                 self.process_tick_drawing_pixels(pixels_left_to_push)
             },
@@ -226,7 +223,7 @@ impl PpuModeTracker {
 impl Default for PpuModeTracker {
     fn default() -> Self {
         Self {
-            mode: PpuTickMode::OamScan { remaining_cycles: 80 },
+            mode: PpuTickMode::OamScan { completed_cycles: 0 },
             remaining_dots_in_line: DOTS_PER_LINE,
         }
     }
@@ -237,7 +234,7 @@ pub enum PpuTickMode {
     HorizontalBlank,
     VerticalBlank,
     OamScan {
-        remaining_cycles: u8,
+        completed_cycles: u8,
     },
     DrawingPixels {
         pixels_left_to_push: u8,
@@ -251,14 +248,14 @@ impl PpuTickMode {
             PpuTickMode::HorizontalBlank | PpuTickMode::VerticalBlank => {
                 vec![MemoryTarget::VideoRam, MemoryTarget::ObjectAttributeMemory]
             },
-            PpuTickMode::OamScan { remaining_cycles: _ } => vec![MemoryTarget::VideoRam],
+            PpuTickMode::OamScan { completed_cycles: _ } => vec![MemoryTarget::VideoRam],
             PpuTickMode::DrawingPixels { pixels_left_to_ignore: _, pixels_left_to_push: _ } => vec![],
         }
     }
     pub fn get_cpu_inaccessible_video_targets(&self) -> Vec<MemoryTarget> {
         match self {
             PpuTickMode::HorizontalBlank | PpuTickMode::VerticalBlank => vec![],
-            PpuTickMode::OamScan { remaining_cycles: _ } => vec![MemoryTarget::ObjectAttributeMemory],
+            PpuTickMode::OamScan { completed_cycles: _ } => vec![MemoryTarget::ObjectAttributeMemory],
             PpuTickMode::DrawingPixels { pixels_left_to_ignore: _, pixels_left_to_push: _ } => {
                 vec![MemoryTarget::VideoRam, MemoryTarget::ObjectAttributeMemory]
             },
@@ -268,7 +265,7 @@ impl PpuTickMode {
 
 impl Default for PpuTickMode {
     fn default() -> Self {
-        Self::OamScan { remaining_cycles: 80 }
+        Self::OamScan { completed_cycles: 0 }
     }
 }
 
@@ -277,232 +274,148 @@ impl From<PpuTickMode> for u8 {
         match mode {
             PpuTickMode::HorizontalBlank => 0,
             PpuTickMode::VerticalBlank => 1,
-            PpuTickMode::OamScan { remaining_cycles: _ } => 2,
+            PpuTickMode::OamScan { completed_cycles: _ } => 2,
             PpuTickMode::DrawingPixels { pixels_left_to_ignore: _, pixels_left_to_push: _ } => 3,
         }
     }
 }
 
-#[repr(u8)]
-#[derive(Default, Copy, Clone)]
-pub enum _Color {
-    #[default]
-    Lightest = 0,
-    Lighter,
-    Darker,
-    Darkest,
-}
-
-impl From<u8> for _Color {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => Self::Lightest,
-            1 => Self::Lighter,
-            2 => Self::Darker,
-            3 => Self::Darkest,
-            _ => unreachable!(),
-        }
-    }
-}
-
-#[derive(Default, Copy, Clone)]
-struct _OamPixel {
-    color: _Color,
+#[derive(Default, Clone, Copy)]
+struct FifoPixel {
+    color: u8,
     palette: u8,
+    sprite_priority: u8,
     background_priority: bool,
 }
 
-struct BackGroundFifo {
-    queue: StackAllocQueue<Pixel, 16>,
-    mode: FifoMode,
-    pixels_popped: u8,
-    tiles_fetched: u8,
+#[derive(Default)]
+struct SpriteFifo {
+    queue: StackAllocQueue<FifoPixel, 16>,
+    objects_to_be_drawn: [ObjectAttributes; 10],
+    mode: SpriteFifoMode,
 }
 
-impl BackGroundFifo {
-    fn reset_for_new_scanline(&mut self) {
-        self.queue.clear_queue();
-        self.mode = FifoMode::GetTile { sleep_cycle: true };
-        self.pixels_popped = 0;
-        self.tiles_fetched = 0;
-    }
-
-    fn current_tile_is_window_tile(&self, lcd: &LcdRegisters, fetcher_x: u8) -> bool {
-        lcd.window_enabled() && lcd.coordinate_in_window(fetcher_x)
-    }
-
-    fn get_tile_location(&mut self, lcd: &LcdRegisters) -> (u8, u8, u8) {
-        // Use the fetcher's progress (tiles_fetched * 8) rather than the pixels already on screen.
-        // This ensures the fetcher switches to the Window tilemap at the correct dot.
-        let fetcher_x = self.tiles_fetched * 8;
-
-        if self.current_tile_is_window_tile(lcd, fetcher_x) {
-            let window_x = fetcher_x.saturating_sub(lcd.get_wx().saturating_sub(7));
-            let window_y = lcd.get_ly() - lcd.get_wy();
-
-            (window_x / 8, window_y / 8, window_y % 8)
-        } else {
-            let scx = lcd.get_scx();
-            let calced_y = (lcd.get_ly() + lcd.get_scy()) & 0xFF;
-            let fetcher_bg_x = (scx.wrapping_add(fetcher_x)) & 0xFF;
-
-            (fetcher_bg_x / 8, calced_y >> 3, calced_y & 7)
-        }
-    }
-
-    fn tick(&mut self, lcd: &LcdRegisters, v_ram: &VideoRam) {
-        // first check if we should act this cycle.
-        // This is used to force the modes to take two cycles
-        if self.mode.should_sleep() {
-            self.mode.sleep();
+impl SpriteFifo {
+    fn check_coordinates(&mut self, current_x: u8, lcd: &Lcd) {
+        if !lcd.object_enabled() {
             return;
         }
-
+        for atrributes in &self.objects_to_be_drawn {
+            if atrributes.is_at_x_position(current_x) {
+                self.mode = SpriteFifoMode::FetchingObject(*atrributes);
+                return;
+            }
+        }
+    }
+    fn tick(&mut self, current_x: u8, lcd: &Lcd) {
         match self.mode {
-            FifoMode::GetTile { sleep_cycle: _ } => {
-                let access_method = lcd.get_background_window_tiles_address_mode();
-
-                // DECISION: Use fetcher X (tiles_fetched * 8) to choose the tilemap
-                let fetcher_x = self.tiles_fetched * 8;
-                let map = lcd.get_target_tilemap(fetcher_x);
-
-                let (column, row, in_sprite_row) = self.get_tile_location(lcd);
-                let tile_number = v_ram.get_tile_index_from_map(&map, row, column);
-
-                // Increment tiles_fetched AFTER fetching so the first tile is 0
-                self.tiles_fetched = self.tiles_fetched.wrapping_add(1);
-
-                self.mode = FifoMode::GetTileDataLow {
-                    sleep_cycle: true,
-                    access_method,
-                    tile_number,
-                    byte_number: in_sprite_row << 1,
+            SpriteFifoMode::CheckingCoordinates => self.check_coordinates(current_x, lcd),
+            SpriteFifoMode::FetchingObject(object_attributes) => {
+                todo!()
+            },
+            SpriteFifoMode::Canceled { ref mut remaining_dead_cycles } => {
+                *remaining_dead_cycles -= 1;
+                if *remaining_dead_cycles == 0 {
+                    self.mode = SpriteFifoMode::CheckingCoordinates;
                 }
             },
-            FifoMode::GetTileDataLow { sleep_cycle: _, access_method, tile_number, byte_number } => {
-                let low_byte = v_ram.get_tile_byte(access_method, tile_number, byte_number);
-                self.mode = FifoMode::GetTileDataHigh {
-                    sleep_cycle: true,
-                    access_method,
-                    tile_number: tile_number,
-                    byte_number: byte_number + 1,
-                    low_byte,
-                }
+        }
+    }
+}
+
+#[derive(Default)]
+enum SpriteFifoMode {
+    #[default]
+    CheckingCoordinates,
+    FetchingObject(ObjectAttributes),
+    Canceled {
+        remaining_dead_cycles: u8,
+    },
+}
+
+#[derive(Default)]
+pub struct ObjectsOnThisLine {
+    objects: [ObjectAttributes; 10],
+    number_of_objects: u8, // cannot be more than 10
+}
+
+impl ObjectsOnThisLine {
+    fn insert(&mut self, object_attributes: ObjectAttributes) {
+        self.objects[self.number_of_objects as usize] = object_attributes;
+        self.number_of_objects += 1;
+    }
+
+    fn is_at_capacity(&self) -> bool {
+        self.number_of_objects == 10
+    }
+    pub fn borrow_objects(&self) -> &[ObjectAttributes; 10] {
+        &self.objects
+    }
+    fn reset_for_new_scanline(&mut self) {
+        self.number_of_objects = 0;
+    }
+}
+
+#[derive(Default)]
+struct OamScanner {
+    objects_on_this_line: ObjectsOnThisLine,
+    scanner_stage: OamScannerStage,
+}
+
+impl OamScanner {
+    fn tick(&mut self, oam: &ObjectAttributeMemory, lcd: &Lcd) {
+        if self.objects_on_this_line.is_at_capacity() {
+            return;
+        }
+        match self.scanner_stage {
+            OamScannerStage::Scanning { object_number } => self.get_object_attributes(oam, object_number),
+            OamScannerStage::Comparing { object_number, object_in_question } => {
+                self.see_if_object_on_scanline(object_number, object_in_question, lcd)
             },
-            FifoMode::GetTileDataHigh {
-                sleep_cycle: _,
-                access_method,
-                tile_number,
-                low_byte,
-                byte_number,
-            } => {
-                let high_byte = v_ram.get_tile_byte(access_method, tile_number, byte_number);
-                self.try_push_pixels(low_byte, high_byte);
-            },
         }
     }
 
-    fn try_push_pixels(&mut self, low_byte: u8, high_byte: u8) {
-        if self.queue.length() > 8 {
-            return; // we stall if there isn't enough space in the queue
+    fn get_object_attributes(&mut self, oam: &ObjectAttributeMemory, object_number: u8) {
+        self.scanner_stage = OamScannerStage::Comparing {
+            object_number,
+            object_in_question: oam.get_object_attributes(object_number),
         }
-        for byte in Pixel::from_bytes(low_byte, high_byte) {
-            self.queue.push(byte);
-        }
-        self.mode = FifoMode::GetTile { sleep_cycle: true };
     }
 
-    fn pop_pixel(&mut self) -> Pixel {
-        let pixel = self.queue.pop_unchecked();
-        // pixels_popped should justbe a simple counter from 0..160
-        self.pixels_popped += 1;
-        pixel
-    }
-    fn pop_ignored_pixel(&mut self) {
-        self.queue.pop_unchecked();
+    fn see_if_object_on_scanline(&mut self, object_number: u8, object_in_question: ObjectAttributes, lcd: &Lcd) {
+        if lcd.object_on_scanline(object_in_question.get_y_position()) {
+            self.objects_on_this_line.insert(object_in_question);
+        }
+
+        self.scanner_stage = OamScannerStage::Scanning { object_number: object_number + 1 };
     }
 
-    fn clear_queue(&mut self) {
-        self.queue.clear_queue();
+    fn reset_for_new_scanline(&mut self) {
+        self.objects_on_this_line.reset_for_new_scanline();
+        self.scanner_stage = OamScannerStage::Scanning { object_number: 0 }
     }
 }
 
-impl Default for BackGroundFifo {
+enum OamScannerStage {
+    Scanning {
+        object_number: u8,
+    },
+    Comparing {
+        object_number: u8,
+        object_in_question: ObjectAttributes,
+    },
+}
+
+impl Default for OamScannerStage {
     fn default() -> Self {
-        Self {
-            queue: Default::default(),
-            mode: Default::default(),
-            pixels_popped: 0,
-            tiles_fetched: 0,
-        }
-    }
-}
-
-#[derive(Debug)]
-enum FifoMode {
-    GetTile {
-        sleep_cycle: bool,
-    },
-    GetTileDataLow {
-        sleep_cycle: bool,
-        access_method: AccessMethod,
-        tile_number: u8,
-        byte_number: u8,
-    },
-    GetTileDataHigh {
-        sleep_cycle: bool,
-        access_method: AccessMethod,
-        tile_number: u8,
-        byte_number: u8,
-        low_byte: u8,
-    },
-}
-
-impl Default for FifoMode {
-    fn default() -> Self {
-        Self::GetTile { sleep_cycle: true }
-    }
-}
-
-impl FifoMode {
-    fn should_sleep(&self) -> bool {
-        match self {
-            FifoMode::GetTile { sleep_cycle }
-            | FifoMode::GetTileDataLow {
-                sleep_cycle,
-                access_method: _,
-                tile_number: _,
-                byte_number: _,
-            }
-            | FifoMode::GetTileDataHigh {
-                sleep_cycle,
-                access_method: _,
-                tile_number: _,
-                low_byte: _,
-                byte_number: _,
-            } => *sleep_cycle,
-            _ => false,
-        }
-    }
-    fn sleep(&mut self) {
-        match self {
-            FifoMode::GetTile { sleep_cycle }
-            | FifoMode::GetTileDataLow {
-                sleep_cycle,
-                access_method: _,
-                tile_number: _,
-                byte_number: _,
-            }
-            | FifoMode::GetTileDataHigh {
-                sleep_cycle,
-                access_method: _,
-                tile_number: _,
-                low_byte: _,
-                byte_number: _,
-            } => *sleep_cycle = false,
-        }
+        Self::Scanning { object_number: 0 }
     }
 }
 
 /// Unit of time for the PPU. 1 Dot basically is 1 TCycle
 pub type Dots = u16;
+impl From<TCycles> for Dots {
+    fn from(value: TCycles) -> Self {
+        value.0 as u16
+    }
+}

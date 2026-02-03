@@ -1,6 +1,10 @@
-use std::i8;
-
-use crate::bus::{Address, BusAccessible, MemoryTarget};
+use crate::{
+    bus::{Address, BusAccessible, MemoryTarget},
+    graphics::{
+        oam::{ObjectAttributes, ObjectFlag},
+        pixel_fetchers::FifoBackgroundPixel,
+    },
+};
 
 pub struct VideoRam {
     ram_banks: Vec<VideoRamBank>,
@@ -161,11 +165,11 @@ impl Tile {
 }
 
 #[derive(Copy, Clone)]
-pub struct Pixel {
+pub struct RawPixel {
     pub color_number: u8,
 }
 
-impl Pixel {
+impl RawPixel {
     pub fn new(color_number: u8) -> Self {
         Self { color_number }
     }
@@ -176,18 +180,18 @@ impl Pixel {
             let low_bit = (low_byte >> bit_index) & 1;
             let high_bit = (high_byte >> bit_index) & 1;
             let color = (high_bit << 1) | low_bit;
-            Pixel::new(color)
+            RawPixel::new(color)
         })
     }
 }
 
-impl Default for Pixel {
+impl Default for RawPixel {
     fn default() -> Self {
         Self { color_number: Default::default() }
     }
 }
-impl From<Pixel> for u32 {
-    fn from(value: Pixel) -> Self {
+impl From<RawPixel> for u32 {
+    fn from(value: RawPixel) -> Self {
         let shade = match value.color_number {
             0 => 0xFF,
             1 => 0xAA,
@@ -197,6 +201,18 @@ impl From<Pixel> for u32 {
         };
         // minifb wants 0x00RRGGBB
         ((shade as u32) << 16) | ((shade as u32) << 8) | (shade as u32)
+    }
+}
+
+pub struct ColoredPixel {
+    pub color: u8,
+}
+
+impl ColoredPixel {
+    pub fn from_background_pixel(raw_pixel: FifoBackgroundPixel, background_palette: u8) -> Self {
+        Self {
+            color: background_palette >> (raw_pixel.color_number * 2) & 0b11,
+        }
     }
 }
 

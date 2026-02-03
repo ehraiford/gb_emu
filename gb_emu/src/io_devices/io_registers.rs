@@ -1,15 +1,19 @@
 use crate::{
     bus::{Address, BusAccessFailure, BusAccessible, MemoryTarget},
     game_boy::{GameBoyEvent, notate_event},
-    graphics::{lcd::LcdRegisters, oam::PriorityMode},
-    io_devices::audio::Audio,
-    io_devices::interrupts::InterruptFlagRegister,
+    graphics::{lcd::Lcd, oam::PriorityMode},
+    io_devices::{
+        audio::Audio,
+        interrupts::InterruptFlagRegister,
+        timer_divider::{self, TimerDivider},
+    },
 };
 
 pub struct IoRegisters {
-    pub lcd_registers: LcdRegisters,
+    pub lcd_registers: Lcd,
     pub interrupt_flag_register: InterruptFlagRegister,
     pub audio: Audio,
+    pub timer_divider: TimerDivider,
 }
 
 impl IoRegisters {}
@@ -23,9 +27,9 @@ impl BusAccessible for IoRegisters {
         };
 
         match section {
-            IoSection::JoypadInput => todo!(),
+            IoSection::JoypadInput => BusAccessFailure::Unimplemented.into(),
             IoSection::SerialTransfer => BusAccessFailure::Unimplemented.into(),
-            IoSection::TimerAndDivider => todo!(),
+            IoSection::TimerAndDivider => self.timer_divider.get(address),
             IoSection::Interrupts => self.interrupt_flag_register.get(),
             IoSection::Audio => self.audio.get(address),
             IoSection::WavePattern => todo!(),
@@ -47,9 +51,9 @@ impl BusAccessible for IoRegisters {
         };
 
         match section {
-            IoSection::JoypadInput => todo!(),
+            IoSection::JoypadInput => BusAccessFailure::Unimplemented.into(),
             IoSection::SerialTransfer => BusAccessFailure::Unimplemented.into(),
-            IoSection::TimerAndDivider => todo!(),
+            IoSection::TimerAndDivider => self.timer_divider.set(address, value),
             IoSection::Interrupts => self.interrupt_flag_register.set(value),
             IoSection::Audio => self.audio.set(address, value),
             IoSection::WavePattern => todo!(),
@@ -58,7 +62,7 @@ impl BusAccessible for IoRegisters {
             IoSection::VramBankSelect => todo!(),
             IoSection::BootRomMappingControl => notate_event(GameBoyEvent::UnmapBootRom),
             IoSection::Ir => todo!(),
-            IoSection::BgObjPalettes => todo!(),
+            IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(),
             IoSection::ObjectPriorityMode => {
                 notate_event(GameBoyEvent::ChangeObjectPriorityMode(PriorityMode::from(value)))
             },
@@ -74,7 +78,7 @@ impl BusAccessible for IoRegisters {
         match section {
             IoSection::JoypadInput => todo!(),
             IoSection::SerialTransfer => BusAccessFailure::Unimplemented.into(),
-            IoSection::TimerAndDivider => todo!(),
+            IoSection::TimerAndDivider => self.timer_divider.get(address),
             IoSection::Interrupts => self.interrupt_flag_register.get(),
             IoSection::Audio => self.audio.get(address),
             IoSection::WavePattern => todo!(),
@@ -97,6 +101,7 @@ impl Default for IoRegisters {
             lcd_registers: Default::default(),
             interrupt_flag_register: Default::default(),
             audio: Default::default(),
+            timer_divider: Default::default(),
         }
     }
 }

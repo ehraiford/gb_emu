@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::{
     cartridge::cartridge::{Cartridge, CartridgeDevice},
     graphics::{
-        lcd::LcdRegisters,
+        lcd::Lcd,
         oam::{ObjectAttributeMemory, PriorityMode},
         ppu::PpuTickMode,
         video_ram::VideoRam,
@@ -66,7 +66,7 @@ impl Bus {
         self.io_registers.interrupt_flag_register.try_get_interrupt(ie)
     }
 
-    pub fn get_ppu_context_mem(&mut self) -> (&mut VideoRam, &mut ObjectAttributeMemory, &mut LcdRegisters) {
+    pub fn get_ppu_context_mem(&mut self) -> (&mut VideoRam, &mut ObjectAttributeMemory, &mut Lcd) {
         (&mut self.v_ram, &mut self.oam, &mut self.io_registers.lcd_registers)
     }
 
