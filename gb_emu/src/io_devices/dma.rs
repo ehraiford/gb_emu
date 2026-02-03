@@ -1,12 +1,16 @@
-use crate::bus::{Address, Bus, MemoryTarget};
+use crate::{
+    bus::{Address, Bus, MemoryTarget},
+    game_boy::{GameBoyEvent, notate_event},
+};
 
 pub struct OamDma {
     remaining_bytes: u8,
     source_address: Address,
     wait_tick: bool,
+    currently_transferring: bool,
 }
 
-impl<'a, 'b, 'c> OamDma {
+impl OamDma {
     const TOTAL_TRANSFER_SIZE: u8 = 160;
 
     fn determine_source_address(input: u8) -> Address {
@@ -20,13 +24,16 @@ impl<'a, 'b, 'c> OamDma {
     pub fn initiate_transfer(&mut self, input: u8) {
         self.remaining_bytes = Self::TOTAL_TRANSFER_SIZE;
         self.source_address = Self::determine_source_address(input);
+        self.currently_transferring = true;
     }
 
-    pub fn tick_transfer(&mut self, bus: &mut Bus) -> bool {
+    pub fn tick(&mut self, bus: &mut Bus) {
+        if !self.is_transferring() {
+            return;
+        }
         // this lets the transfer write 1 byte every two cycles
         if self.wait_tick {
             self.wait_tick = false;
-            return false;
         }
 
         let byte = bus.peek(self.source_address);
@@ -37,12 +44,27 @@ impl<'a, 'b, 'c> OamDma {
         self.remaining_bytes -= 1;
         self.source_address += 1;
 
-        self.remaining_bytes == 0
+        if self.remaining_bytes == 0 {
+            self.end_transfer();
+        }
+    }
+
+    fn is_transferring(&self) -> bool {
+        self.currently_transferring
+    }
+    fn end_transfer(&mut self) {
+        self.currently_transferring = false;
+        notate_event(GameBoyEvent::EndOamDmaTransfer);
     }
 }
 
 impl Default for OamDma {
     fn default() -> Self {
-        Self { remaining_bytes: 0, source_address: 0x00, wait_tick: true }
+        Self {
+            remaining_bytes: 0,
+            source_address: 0x00,
+            wait_tick: true,
+            currently_transferring: false,
+        }
     }
 }

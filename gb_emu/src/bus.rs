@@ -36,23 +36,8 @@ pub struct Bus {
     memory_map: MemoryMap,
 }
 
+// Functionality that exists just to pass function calls from elsewhere to devices living on the bus
 impl Bus {
-    pub fn load_cartridge(&mut self, cartridge: Cartridge) {
-        self.cartridge = cartridge;
-    }
-
-    pub fn handle_memory_map_event(&mut self, event: MemoryMapEvent) {
-        self.memory_map.handle_memory_map_event(event)
-    }
-
-    fn get_cpu_accessible_device_from_address(&self, address: Address) -> Option<MemoryTarget> {
-        self.memory_map.get_cpu_accessible_device_from_address(address)
-    }
-
-    fn get_device_from_address(&self, address: Address) -> MemoryTarget {
-        self.memory_map.get_device_from_address(address)
-    }
-
     pub fn raise_interrupt_flag(&mut self, interrupt: &Interrupt) {
         self.io_registers.interrupt_flag_register.raise_flag(interrupt);
     }
@@ -68,6 +53,30 @@ impl Bus {
 
     pub fn get_ppu_context_mem(&mut self) -> (&mut VideoRam, &mut ObjectAttributeMemory, &mut Lcd) {
         (&mut self.v_ram, &mut self.oam, &mut self.io_registers.lcd_registers)
+    }
+
+    pub fn tick_timer_divider(&mut self) {
+        self.io_registers.timer_divider.tick();
+    }
+    pub fn reset_divider_register(&mut self) {
+        self.io_registers.timer_divider.reset_divider_register();
+    }
+    pub fn handle_memory_map_event(&mut self, event: MemoryMapEvent) {
+        self.memory_map.handle_memory_map_event(event)
+    }
+}
+
+impl Bus {
+    pub fn load_cartridge(&mut self, cartridge: Cartridge) {
+        self.cartridge = cartridge;
+    }
+
+    fn get_cpu_accessible_device_from_address(&self, address: Address) -> Option<MemoryTarget> {
+        self.memory_map.get_cpu_accessible_device_from_address(address)
+    }
+
+    fn get_device_from_address(&self, address: Address) -> MemoryTarget {
+        self.memory_map.get_device_from_address(address)
     }
 
     pub fn read_u16(&mut self, address: Address) -> u16 {

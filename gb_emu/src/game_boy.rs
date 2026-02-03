@@ -1,33 +1,30 @@
-use std::{
-    sync::{Mutex, OnceLock},
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use crate::{
     bus::{Bus, MemoryMapEvent},
     cartridge::cartridge::Cartridge,
-    dma::OamDma,
     graphics::ppu::{Ppu, PpuTickMode},
-    io_devices::interrupts::Interrupt,
+    io_devices::{dma::OamDma, interrupts::Interrupt},
     os_interface::profiling::TrackedData,
     processor::cpu::Cpu,
 };
 
 pub const EXPECTED_CLOCK_SPEED: f64 = 4.194304; // In Megahertz
 
-static GAMEBOY_EVENTS: OnceLock<Mutex<Vec<GameBoyEvent>>> = OnceLock::new();
+use std::cell::RefCell;
 
-fn get_events_mut() -> &'static Mutex<Vec<GameBoyEvent>> {
-    GAMEBOY_EVENTS.get_or_init(|| Mutex::new(Vec::new()))
-}
-
-fn drain_events() -> Vec<GameBoyEvent> {
-    let mut events = get_events_mut().lock().unwrap();
-    std::mem::take(&mut *events)
+thread_local! {
+    static GAMEBOY_EVENTS: RefCell<Vec<GameBoyEvent>> = RefCell::new(Vec::new());
 }
 
 pub fn notate_event(event: GameBoyEvent) {
-    get_events_mut().lock().unwrap().push(event);
+    GAMEBOY_EVENTS.with(|events| {
+        events.borrow_mut().push(event);
+    });
+}
+
+fn drain_events() -> Vec<GameBoyEvent> {
+    GAMEBOY_EVENTS.with(|events| events.take())
 }
 
 #[derive(Default)]
@@ -80,35 +77,42 @@ impl GameBoy {
     }
 
     fn tick_oam_dma(&mut self) {
-        let complete = self.oam_dma.tick_transfer(&mut self.bus);
-        if complete {
-            self.state.oam_dma_active = false;
-            notate_event(GameBoyEvent::EndOamDmaTransfer);
-        }
+        self.oam_dma.tick(&mut self.bus);
     }
 
-    fn tick_ppu_enabled(&mut self) {
+    fn tick_ppu(&mut self) {
         let (v_ram, oam, lcd_regs) = self.bus.get_ppu_context_mem();
 
         self.ppu.tick(v_ram, oam, lcd_regs)
     }
 
-    pub fn tick(&mut self) {
-        if self.state.is_cpu_active() {
-            self.tick_cpu();
-            self.handle_changes();
-        } else {
-            self.state.cpu_lockstep_catchup = TCycles(1);
+    fn tick_timer_divider(&mut self) {
+        self.bus.tick_timer_divider();
+    }
+
+    fn tick_peripherals_lockstep(&mut self) {
+        for _ in 0..(self.state.cpu_lockstep_catchup.0 / 4) {
+            self.tick_timer_divider();
+            self.tick_oam_dma();
+            self.tick_ppu();
         }
-        while self.state.cpu_lockstep_catchup.0 != 0 {
-            if self.state.is_ppu_active() {
-                self.tick_ppu_enabled();
-            }
-            if self.state.is_oam_dma_active() {
-                self.tick_oam_dma();
-            }
-            self.state.cpu_lockstep_catchup.0 -= 1;
-            self.handle_changes();
+        self.state.cpu_lockstep_catchup.0 = 0;
+    }
+
+    pub fn tick(&mut self) {
+        match self.state.mode {
+            GameBoyMode::Executing => {
+                self.tick_cpu();
+                self.handle_changes();
+                self.tick_peripherals_lockstep();
+                self.handle_changes();
+            },
+            GameBoyMode::Stopped => {
+                self.state.cpu_lockstep_catchup = TCycles(4);
+                self.tick_peripherals_lockstep();
+                self.handle_changes();
+            },
+            GameBoyMode::Halted => todo!(),
         }
     }
 
@@ -125,8 +129,10 @@ impl GameBoy {
             GameBoyEvent::ChangeObjectPriorityMode(mode) => self.bus.set_object_priority_mode(mode),
             GameBoyEvent::StartOamDmaTransfer(input) => self.initiate_dma_transfer(input),
             GameBoyEvent::EndOamDmaTransfer => self.end_dma_transfer(),
-            GameBoyEvent::UpdatePpuMode(mode) => self.bus.handle_memory_map_event(MemoryMapEvent::UpdatePpuMode(mode)),
-            GameBoyEvent::ChangeLcdPpuState(enabled) => self.handle_change_to_lcd_ppu_state(enabled),
+            GameBoyEvent::ChangeBusAccessForPpuMode(mode) => {
+                self.bus.handle_memory_map_event(MemoryMapEvent::UpdatePpuMode(mode))
+            },
+            GameBoyEvent::EnableLcdPpu => self.handle_enabled_lcd_ppu(),
             GameBoyEvent::Interrupt(interrupt) => self.bus.raise_interrupt_flag(&interrupt),
             GameBoyEvent::IeTriggered => notate_event(GameBoyEvent::EnableInterrupts),
             GameBoyEvent::EnableInterrupts => self.cpu.enable_interrupts(),
@@ -143,9 +149,8 @@ impl GameBoy {
         self.ppu.handle_objects_disabled(self.state.cpu_lockstep_catchup)
     }
 
-    fn handle_change_to_lcd_ppu_state(&mut self, enabled: bool) {
+    fn handle_enabled_lcd_ppu(&mut self) {
         self.bus.reset_ly();
-        self.state.ppu_active = enabled;
         self.ppu.enable();
     }
 
@@ -156,12 +161,11 @@ impl GameBoy {
     }
 
     fn end_dma_transfer(&mut self) {
-        self.state.oam_dma_active = false;
         self.bus.handle_memory_map_event(MemoryMapEvent::EndOamDataTransfer);
     }
 
     fn mode_transition(&mut self, new_mode: GameBoyMode) {
-        self.state.mode_transition(new_mode);
+        self.state.mode_transition(new_mode, &mut self.bus);
     }
 
     pub fn get_elapsed_cycles(&self) -> TCycles {
@@ -170,32 +174,20 @@ impl GameBoy {
 }
 
 struct GameBoyState {
+    mode: GameBoyMode,
     elapsed_cpu_cycles: TCycles,
     cpu_lockstep_catchup: TCycles,
     oam_dma_active: bool,
-    ppu_active: bool,
-    cpu_active: bool,
 }
 
 impl GameBoyState {
-    fn mode_transition(&mut self, new_mode: GameBoyMode) {
+    fn mode_transition(&mut self, new_mode: GameBoyMode, bus: &mut Bus) {
         match new_mode {
             GameBoyMode::Executing => todo!(),
-            GameBoyMode::Stopped => {
-                self.cpu_active = false;
-                self.ppu_active = false;
-            },
+            GameBoyMode::Stopped => bus.reset_divider_register(),
             GameBoyMode::Halted => todo!(),
         }
-    }
-    fn is_cpu_active(&self) -> bool {
-        self.cpu_active
-    }
-    fn is_ppu_active(&self) -> bool {
-        self.ppu_active
-    }
-    fn is_oam_dma_active(&self) -> bool {
-        self.oam_dma_active
+        self.mode = new_mode;
     }
 }
 
@@ -203,10 +195,9 @@ impl Default for GameBoyState {
     fn default() -> Self {
         Self {
             elapsed_cpu_cycles: Default::default(),
-            cpu_lockstep_catchup: TCycles(1),
+            cpu_lockstep_catchup: TCycles(0),
             oam_dma_active: false,
-            ppu_active: false,
-            cpu_active: true,
+            mode: Default::default(),
         }
     }
 }
@@ -243,15 +234,13 @@ impl std::ops::AddAssign for TCycles {
 pub enum GameBoyEvent {
     UnmapBootRom,
     ChangeGameBoyMode(GameBoyMode),
-    ChangeLcdPpuState(Enabled),
+    EnableLcdPpu,
     ObjectsDisabled,
     ChangeObjectPriorityMode(crate::graphics::oam::PriorityMode),
     StartOamDmaTransfer(u8),
-    UpdatePpuMode(PpuTickMode),
+    ChangeBusAccessForPpuMode(PpuTickMode),
     EndOamDmaTransfer,
     Interrupt(Interrupt),
     IeTriggered, // Facilitates the delay between executing IE and actually enabling interrupts
     EnableInterrupts,
 }
-
-pub type Enabled = bool;

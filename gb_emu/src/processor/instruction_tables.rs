@@ -56,7 +56,7 @@ pub const UNPREFIXED: [Instruction; 256] = [
     Instruction::new(OpCode::Dec, &[Operand::HLPointer], 12, 1),
     Instruction::new(OpCode::Ld, &[Operand::HLPointer, Operand::N8], 12, 2),
     Instruction::new(OpCode::Scf, &[], 4, 1),
-    Instruction::new(OpCode::Jr, &[Operand::C, Operand::E8], 8, 2),
+    Instruction::new(OpCode::Jr, &[Operand::Carry, Operand::E8], 8, 2),
     Instruction::new(OpCode::Add, &[Operand::HL, Operand::SP], 8, 1),
     Instruction::new(OpCode::Ld, &[Operand::A, Operand::HLD], 8, 1),
     Instruction::new(OpCode::Dec, &[Operand::SP], 8, 1),

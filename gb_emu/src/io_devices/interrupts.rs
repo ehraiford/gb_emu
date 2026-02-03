@@ -79,7 +79,7 @@ pub enum Interrupt {
     Joypad,
     Serial,
     Timer,
-    Lcd,
+    Stat,
     VBlank,
 }
 
@@ -89,7 +89,7 @@ impl Interrupt {
             Interrupt::Joypad => 4,
             Interrupt::Serial => 3,
             Interrupt::Timer => 2,
-            Interrupt::Lcd => 1,
+            Interrupt::Stat => 1,
             Interrupt::VBlank => 0,
         }
     }
@@ -98,7 +98,7 @@ impl Interrupt {
             4 => Interrupt::Joypad,
             3 => Interrupt::Serial,
             2 => Interrupt::Timer,
-            1 => Interrupt::Lcd,
+            1 => Interrupt::Stat,
             0 => Interrupt::VBlank,
             _ => unreachable!(),
         }
@@ -108,7 +108,7 @@ impl Interrupt {
             Interrupt::Joypad => 0x60,
             Interrupt::Serial => 0x58,
             Interrupt::Timer => 0x50,
-            Interrupt::Lcd => 0x48,
+            Interrupt::Stat => 0x48,
             Interrupt::VBlank => 0x40,
         }
     }

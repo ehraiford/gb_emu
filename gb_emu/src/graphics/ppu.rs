@@ -9,7 +9,6 @@ use crate::{
         pixel_fetchers::PixelFetchers,
         video_ram::{RawPixel, VideoRam},
     },
-    helpers::StackAllocQueue,
     io_devices::interrupts::Interrupt,
     os_interface::graphics,
 };
@@ -37,8 +36,13 @@ impl Ppu {
     }
 
     pub fn tick(&mut self, v_ram: &mut VideoRam, oam: &mut ObjectAttributeMemory, lcd: &mut Lcd) {
+        if !lcd.is_ppu_enabled() {
+            return;
+        }
         let mut context = PpuOperationContext::new(self, v_ram, oam, lcd);
-        context.tick()
+        for _ in 0..4 {
+            context.tick()
+        }
     }
 
     fn reset_for_new_scanline(&mut self) {
@@ -129,9 +133,7 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
 
         if let Some(mode) = result.new_mode {
             notate_event(GameBoyEvent::ChangeBusAccessForPpuMode(mode));
-            if let PpuTickMode::OamScan { completed_cycles: _ } = mode {
-                // println!("Pushed {} pixels this line", self.ppu.pushed_pixels_this_line);
-            }
+            self.lcd.set_ppu_mode(mode);
         }
     }
 

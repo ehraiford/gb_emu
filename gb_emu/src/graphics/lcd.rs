@@ -35,15 +35,15 @@ impl Lcd {
         address - Self::START_ADDRESS
     }
 
+    pub fn is_ppu_enabled(&self) -> bool {
+        self.get_control_flag(LcdControlFlag::LcdPpuEnable)
+    }
+
     pub fn get_obp(&self, palette_choice: PaletteChoice) -> u8 {
         match palette_choice {
             PaletteChoice::OBP0 => self.obp0,
             PaletteChoice::OBP1 => self.obp1,
         }
-    }
-
-    pub fn apply_bg_palette(&self, raw_color_id: u8) -> u8 {
-        self.bgp >> (raw_color_id * 2) & 0b11
     }
 
     pub fn get_bgp(&self) -> u8 {
@@ -57,7 +57,7 @@ impl Lcd {
     fn set_ly(&mut self, value: u8) {
         self.ly = value;
         if self.ly == self.ly_compare && self.get_status_flag(LcdStatusFlag::LycEqualsLy) {
-            notate_event(GameBoyEvent::Interrupt(Interrupt::Lcd));
+            notate_event(GameBoyEvent::Interrupt(Interrupt::Stat));
         }
     }
 
@@ -194,7 +194,23 @@ impl Lcd {
         self.status_flags = status;
     }
 
-    fn set_ppu_mode(&mut self, mode: PpuTickMode) {
+    fn mode_transition_raises_interrupt(&self, mode: PpuTickMode) -> bool {
+        if mode == PpuTickMode::VerticalBlank {
+            return false;
+        }
+
+        let mode_number = u8::from(mode);
+        let flag_index = mode_number + 3;
+        let isolated_flag = (self.status_flags >> flag_index) & 0b1;
+
+        isolated_flag == 1
+    }
+
+    pub fn set_ppu_mode(&mut self, mode: PpuTickMode) {
+        if self.mode_transition_raises_interrupt(mode) {
+            notate_event(GameBoyEvent::Interrupt(Interrupt::Stat));
+        }
+
         let status = self.status_flags & !0b11;
         self.status_flags = status | u8::from(mode);
     }
@@ -236,8 +252,8 @@ impl LcdControlFlag {
         let enable_index = LcdControlFlag::LcdPpuEnable.get_index();
         let new_enable_val = new_register_value >> enable_index;
         let old_enable_val = old_register_value >> enable_index;
-        if new_enable_val ^ old_enable_val == 1 {
-            notate_event(GameBoyEvent::ChangeLcdPpuState(new_enable_val == 1))
+        if new_enable_val == 1 && old_enable_val == 1 {
+            notate_event(GameBoyEvent::EnableLcdPpu)
         }
     }
 

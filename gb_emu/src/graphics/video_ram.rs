@@ -1,9 +1,6 @@
 use crate::{
     bus::{Address, BusAccessible, MemoryTarget},
-    graphics::{
-        oam::{ObjectAttributes, ObjectFlag},
-        pixel_fetchers::{FifoBackgroundPixel, FifoObjectPixel},
-    },
+    graphics::pixel_fetchers::{FifoBackgroundPixel, FifoObjectPixel},
 };
 
 pub struct VideoRam {
@@ -20,7 +17,7 @@ impl VideoRam {
             tile_maps: Default::default(),
         }
     }
-    pub fn new_cgb() -> Self {
+    pub fn _new_cgb() -> Self {
         Self {
             ram_banks: vec![Default::default(); 2],
             tile_maps: Default::default(),
@@ -160,6 +157,9 @@ impl Tile {
     }
 
     fn get_byte(&self, byte_index: usize) -> u8 {
+        if byte_index == 32 {
+            panic!();
+        }
         self.data[byte_index]
     }
 }
@@ -220,8 +220,6 @@ impl ColoredPixel {
         Self { color: palette >> (color_number * 2) & 0b11 }
     }
 }
-
-pub const TEST_COLORS: [u8; 4] = [0, 82, 28, 22];
 
 #[derive(Clone, Copy)]
 struct TileMap {
