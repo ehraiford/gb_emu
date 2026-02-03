@@ -10,30 +10,30 @@ pub fn concat_2_bytes(left: u8, right: u8) -> u16 {
 }
 
 /// gets a chunk of bits in a byte specified by the leftmost and rightmost (inclusive) bits desired.
-pub fn get_bitfield(mut byte: u8, left: u8, right: u8) -> u8 {
+pub fn _get_bitfield(mut byte: u8, left: u8, right: u8) -> u8 {
     byte = (byte << (7 - left)) >> (7 - left); // zero out left bits
     byte >>= right; // shift remaining bits to the far right of the return val
     byte
 }
 
 /// Maybe we'll make this into an actual log some day but for now, we'll just print it out.
-pub fn log(args: fmt::Arguments) {
-    // println!("Log Message: {args}",)
+pub fn log(_args: fmt::Arguments) {
+    // println!("Log Message: {_args}",)
 }
 
-pub fn disassemble(bytes: &[u8]) -> String {
+pub fn _disassemble(bytes: &[u8]) -> String {
     let mut psuedo_pc = 0;
     let mut assembly = Vec::<String>::new();
 
     while psuedo_pc < bytes.len() {
-        let instruction = read_instruction(bytes, &mut psuedo_pc);
+        let instruction = _read_instruction(bytes, &mut psuedo_pc);
         assembly.push(instruction.to_string());
     }
 
     assembly.join("\n")
 }
 
-fn read_instruction(bytes: &[u8], pc: &mut usize) -> &'static Instruction {
+fn _read_instruction(bytes: &[u8], pc: &mut usize) -> &'static Instruction {
     let first_byte = bytes[*pc];
 
     let unprefixed_instruction = &UNPREFIXED[first_byte as usize];
@@ -57,7 +57,7 @@ pub struct StackAllocQueue<T: Default + Copy, const MAX_SIZE: usize> {
 /// Makes sure the provided MAX_SIZE for a StackAllocQueue isn't unreasonably large.
 /// This chosen limit more or less arbitrary and based on vibes, as all performant code should be.
 /// This can be further refined if there's a reason to.  
-const fn assert_max_capacity(provided_size: usize) {
+const fn _assert_max_capacity(provided_size: usize) {
     assert!(provided_size <= u8::MAX as usize);
 }
 
@@ -72,7 +72,7 @@ impl<const SIZE: usize, T: Default + Copy> Default for StackAllocQueue<T, SIZE> 
 }
 
 impl<const MAX_SIZE: usize, T: Default + Copy> StackAllocQueue<T, MAX_SIZE> {
-    const _MAX_CAPACITY_ASSERTION: () = assert_max_capacity(MAX_SIZE);
+    const _MAX_CAPACITY_ASSERTION: () = _assert_max_capacity(MAX_SIZE);
 
     pub fn pop_unchecked(&mut self) -> T {
         let popped_entry = self.queue[self.front_index as usize];
@@ -111,28 +111,5 @@ impl<const MAX_SIZE: usize, T: Default + Copy> StackAllocQueue<T, MAX_SIZE> {
     }
     pub fn length(&self) -> u8 {
         self.length
-    }
-}
-
-pub trait WrappingIncrement {
-    fn wrapping_increment(self, max: Self) -> Self;
-}
-
-impl WrappingIncrement for u8 {
-    fn wrapping_increment(self, max: Self) -> Self {
-        let result = self.wrapping_add(1);
-        result % max
-    }
-}
-impl WrappingIncrement for u16 {
-    fn wrapping_increment(self, max: Self) -> Self {
-        let result = self.wrapping_add(1);
-        result % max
-    }
-}
-impl WrappingIncrement for u32 {
-    fn wrapping_increment(self, max: Self) -> Self {
-        let result = self.wrapping_add(1);
-        result % max
     }
 }

@@ -4,11 +4,10 @@ use std::{
     path::PathBuf,
 };
 
-use crate::{cartridge::cartridge::Cartridge, game_boy::GameBoy, helpers::disassemble};
+use crate::{cartridge::cartridge::Cartridge, game_boy::GameBoy, helpers::_disassemble};
 
 mod bus;
 mod cartridge;
-mod dma;
 mod game_boy;
 mod graphics;
 mod helpers;
@@ -47,7 +46,7 @@ fn _program_assembly() {
     output_path.push("disassembled_output");
     output_path.push(rom_path.file_name().unwrap());
 
-    let assembly = disassemble(&fs::read(rom_path).unwrap());
+    let assembly = _disassemble(&fs::read(rom_path).unwrap());
 
     println!("{assembly}")
 }
