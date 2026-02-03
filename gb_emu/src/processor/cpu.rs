@@ -293,13 +293,13 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
 
     fn get_u8_operand(&mut self, operand: &EightBitOperand) -> u8 {
         match operand {
-            EightBitOperand::A => self.cpu.get_a().into(),
-            EightBitOperand::B => self.cpu.get_b().into(),
-            EightBitOperand::L => self.cpu.get_l().into(),
-            EightBitOperand::C => self.cpu.get_c().into(),
-            EightBitOperand::D => self.cpu.get_d().into(),
-            EightBitOperand::E => self.cpu.get_e().into(),
-            EightBitOperand::H => self.cpu.get_h().into(),
+            EightBitOperand::A => self.cpu.get_a(),
+            EightBitOperand::B => self.cpu.get_b(),
+            EightBitOperand::L => self.cpu.get_l(),
+            EightBitOperand::C => self.cpu.get_c(),
+            EightBitOperand::D => self.cpu.get_d(),
+            EightBitOperand::E => self.cpu.get_e(),
+            EightBitOperand::H => self.cpu.get_h(),
             EightBitOperand::HLPointer => self.bus.read(self.cpu.get_hl()),
             EightBitOperand::BCPointer => self.bus.read(self.cpu.get_bc()),
             EightBitOperand::DEPointer => self.bus.read(self.cpu.get_de()),
@@ -380,11 +380,11 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
 
     fn get_u16_operand(&mut self, operand: &SixteenBitOperand) -> u16 {
         match operand {
-            SixteenBitOperand::BC => self.cpu.get_bc().into(),
-            SixteenBitOperand::DE => self.cpu.get_de().into(),
-            SixteenBitOperand::HL => self.cpu.get_hl().into(),
-            SixteenBitOperand::AF => self.cpu.get_af().into(),
-            SixteenBitOperand::SP => self.cpu.get_sp().into(),
+            SixteenBitOperand::BC => self.cpu.get_bc(),
+            SixteenBitOperand::DE => self.cpu.get_de(),
+            SixteenBitOperand::HL => self.cpu.get_hl(),
+            SixteenBitOperand::AF => self.cpu.get_af(),
+            SixteenBitOperand::SP => self.cpu.get_sp(),
             SixteenBitOperand::A16 => self.bus.read_u16(self.cpu.get_pc() + 1),
             SixteenBitOperand::N16 => self.bus.read_u16(self.cpu.get_pc() + 1),
             SixteenBitOperand::Immediate(imm) => *imm,
@@ -406,7 +406,68 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         }
     }
 
+    fn print_detailed_operation(&mut self, instruction: &'static Instruction) {
+        print!("{} ", instruction.op_code);
+        for operand in instruction.operands {
+            match operand {
+                Operand::A => print!("A(0x{:02x})", self.cpu.get_a()),
+                Operand::A16 => print!("A16(0x{:04x})", self.bus.read_u16(self.cpu.get_pc() + 1)),
+                Operand::A16Pointer => {
+                    let addr = self.bus.read_u16(self.cpu.get_pc() + 1);
+                    print!("(A16)@0x{:04x}(0x{:02x})", addr, self.bus.read(addr));
+                },
+                Operand::AF => print!("AF(0x{:04x})", self.cpu.get_af()),
+                Operand::B => print!("B(0x{:02x})", self.cpu.get_b()),
+                Operand::BC => print!("BC(0x{:04x})", self.cpu.get_bc()),
+                Operand::BCPointer => print!(
+                    "(BC)@0x{:04x}(0x{:02x})",
+                    self.cpu.get_bc(),
+                    self.bus.read(self.cpu.get_bc())
+                ),
+                Operand::C => print!("C(0x{:02x})", self.cpu.get_c()),
+                Operand::D => print!("D(0x{:02x})", self.cpu.get_d()),
+                Operand::DE => print!("DE(0x{:04x})", self.cpu.get_de()),
+                Operand::DEPointer => print!(
+                    "(DE)@0x{:04x}(0x{:02x})",
+                    self.cpu.get_de(),
+                    self.bus.read(self.cpu.get_de())
+                ),
+                Operand::E => print!("E(0x{:02x})", self.cpu.get_e()),
+                Operand::E8 => print!("E8(0x{:02x})", self.bus.read(self.cpu.get_pc() + 1) as i8),
+                Operand::FF00OffsetByA8 => {
+                    let offset = self.bus.read(self.cpu.get_pc() + 1);
+                    let addr = 0xFF00 + offset as u16;
+                    print!("($FF00+0x{:02x})@0x{:04x}(0x{:02x})", offset, addr, self.bus.read(addr));
+                },
+                Operand::FF00OffsetByC => {
+                    let addr = 0xFF00 + self.cpu.get_c() as u16;
+                    print!("($FF00+C)@0x{:04x}(0x{:02x})", addr, self.bus.read(addr));
+                },
+                Operand::H => print!("H(0x{:02x})", self.cpu.get_h()),
+                Operand::HL => print!("HL(0x{:04x})", self.cpu.get_hl()),
+                Operand::HLD => print!("HLD(0x{:04x})", self.cpu.get_hl()),
+                Operand::HLI => print!("HLI(0x{:04x})", self.cpu.get_hl()),
+                Operand::HLPointer => print!(
+                    "(HL)@0x{:04x}(0x{:02x})",
+                    self.cpu.get_hl(),
+                    self.bus.read(self.cpu.get_hl())
+                ),
+                Operand::Immediate(val) => print!("Imm(0x{:02x})", val),
+                Operand::L => print!("L(0x{:02x})", self.cpu.get_l()),
+                Operand::N16 => print!("N16(0x{:04x}) ", self.bus.read_u16(self.cpu.get_pc() + 1)),
+                Operand::N8 => print!("N8(0x{:02x}) ", self.bus.read(self.cpu.get_pc() + 1)),
+                Operand::Carry => print!("Carry({}) ", self.cpu.get_flag(Flag::Carry)),
+                Operand::NotCarry => print!("NotCarry({}) ", !self.cpu.get_flag(Flag::Carry)),
+                Operand::NotZero => print!("NotZero({}) ", !self.cpu.get_flag(Flag::Zero)),
+                Operand::SP => print!("SP(0x{:04x}) ", self.cpu.get_sp()),
+                Operand::Zero => print!("Zero({}) ", self.cpu.get_flag(Flag::Zero)),
+            }
+        }
+        println!()
+    }
+
     pub fn perform_instruction(&mut self, instruction: &'static Instruction) -> InstructionOutcome {
+        // self.print_detailed_operation(instruction);
         match instruction.op_code {
             OpCode::Adc => self.add_with_carry(&EightBitOperand::try_from(instruction.operands[1]).unwrap()),
             OpCode::Add => match OperandType::from(instruction.operands[0]) {
@@ -951,10 +1012,11 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     }
 
     fn call_vector(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
-        let value = self.get_u8_operand(operand) * 8;
-        self.call(&SixteenBitOperand::Immediate(value as u16));
+        let address = self.get_u8_operand(operand);
+        self.push_to_stack(self.cpu.get_pc() + 1);
+        self.cpu.set_pc(address as u16);
 
-        InstructionOutcome::Ok
+        InstructionOutcome::ExplicitlySetPC
     }
 
     fn subtract_with_carry(&mut self, operand: &EightBitOperand) -> InstructionOutcome {

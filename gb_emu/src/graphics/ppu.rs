@@ -140,7 +140,7 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
     fn go_to_next_line(&mut self) {
         match self.lcd.increment_ly() == 0 {
             true => self.ppu.reset_for_new_scanline(),
-            false => self.ppu.reset_for_new_scanline(),
+            false => self.ppu.reset_for_new_frame(),
         }
     }
 }
@@ -211,6 +211,11 @@ impl PpuModeTracker {
 
         if pixels_left_to_push == 0 {
             self.mode = PpuTickMode::HorizontalBlank;
+
+            // println!(
+            //     "Drawing Pixels took: {} cycles",
+            //     DOTS_PER_LINE - 80 - self.remaining_dots_in_line
+            // );
             PpuTickResult {
                 increment_ly: false,
                 new_mode: Some(PpuTickMode::HorizontalBlank),

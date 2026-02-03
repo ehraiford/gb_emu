@@ -131,6 +131,7 @@ impl ObjectAttributes {
                 line_in_sprite -= 8;
             }
         }
+        line_in_sprite &= 7;
         let byte_number = line_in_sprite * 2;
         (tile_index, byte_number)
     }

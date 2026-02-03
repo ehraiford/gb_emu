@@ -132,7 +132,7 @@ impl GameBoy {
             GameBoyEvent::ChangeBusAccessForPpuMode(mode) => {
                 self.bus.handle_memory_map_event(MemoryMapEvent::UpdatePpuMode(mode))
             },
-            GameBoyEvent::EnableLcdPpu => self.handle_enabled_lcd_ppu(),
+            GameBoyEvent::ChangeLcdPpuEnabled(enabled) => self.handle_change_lcd_ppu_enabled(enabled),
             GameBoyEvent::Interrupt(interrupt) => self.bus.raise_interrupt_flag(&interrupt),
             GameBoyEvent::IeTriggered => notate_event(GameBoyEvent::EnableInterrupts),
             GameBoyEvent::EnableInterrupts => self.cpu.enable_interrupts(),
@@ -149,14 +149,15 @@ impl GameBoy {
         self.ppu.handle_objects_disabled(self.state.cpu_lockstep_catchup)
     }
 
-    fn handle_enabled_lcd_ppu(&mut self) {
+    fn handle_change_lcd_ppu_enabled(&mut self, enabled: bool) {
         self.bus.reset_ly();
-        self.ppu.enable();
+        if enabled {
+            self.ppu.enable();
+        }
     }
 
     fn initiate_dma_transfer(&mut self, input: u8) {
         self.oam_dma.initiate_transfer(input);
-        self.state.oam_dma_active = true;
         self.bus.handle_memory_map_event(MemoryMapEvent::StartOamDataTransfer);
     }
 
@@ -177,7 +178,6 @@ struct GameBoyState {
     mode: GameBoyMode,
     elapsed_cpu_cycles: TCycles,
     cpu_lockstep_catchup: TCycles,
-    oam_dma_active: bool,
 }
 
 impl GameBoyState {
@@ -196,7 +196,6 @@ impl Default for GameBoyState {
         Self {
             elapsed_cpu_cycles: Default::default(),
             cpu_lockstep_catchup: TCycles(0),
-            oam_dma_active: false,
             mode: Default::default(),
         }
     }
@@ -234,7 +233,7 @@ impl std::ops::AddAssign for TCycles {
 pub enum GameBoyEvent {
     UnmapBootRom,
     ChangeGameBoyMode(GameBoyMode),
-    EnableLcdPpu,
+    ChangeLcdPpuEnabled(bool),
     ObjectsDisabled,
     ChangeObjectPriorityMode(crate::graphics::oam::PriorityMode),
     StartOamDmaTransfer(u8),

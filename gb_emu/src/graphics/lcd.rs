@@ -22,6 +22,8 @@ pub struct Lcd {
     wy: u8,
     wx: u8,
 
+    oam_dma_start_address: u8,
+
     bgp: u8,
     obp0: u8,
     obp1: u8,
@@ -138,7 +140,10 @@ impl Lcd {
             3 => self.scx = value,
             4 => BusAccessFailure::TriedWritingToReadOnlyMemory.into(),
             5 => self.ly_compare = value,
-            6 => notate_event(GameBoyEvent::StartOamDmaTransfer(value)),
+            6 => {
+                self.oam_dma_start_address = value;
+                notate_event(GameBoyEvent::StartOamDmaTransfer(value))
+            },
             7 => self.bgp = value,
             8 => self.obp0 = value,
             9 => self.obp1 = value,
@@ -157,7 +162,7 @@ impl Lcd {
             3 => self.scx,
             4 => self.ly,
             5 => self.ly_compare,
-            6 => BusAccessFailure::TriedAccessingUnusableMemory.into(),
+            6 => self.oam_dma_start_address,
             7 => self.bgp,
             8 => self.obp0,
             9 => self.obp1,
@@ -252,8 +257,8 @@ impl LcdControlFlag {
         let enable_index = LcdControlFlag::LcdPpuEnable.get_index();
         let new_enable_val = new_register_value >> enable_index;
         let old_enable_val = old_register_value >> enable_index;
-        if new_enable_val == 1 && old_enable_val == 1 {
-            notate_event(GameBoyEvent::EnableLcdPpu)
+        if new_enable_val ^ old_enable_val == 1 {
+            notate_event(GameBoyEvent::ChangeLcdPpuEnabled(new_enable_val == 1))
         }
     }
 
