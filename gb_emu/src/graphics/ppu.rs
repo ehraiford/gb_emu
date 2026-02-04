@@ -135,8 +135,8 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
 
     fn go_to_next_line(&mut self) {
         match self.lcd.increment_ly() == 0 {
-            true => self.ppu.reset_for_new_scanline(),
-            false => self.ppu.reset_for_new_frame(),
+            true => self.ppu.reset_for_new_frame(),
+            false => self.ppu.reset_for_new_scanline(),
         }
     }
 }
@@ -426,7 +426,9 @@ impl Screen {
     fn submit_frame(&mut self) {
         if let Ok(mut pending_frame) = self.shared.pending_frame.lock() {
             std::mem::swap(&mut self.frame_being_drawn, &mut *pending_frame);
-            self.shared.has_new_frame.load(std::sync::atomic::Ordering::Relaxed);
+            self.shared
+                .has_new_frame
+                .store(true, std::sync::atomic::Ordering::Relaxed);
         }
     }
 

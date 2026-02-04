@@ -40,12 +40,14 @@ impl Emulator {
 
 impl Emulator {
     fn run_for_num_cycles(&mut self, cycles: u64) {
+        self.start_time = Instant::now();
         while self.executed_m_cycles < MCycles(cycles) {
-            self.tick();
+            self.run_frame();
         }
     }
 
     fn run(&mut self) {
+        self.start_time = Instant::now();
         loop {
             self.run_frame();
         }
@@ -72,7 +74,7 @@ impl Emulator {
         match command {
             EmulatorCommand::Run => self.run(),
             EmulatorCommand::RunForNumberOfCycles(cycles) => self.run_for_num_cycles(cycles),
-            EmulatorCommand::Wait => (),
+            EmulatorCommand::Wait => std::thread::sleep(Duration::from_millis(10)),
         }
     }
 

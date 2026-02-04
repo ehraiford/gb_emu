@@ -4,7 +4,7 @@
         {
             "label": "run debug",
             "type": "shell",
-            "command": "cargo run -- 'C:\\Users\\evanr\\OneDrive\\Desktop\\Games\\Dr. Mario (World) (Rev 1).gb run-for-number-of-cycles' 0x10_000_000",
+            "command": "cargo run -- 'C:\\Users\\evanr\\OneDrive\\Desktop\\Games\\Dr. Mario (World) (Rev 1).gb' run-for-number-of-cycles 0x10_000_000",
             "options": {
                 "cwd": "gb_emu",
                 "env": {
