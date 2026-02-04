@@ -380,3 +380,89 @@ impl From<TCycles> for Dots {
         value.0 as u16
     }
 }
+
+struct Screen {
+    current_pixel_index: u16,
+    frame_being_drawn: Frame,
+    #[cfg(not(feature = "headless"))]
+    shared: Arc<TripleBuffer>,
+}
+
+impl Screen {
+    pub fn new(frame_handle: SenderFrameHandle) -> Self {
+        Self {
+            current_pixel_index: 0,
+            frame_being_drawn: frame_handle.buffer,
+            #[cfg(not(feature = "headless"))]
+            shared: frame_handle.shared,
+        }
+    }
+}
+#[cfg(feature = "headless")]
+impl Screen {
+    fn draw_pixel(&mut self, pixel: ColoredPixel) {
+        self.frame_being_drawn[self.current_pixel_index as usize] = pixel;
+        self.current_pixel_index += 1;
+    }
+
+    fn turn_off_screen(&mut self) {
+        self.current_pixel_index = 0;
+    }
+
+    fn submit_frame(&self) {}
+}
+
+#[cfg(not(feature = "headless"))]
+impl Screen {
+    fn draw_pixel(&mut self, pixel: ColoredPixel) {
+        self.frame_being_drawn.set_pixel(pixel, self.current_pixel_index);
+        self.current_pixel_index += 1;
+
+        if self.current_pixel_index == SCREEN_SIZE as u16 {
+            self.current_pixel_index = 0;
+        }
+    }
+
+    fn submit_frame(&mut self) {
+        if let Ok(mut pending_frame) = self.shared.pending_frame.lock() {
+            std::mem::swap(&mut self.frame_being_drawn, &mut *pending_frame);
+            self.shared.has_new_frame.load(std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    fn turn_off_screen(&mut self) {
+        for _ in self.current_pixel_index..SCREEN_SIZE as u16 {
+            self.frame_being_drawn
+                .set_pixel(ColoredPixel::screen_off(), self.current_pixel_index);
+        }
+        self.current_pixel_index = 0;
+        self.submit_frame();
+    }
+}
+
+pub struct Frame {
+    frame: Box<[ColoredPixel; SCREEN_SIZE]>,
+}
+
+impl Frame {
+    fn set_pixel(&mut self, pixel: ColoredPixel, index: u16) {
+        self.frame[index as usize] = pixel;
+    }
+
+    pub fn send_to_pixel_buffer(&self, pixel_buffer: &mut Box<[u32; SCREEN_SIZE]>) {
+        for (source, destination) in self.frame.iter().zip(pixel_buffer.iter_mut()) {
+            *destination = source.to_minifb_u32();
+        }
+    }
+}
+
+impl Default for Frame {
+    fn default() -> Self {
+        Self {
+            frame: vec![ColoredPixel::default(); SCREEN_SIZE]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
+        }
+    }
+}

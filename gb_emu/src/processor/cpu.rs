@@ -1,6 +1,6 @@
 use crate::{
     bus::Bus,
-    game_boy::{GameBoyEvent, GameBoyMode, TCycles, notate_event},
+    game_boy::{GameBoyEvent, GameBoyMode, MCycles, notate_event},
     io_devices::interrupts::Interrupt,
     processor::instructions::{
         EightBitOperand, Instruction, InstructionError, InstructionOutcome, OpCode, Operand, OperandType,
@@ -14,7 +14,7 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn tick(&mut self, bus: &mut Bus) -> TCycles {
+    pub fn tick(&mut self, bus: &mut Bus) -> MCycles {
         let pc = self.get_pc();
 
         let mut operation_context = CpuOperationContext::new(self, bus);
@@ -40,7 +40,7 @@ impl Cpu {
 
         self.increase_pc(pc_offset);
 
-        TCycles(taken_cycles)
+        MCycles(taken_cycles)
     }
 
     pub fn interrupts_are_enabled(&self) -> bool {
@@ -244,7 +244,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         Self { cpu, bus }
     }
 
-    fn handle_interrupt(&mut self, interrupt: Interrupt) -> TCycles {
+    fn handle_interrupt(&mut self, interrupt: Interrupt) -> MCycles {
         self.bus.lower_interrupt_flag(&interrupt);
         self.cpu.disable_interrupts();
 
@@ -252,7 +252,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         self.push_to_stack(self.cpu.get_pc());
         self.jump(&SixteenBitOperand::Immediate(isr_address));
 
-        TCycles(20)
+        MCycles(5)
     }
 
     fn try_get_interrupt(&self) -> Option<Interrupt> {

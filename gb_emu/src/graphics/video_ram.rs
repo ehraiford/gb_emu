@@ -190,9 +190,30 @@ impl Default for RawPixel {
         Self { color_number: Default::default() }
     }
 }
-impl From<RawPixel> for u32 {
-    fn from(value: RawPixel) -> Self {
-        let shade = match value.color_number {
+
+#[derive(Clone, Copy, Debug)]
+pub struct ColoredPixel {
+    pub color: u8,
+}
+
+impl ColoredPixel {
+    pub fn screen_off() -> Self {
+        Self { color: 0 }
+    }
+
+    pub fn from_background_pixel(raw_pixel: FifoBackgroundPixel, background_palette: u8) -> Self {
+        Self::from_raw_color_and_palette(raw_pixel.color_number, background_palette)
+    }
+    pub fn from_object_pixel(raw_pixel: FifoObjectPixel, palette: u8) -> Self {
+        Self::from_raw_color_and_palette(raw_pixel.color_number, palette)
+    }
+
+    fn from_raw_color_and_palette(color_number: u8, palette: u8) -> Self {
+        Self { color: palette >> (color_number * 2) & 0b11 }
+    }
+
+    pub fn to_minifb_u32(&self) -> u32 {
+        let shade = match self.color {
             0 => 0xFF,
             1 => 0xAA,
             2 => 0x55,
@@ -204,20 +225,9 @@ impl From<RawPixel> for u32 {
     }
 }
 
-pub struct ColoredPixel {
-    pub color: u8,
-}
-
-impl ColoredPixel {
-    pub fn from_background_pixel(raw_pixel: FifoBackgroundPixel, background_palette: u8) -> Self {
-        Self::from_raw_color_and_palette(raw_pixel.color_number, background_palette)
-    }
-    pub fn from_object_pixel(raw_pixel: FifoObjectPixel, palette: u8) -> Self {
-        Self::from_raw_color_and_palette(raw_pixel.color_number, palette)
-    }
-
-    fn from_raw_color_and_palette(color_number: u8, palette: u8) -> Self {
-        Self { color: palette >> (color_number * 2) & 0b11 }
+impl Default for ColoredPixel {
+    fn default() -> Self {
+        Self::screen_off()
     }
 }
 
