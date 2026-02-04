@@ -1,5 +1,5 @@
 use core::time;
-use minifb::{Window, WindowOptions};
+use minifb::{Key, Window, WindowOptions};
 use spin_sleep::SpinSleeper;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -12,6 +12,9 @@ use crate::io_devices::joypad_input::ButtonInput;
 const WINDOW_NAME: &str = &"Another GameBoy Emulator";
 const INPUT_POLLS_PER_SECOND: u32 = 120;
 const WINDOW_FRAME_RATE: u32 = 60;
+
+/// The mapping of keys to GameBoy input (in order: Start, Select, B, A, Up, Down, Left, Right)
+const KEY_MAPPING: [Key; 8] = [Key::Space, Key::Enter, Key::J, Key::K, Key::W, Key::A, Key::S, Key::D];
 
 pub fn get_window() -> Window {
     Window::new(
@@ -79,8 +82,7 @@ impl OsWindow {
     }
 
     fn update_display(&mut self) {
-        if self.frame_handle.has_new_frame() {
-            self.frame_handle.update();
+        if self.frame_handle.update_frame() {
             self.window
                 .update_with_buffer(
                     &self.frame_handle.get_frame()[..],
@@ -88,10 +90,26 @@ impl OsWindow {
                     SCREEN_HEIGHT as usize,
                 )
                 .unwrap()
+        } else {
+            self.window.update();
         }
     }
 
-    fn send_input_to_emulator(&mut self) {}
+    fn poll_input(&self) -> u8 {
+        let mut input = 0x00;
+        for i in 0..8 {
+            if !self.window.is_key_down(KEY_MAPPING[i]) {
+                input |= 0b1 << i
+            }
+        }
+
+        input
+    }
+
+    fn send_input_to_emulator(&mut self) {
+        let input_value = self.poll_input();
+        self.button_input.store(input_value, Ordering::Release);
+    }
 }
 
 pub struct SenderFrameHandle {
@@ -107,17 +125,24 @@ pub struct ReceiverFrameHandle {
 }
 
 impl ReceiverFrameHandle {
-    pub fn update(&mut self) {
+    /// Updates the pixel buffer with the new frame data if there is a new one.
+    /// Returns a bool of if there was a frame to update with.
+    pub fn update_frame(&mut self) -> bool {
+        if !self.check_for_new_frame() {
+            return false;
+        }
+
         if let Ok(pending_frame) = self.shared.pending_frame.lock() {
-            self.shared.has_new_frame.store(false, Ordering::Release);
             pending_frame.send_to_pixel_buffer(&mut self.pixel_buffer);
         }
+
+        true
     }
     pub fn get_frame(&self) -> &Box<[u32; SCREEN_SIZE]> {
         &self.pixel_buffer
     }
-    pub fn has_new_frame(&self) -> bool {
-        self.shared.has_new_frame()
+    fn check_for_new_frame(&mut self) -> bool {
+        self.shared.check_for_new_frame()
     }
 }
 
@@ -142,7 +167,7 @@ impl TripleBuffer {
         (sender, receiver)
     }
 
-    fn has_new_frame(&self) -> bool {
-        self.has_new_frame.load(Ordering::Acquire)
+    fn check_for_new_frame(&self) -> bool {
+        self.has_new_frame.swap(false, Ordering::SeqCst)
     }
 }
