@@ -157,9 +157,6 @@ impl Tile {
     }
 
     fn get_byte(&self, byte_index: usize) -> u8 {
-        if byte_index == 32 {
-            panic!();
-        }
         self.data[byte_index]
     }
 }

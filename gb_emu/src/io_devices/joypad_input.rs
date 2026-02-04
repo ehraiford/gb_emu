@@ -20,7 +20,7 @@ impl JoyPadInput {
         Self {
             button_input,
             selected_input: Default::default(),
-            currently_pressed: Default::default(),
+            currently_pressed: 0xFF,
         }
     }
 
@@ -29,7 +29,7 @@ impl JoyPadInput {
     }
 
     pub fn read(&self) -> u8 {
-        u8::from(self.selected_input) | self.currently_pressed
+        u8::from(self.selected_input) | self.get_input_nibble()
     }
 
     fn get_input_nibble(&self) -> u8 {
@@ -42,8 +42,12 @@ impl JoyPadInput {
         }
     }
 
-    fn new_button_pressed(prev_input: u8, new_input: u8) -> bool {
-        new_input & !prev_input != 0
+    fn new_button_pressed(prev_nibble: u8, new_nibble: u8) -> bool {
+        println!(
+            "Prev: {prev_nibble:08b}, new_nibble: {new_nibble:08b}: calculation: {}",
+            prev_nibble & !new_nibble != 0
+        );
+        prev_nibble & !new_nibble != 0
     }
 }
 
@@ -53,20 +57,27 @@ impl JoyPadInput {
 }
 #[cfg(not(feature = "headless"))]
 impl JoyPadInput {
-    fn ingest_input(&mut self) {
-        self.currently_pressed = self.button_input.load(std::sync::atomic::Ordering::Relaxed);
+    /// sets the currently_pressed field to the value taken from the atomic u8 and returns whether it changed.
+    /// Note: This is NOT enough to say a new button was pressed because it has both possible lower nibbles packed into it.
+    fn ingest_input(&mut self) -> bool {
+        let old_value = self.currently_pressed;
+
+        self.currently_pressed = self.button_input.load(std::sync::atomic::Ordering::Acquire);
+
+        self.currently_pressed != old_value
     }
     pub fn tick(&mut self) {
-        let prev_input = self.get_input_nibble();
-        self.ingest_input();
-        let new_input = self.get_input_nibble();
-        if Self::new_button_pressed(prev_input, new_input) {
-            notate_event(GameBoyEvent::Interrupt(Interrupt::Joypad));
+        let prev_nibble = self.get_input_nibble();
+        if self.ingest_input() {
+            let new_nibble = self.get_input_nibble();
+            if Self::new_button_pressed(prev_nibble, new_nibble) {
+                notate_event(GameBoyEvent::Interrupt(Interrupt::Joypad));
+            }
         }
     }
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Debug)]
 enum SelectedInput {
     #[default]
     Both,
@@ -78,10 +89,10 @@ enum SelectedInput {
 impl From<SelectedInput> for u8 {
     fn from(value: SelectedInput) -> Self {
         match value {
-            SelectedInput::Neither => 0x30,
-            SelectedInput::DPad => 0x20,
-            SelectedInput::Buttons => 0x10,
-            SelectedInput::Both => 0x00,
+            SelectedInput::Neither => 0xF0,
+            SelectedInput::DPad => 0xE0,
+            SelectedInput::Buttons => 0xD0,
+            SelectedInput::Both => 0xC0,
         }
     }
 }

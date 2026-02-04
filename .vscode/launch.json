@@ -9,7 +9,10 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceRoot}/gb_emu/target/debug/gb_emu.exe",
-            "args": [],
+            "args": [
+                "C:\\Users\\evanr\\OneDrive\\Desktop\\Games\\Dr. Mario (World) (Rev 1).gb",
+                "run"
+            ],
             "cwd": "${workspaceRoot}"
         }
     ]

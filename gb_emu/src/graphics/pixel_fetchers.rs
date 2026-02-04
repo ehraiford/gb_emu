@@ -21,6 +21,7 @@ impl PixelFetchers {
     pub fn reset_for_new_scanline(&mut self) {
         self.object_fetcher.reset_for_new_scanline();
         self.background_fetcher.reset_for_new_scanline();
+        self.pixels_displayed = 0;
     }
 
     pub fn reset_window_y(&mut self) {
@@ -28,7 +29,7 @@ impl PixelFetchers {
     }
 
     pub fn tick(&mut self, lcd: &Lcd, v_ram: &VideoRam) -> Option<ColoredPixel> {
-        match self.mode {
+        let pixel = match self.mode {
             FetchersMode::NormalExecution => self.tick_normal_execution(lcd, v_ram),
             FetchersMode::HandlingObjectsDisabled { remaining_penalty } => {
                 self.tick_handling_objects_disabled(remaining_penalty, lcd)
@@ -38,7 +39,13 @@ impl PixelFetchers {
                 None
             },
             FetchersMode::PoppingObjectPixels => return self.tick_popping_object_pixels(lcd, v_ram),
+        };
+
+        if pixel.is_some() {
+            self.pixels_displayed += 1;
         }
+
+        pixel
     }
 
     fn tick_popping_object_pixels(&mut self, lcd: &Lcd, v_ram: &VideoRam) -> Option<ColoredPixel> {

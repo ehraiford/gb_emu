@@ -80,6 +80,7 @@ impl Lcd {
         self.scy
     }
     pub fn get_wx(&self) -> u8 {
+        println!("WX is {}", self.wx);
         self.wx
     }
     pub fn get_wy(&self) -> u8 {
@@ -118,12 +119,13 @@ impl Lcd {
     }
 
     pub fn coordinate_in_window(&self, x_coordinate: u8) -> bool {
-        self.get_control_flag(LcdControlFlag::BackgroundWindowEnablePriority)
-            && self.ly >= self.wy
-            && x_coordinate >= self.wx.saturating_sub(7)
+        self.ly >= self.wy && x_coordinate >= self.wx.saturating_sub(7)
     }
 
     pub fn window_enabled(&self) -> bool {
+        if self.get_control_flag(LcdControlFlag::WindowEnable) {
+            println!("Window enabled",);
+        }
         self.get_control_flag(LcdControlFlag::WindowEnable)
     }
 

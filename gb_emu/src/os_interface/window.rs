@@ -1,4 +1,3 @@
-use core::time;
 use minifb::{Key, Window, WindowOptions};
 use spin_sleep::SpinSleeper;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,12 +9,19 @@ use crate::graphics::ppu::{Frame, SCREEN_HEIGHT, SCREEN_SIZE, SCREEN_WIDTH};
 use crate::io_devices::joypad_input::ButtonInput;
 
 const WINDOW_NAME: &str = &"Another GameBoy Emulator";
-const INPUT_POLLS_PER_SECOND: u32 = 120;
+const INPUT_POLLS_PER_SECOND: u32 = 60;
 const WINDOW_FRAME_RATE: u32 = 60;
 
-/// The mapping of keys to GameBoy input (in order: Start, Select, B, A, Up, Down, Left, Right)
-const KEY_MAPPING: [Key; 8] = [Key::Space, Key::Enter, Key::J, Key::K, Key::W, Key::A, Key::S, Key::D];
-
+const KEY_MAPPING: [Key; 8] = [
+    Key::D,     // Bit 0: Right
+    Key::S,     // Bit 1: Left
+    Key::W,     // Bit 2: Up
+    Key::A,     // Bit 3: Down
+    Key::K,     // Bit 4: A
+    Key::J,     // Bit 5: B
+    Key::Enter, // Bit 6: Select
+    Key::Space, // Bit 7: Start
+];
 pub fn get_window() -> Window {
     Window::new(
         WINDOW_NAME,
@@ -28,6 +34,7 @@ pub fn get_window() -> Window {
 
 pub struct OsWindow {
     window: Window,
+    last_sent_input: u8,
     button_input: ButtonInput,
     frame_handle: ReceiverFrameHandle,
     shared_command: Arc<Mutex<EmulatorCommand>>,
@@ -46,6 +53,7 @@ impl OsWindow {
             frame_handle,
             shared_command,
             spin_sleeper: SpinSleeper::new(100_000).with_spin_strategy(spin_sleep::SpinStrategy::YieldThread),
+            last_sent_input: 0xFF,
         }
     }
 
@@ -108,7 +116,10 @@ impl OsWindow {
 
     fn send_input_to_emulator(&mut self) {
         let input_value = self.poll_input();
-        self.button_input.store(input_value, Ordering::Release);
+        if input_value != self.last_sent_input {
+            self.button_input.store(input_value, Ordering::Release);
+            self.last_sent_input = input_value;
+        }
     }
 }
 
