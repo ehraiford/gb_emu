@@ -1,4 +1,5 @@
 use core::fmt;
+use std::{fs, path::PathBuf};
 
 use crate::processor::{
     instruction_tables::{CBPREFIXED, UNPREFIXED},
@@ -21,25 +22,30 @@ pub fn log(_args: fmt::Arguments) {
     // println!("Log Message: {_args}",)
 }
 
-pub fn _disassemble(bytes: &[u8]) -> String {
+pub fn disassemble_rom(rom_path: &PathBuf, output_path: &PathBuf) {
+    let assembly = get_disassembly(&fs::read(rom_path).unwrap());
+
+    fs::write(output_path, assembly).unwrap();
+}
+
+fn get_disassembly(bytes: &[u8]) -> String {
     let mut psuedo_pc = 0;
     let mut assembly = Vec::<String>::new();
 
     while psuedo_pc < bytes.len() {
-        let instruction = _read_instruction(bytes, &mut psuedo_pc);
+        let instruction = read_instruction(bytes, &mut psuedo_pc);
         assembly.push(instruction.to_string());
     }
 
     assembly.join("\n")
 }
 
-fn _read_instruction(bytes: &[u8], pc: &mut usize) -> &'static Instruction {
+fn read_instruction(bytes: &[u8], pc: &mut usize) -> &'static Instruction {
     let first_byte = bytes[*pc];
 
     let unprefixed_instruction = &UNPREFIXED[first_byte as usize];
     let instruction = match unprefixed_instruction.op_code {
         OpCode::Prefix => &CBPREFIXED[bytes[*pc + 1] as usize],
-        // OpCode::Illegal => panic!("Tried to read an illegal instruction"),
         _ => unprefixed_instruction,
     };
 

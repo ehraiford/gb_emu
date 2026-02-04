@@ -1,11 +1,12 @@
 [package]
 name = "gb_emu"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
 pixels = "0.15"
 minifb = "0.28.0"
+clap = { version = "4.5.57", features = ["derive"] }
 
 [features]
 disassemble = []

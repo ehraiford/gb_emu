@@ -1,10 +1,10 @@
-use std::{
-    env,
-    fs::{self},
-    path::PathBuf,
+use crate::{
+    cartridge::cartridge::Cartridge,
+    game_boy::GameBoy,
+    helpers::disassemble_rom,
+    os_interface::command_line::{Command, CommandLineArguments},
 };
-
-use crate::{cartridge::cartridge::Cartridge, game_boy::GameBoy, helpers::_disassemble};
+use clap::Parser;
 
 mod bus;
 mod cartridge;
@@ -16,37 +16,27 @@ mod onboard_memory;
 mod os_interface;
 mod processor;
 
-const TEST_ROM: &str = &r"C:\Users\evanr\OneDrive\Desktop\Games\Dr. Mario (World) (Rev 1).gb";
-// const TEST_CYCLES: u64 = 0x849fc0;
-const TEST_CYCLES: u64 = 1_000_000_00;
-
 fn main() {
-    #[cfg(feature = "disassemble")]
-    _program_assembly();
+    let command_line_args = CommandLineArguments::parse();
 
-    #[cfg(not(feature = "disassemble"))]
-    {
-        let mut game_boy = GameBoy::new();
-        let cartridge = Cartridge::new(&read_test_data()).unwrap();
-        game_boy.load_cartridge(cartridge);
+    match command_line_args.get_command() {
+        Command::Disassemble { output_path } => disassemble_rom(command_line_args.get_rom_path(), output_path),
+        Command::Run => {
+            let rom_data = std::fs::read(command_line_args.get_rom_path()).unwrap();
 
-        game_boy.test_looping(TEST_CYCLES);
+            let mut game_boy = GameBoy::new();
+            let cartridge = Cartridge::new(&rom_data).unwrap();
+            game_boy.load_cartridge(cartridge);
+
+            todo!()
+        },
+        Command::RunForNumberOfCycles { cycles } => {
+            let rom_data = std::fs::read(command_line_args.get_rom_path()).unwrap();
+
+            let mut game_boy = GameBoy::new();
+            let cartridge = Cartridge::new(&rom_data).unwrap();
+            game_boy.load_cartridge(cartridge);
+            game_boy.test_looping(*cycles);
+        },
     }
-}
-
-pub fn read_test_data() -> Vec<u8> {
-    fs::read(TEST_ROM).unwrap()
-}
-
-fn _program_assembly() {
-    let args: Vec<String> = env::args().collect();
-    let rom_path = PathBuf::from(&args[1]);
-
-    let mut output_path = PathBuf::from("..");
-    output_path.push("disassembled_output");
-    output_path.push(rom_path.file_name().unwrap());
-
-    let assembly = _disassemble(&fs::read(rom_path).unwrap());
-
-    println!("{assembly}")
 }
