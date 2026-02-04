@@ -1,15 +1,11 @@
-use std::time::{Duration, Instant};
-
 use crate::{
     bus::{Bus, MemoryMapEvent},
     cartridge::cartridge::Cartridge,
     graphics::ppu::{Ppu, PpuTickMode},
-    io_devices::{dma::OamDma, interrupts::Interrupt},
-    os_interface::profiling::TrackedData,
+    io_devices::{dma::OamDma, interrupts::Interrupt, joypad_input::ButtonInput},
+    os_interface::window::SenderFrameHandle,
     processor::cpu::Cpu,
 };
-
-pub const EXPECTED_CLOCK_SPEED: f64 = 4.194304; // In Megahertz
 
 use std::cell::RefCell;
 
@@ -27,7 +23,6 @@ fn drain_events() -> Vec<GameBoyEvent> {
     GAMEBOY_EVENTS.with(|events| events.take())
 }
 
-#[derive(Default)]
 pub struct GameBoy {
     state: GameBoyState,
     cpu: Cpu,
@@ -37,41 +32,22 @@ pub struct GameBoy {
 }
 
 impl GameBoy {
-    pub fn new() -> Self {
-        Default::default()
+    pub fn new(frame_handle: SenderFrameHandle, button_input: ButtonInput) -> Self {
+        Self {
+            ppu: Ppu::new(frame_handle),
+            state: Default::default(),
+            cpu: Default::default(),
+            bus: Bus::new(button_input),
+            oam_dma: Default::default(),
+        }
     }
 
     pub fn load_cartridge(&mut self, cartridge: Cartridge) {
         self.bus.load_cartridge(cartridge)
     }
 
-    pub fn test_looping(&mut self, cycles: u64) {
-        let tracked_data = TrackedData::new();
-        let desired_duration = Duration::from_secs_f64(1.0 / 4194304.0);
-        let mut next_checkin = 16_667;
-        while self.state.elapsed_cpu_cycles.0 < cycles {
-            let start = Instant::now();
-
-            while self.state.elapsed_cpu_cycles.0 < next_checkin {
-                self.tick();
-            }
-
-            let expected_duration = desired_duration.mul_f64(16_667.0);
-
-            let elapsed_time = start.elapsed();
-            if expected_duration > elapsed_time {
-                std::thread::sleep(expected_duration - elapsed_time);
-            }
-
-            next_checkin = self.state.elapsed_cpu_cycles.0 + 16_667;
-        }
-
-        tracked_data.log_from_gameboy(self);
-    }
-
     fn tick_cpu(&mut self) {
         let t_cycles = self.cpu.tick(&mut self.bus);
-        self.state.elapsed_cpu_cycles += t_cycles;
 
         self.state.cpu_lockstep_catchup = t_cycles;
     }
@@ -95,7 +71,7 @@ impl GameBoy {
     }
 
     fn tick_peripherals_lockstep(&mut self) {
-        for _ in 0..(self.state.cpu_lockstep_catchup.0 / 4) {
+        for _ in 0..(self.state.cpu_lockstep_catchup.0) {
             self.tick_timer_divider();
             self.tick_oam_dma();
             self.tick_ppu();
@@ -103,24 +79,27 @@ impl GameBoy {
         self.state.cpu_lockstep_catchup.0 = 0;
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self) -> MCycles {
         self.tick_joypad();
         match self.state.mode {
             GameBoyMode::Executing => {
                 self.tick_cpu();
+                let ticked_m_cycles = self.state.cpu_lockstep_catchup;
                 self.handle_changes();
                 self.tick_peripherals_lockstep();
                 self.handle_changes();
+                ticked_m_cycles
             },
             GameBoyMode::Stopped => todo!(),
             GameBoyMode::Halted => {
                 if self.has_unhandled_interrupts() {
                     self.mode_transition(GameBoyMode::Executing);
-                    self.tick();
+                    self.tick()
                 } else {
-                    self.state.cpu_lockstep_catchup = TCycles(4);
+                    self.state.cpu_lockstep_catchup = MCycles(1);
                     self.tick_peripherals_lockstep();
                     self.handle_changes();
+                    MCycles(1)
                 }
             },
         }
@@ -160,7 +139,7 @@ impl GameBoy {
         // So we can use that to delay mode 3 of the PPU.
         // I don't love this shortcut because it's not resistant to reorganization
         // but it's better than adding another assignment in the hot loop.
-        self.ppu.handle_objects_disabled(self.state.cpu_lockstep_catchup)
+        self.ppu.handle_objects_disabled(self.state.cpu_lockstep_catchup.into())
     }
 
     fn handle_change_lcd_ppu_enabled(&mut self, enabled: bool) {
@@ -182,16 +161,11 @@ impl GameBoy {
     fn mode_transition(&mut self, new_mode: GameBoyMode) {
         self.state.mode_transition(new_mode, &mut self.bus);
     }
-
-    pub fn get_elapsed_cycles(&self) -> TCycles {
-        self.state.elapsed_cpu_cycles
-    }
 }
 
 struct GameBoyState {
     mode: GameBoyMode,
-    elapsed_cpu_cycles: TCycles,
-    cpu_lockstep_catchup: TCycles,
+    cpu_lockstep_catchup: MCycles,
 }
 
 impl GameBoyState {
@@ -207,11 +181,7 @@ impl GameBoyState {
 
 impl Default for GameBoyState {
     fn default() -> Self {
-        Self {
-            elapsed_cpu_cycles: Default::default(),
-            cpu_lockstep_catchup: TCycles(0),
-            mode: Default::default(),
-        }
+        Self { cpu_lockstep_catchup: MCycles(0), mode: Default::default() }
     }
 }
 
@@ -226,6 +196,20 @@ pub enum GameBoyMode {
 /// Instruction and memory access clock cycle
 #[derive(Default, PartialEq, PartialOrd, Clone, Copy)]
 pub struct MCycles(pub u64);
+
+impl std::ops::AddAssign for MCycles {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 += rhs.0;
+    }
+}
+
+impl std::ops::Add for MCycles {
+    type Output = MCycles;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        MCycles(self.0 + rhs.0)
+    }
+}
 
 /// Smallest unit of time for the Game Boy
 #[derive(Default, PartialEq, PartialOrd, Clone, Copy)]
