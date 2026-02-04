@@ -58,6 +58,9 @@ impl Bus {
     pub fn tick_timer_divider(&mut self) {
         self.io_registers.timer_divider.tick();
     }
+    pub fn tick_joypad(&mut self) {
+        self.io_registers.joypad.tick();
+    }
     pub fn reset_divider_register(&mut self) {
         self.io_registers.timer_divider.reset_divider_register();
     }

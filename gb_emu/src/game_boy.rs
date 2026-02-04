@@ -90,6 +90,10 @@ impl GameBoy {
         self.bus.tick_timer_divider();
     }
 
+    fn tick_joypad(&mut self) {
+        self.bus.tick_joypad();
+    }
+
     fn tick_peripherals_lockstep(&mut self) {
         for _ in 0..(self.state.cpu_lockstep_catchup.0 / 4) {
             self.tick_timer_divider();
@@ -100,6 +104,7 @@ impl GameBoy {
     }
 
     pub fn tick(&mut self) {
+        self.tick_joypad();
         match self.state.mode {
             GameBoyMode::Executing => {
                 self.tick_cpu();

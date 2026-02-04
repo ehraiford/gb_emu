@@ -2,7 +2,9 @@ use crate::{
     bus::{Address, BusAccessFailure, BusAccessible, MemoryTarget},
     game_boy::{GameBoyEvent, notate_event},
     graphics::{lcd::Lcd, oam::PriorityMode},
-    io_devices::{audio::Audio, interrupts::InterruptFlagRegister, timer_divider::TimerDivider},
+    io_devices::{
+        audio::Audio, interrupts::InterruptFlagRegister, joypad_input::JoyPadInput, timer_divider::TimerDivider,
+    },
 };
 
 pub struct IoRegisters {
@@ -10,6 +12,7 @@ pub struct IoRegisters {
     pub interrupt_flag_register: InterruptFlagRegister,
     pub audio: Audio,
     pub timer_divider: TimerDivider,
+    pub joypad: JoyPadInput,
 }
 
 impl IoRegisters {}
@@ -23,7 +26,7 @@ impl BusAccessible for IoRegisters {
         };
 
         match section {
-            IoSection::JoypadInput => BusAccessFailure::Unimplemented.into(),
+            IoSection::JoypadInput => self.joypad.read(),
             IoSection::SerialTransfer => BusAccessFailure::Unimplemented.into(),
             IoSection::TimerAndDivider => self.timer_divider.get(address),
             IoSection::Interrupts => self.interrupt_flag_register.get(),
@@ -47,7 +50,7 @@ impl BusAccessible for IoRegisters {
         };
 
         match section {
-            IoSection::JoypadInput => BusAccessFailure::Unimplemented.into(),
+            IoSection::JoypadInput => self.joypad.write(value),
             IoSection::SerialTransfer => BusAccessFailure::Unimplemented.into(),
             IoSection::TimerAndDivider => self.timer_divider.set(address, value),
             IoSection::Interrupts => self.interrupt_flag_register.set(value),
@@ -72,7 +75,7 @@ impl BusAccessible for IoRegisters {
             return BusAccessFailure::NothingMappedToAddress.into();
         };
         match section {
-            IoSection::JoypadInput => todo!(),
+            IoSection::JoypadInput => self.joypad.read(),
             IoSection::SerialTransfer => BusAccessFailure::Unimplemented.into(),
             IoSection::TimerAndDivider => self.timer_divider.get(address),
             IoSection::Interrupts => self.interrupt_flag_register.get(),
@@ -98,6 +101,7 @@ impl Default for IoRegisters {
             interrupt_flag_register: Default::default(),
             audio: Default::default(),
             timer_divider: Default::default(),
+            joypad: JoyPadInput::default(),
         }
     }
 }
