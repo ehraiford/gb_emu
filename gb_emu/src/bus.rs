@@ -9,8 +9,11 @@ use crate::{
         video_ram::VideoRam,
     },
     helpers::{concat_2_bytes, log},
-    io_devices::interrupts::{Interrupt, InterruptEnableRegister},
-    io_devices::io_registers::IoRegisters,
+    io_devices::{
+        interrupts::{Interrupt, InterruptEnableRegister},
+        io_registers::IoRegisters,
+        joypad_input::ButtonInput,
+    },
     onboard_memory::{
         bootrom::BootRom,
         h_ram::HighRam,
@@ -22,7 +25,6 @@ use crate::{
     },
 };
 
-#[derive(Default)]
 pub struct Bus {
     cartridge: Cartridge,
     v_ram: VideoRam,
@@ -70,6 +72,21 @@ impl Bus {
 }
 
 impl Bus {
+    pub fn new(button_input: ButtonInput) -> Self {
+        Self {
+            io_registers: IoRegisters::new(button_input),
+            cartridge: Default::default(),
+            v_ram: Default::default(),
+            w_ram_00: Default::default(),
+            bankable_w_ram: Default::default(),
+            oam: Default::default(),
+            h_ram: Default::default(),
+            ie: Default::default(),
+            boot_rom: Default::default(),
+            memory_map: Default::default(),
+        }
+    }
+
     pub fn load_cartridge(&mut self, cartridge: Cartridge) {
         self.cartridge = cartridge;
     }

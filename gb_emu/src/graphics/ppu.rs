@@ -1,4 +1,4 @@
-use std::sync::mpsc::Sender;
+use std::sync::Arc;
 
 use crate::{
     bus::MemoryTarget,
@@ -7,10 +7,10 @@ use crate::{
         lcd::Lcd,
         oam::{ObjectAttributeMemory, ObjectAttributes},
         pixel_fetchers::PixelFetchers,
-        video_ram::{RawPixel, VideoRam},
+        video_ram::{ColoredPixel, VideoRam},
     },
     io_devices::interrupts::Interrupt,
-    os_interface::graphics,
+    os_interface::window::{SenderFrameHandle, TripleBuffer},
 };
 
 pub const SCREEN_WIDTH: u8 = 160;
@@ -21,18 +21,18 @@ const DOTS_PER_LINE: Dots = 456;
 pub struct Ppu {
     mode_tracking: PpuModeTracker,
     pixel_fetchers: PixelFetchers,
-    pixel_buffer_sender: Sender<u32>,
+    screen: Screen,
     oam_scanner: OamScanner,
 }
 
 impl Ppu {
-    pub fn enable(&mut self) {
-        self.reset_for_new_frame();
-        self.mode_tracking = Default::default();
-    }
-
-    fn get_mode(&self) -> &PpuTickMode {
-        &self.mode_tracking.mode
+    pub fn new(frame_handle: SenderFrameHandle) -> Self {
+        Self {
+            screen: Screen::new(frame_handle),
+            mode_tracking: Default::default(),
+            pixel_fetchers: Default::default(),
+            oam_scanner: Default::default(),
+        }
     }
 
     pub fn tick(&mut self, v_ram: &mut VideoRam, oam: &mut ObjectAttributeMemory, lcd: &mut Lcd) {
@@ -45,29 +45,28 @@ impl Ppu {
         }
     }
 
+    pub fn enable(&mut self) {
+        self.reset_for_new_frame();
+        self.mode_tracking = Default::default();
+    }
+
+    fn get_mode(&self) -> &PpuTickMode {
+        &self.mode_tracking.mode
+    }
+
     fn reset_for_new_scanline(&mut self) {
         self.oam_scanner.reset_for_new_scanline();
         self.pixel_fetchers.reset_for_new_scanline();
     }
 
-    pub fn handle_objects_disabled(&mut self, instruction_length: TCycles) {
-        self.pixel_fetchers.handle_objects_disabled(instruction_length);
-    }
-
     fn reset_for_new_frame(&mut self) {
         self.reset_for_new_scanline();
         self.pixel_fetchers.reset_window_y();
+        self.screen.submit_frame();
     }
-}
 
-impl Default for Ppu {
-    fn default() -> Self {
-        Self {
-            mode_tracking: PpuModeTracker::default(),
-            pixel_buffer_sender: graphics::start_window_thread(),
-            oam_scanner: OamScanner::default(),
-            pixel_fetchers: PixelFetchers::default(),
-        }
+    pub fn handle_objects_disabled(&mut self, instruction_t_cycles: TCycles) {
+        self.pixel_fetchers.handle_objects_disabled(instruction_t_cycles);
     }
 }
 
@@ -97,10 +96,7 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
             if pixels_left_to_ignore > 0 {
                 pixels_left_to_ignore -= 1;
             } else {
-                self.ppu
-                    .pixel_buffer_sender
-                    .send(RawPixel { color_number: pixel.color }.into())
-                    .unwrap();
+                self.ppu.screen.draw_pixel(pixel);
                 pixels_left_to_push -= 1;
             }
         }

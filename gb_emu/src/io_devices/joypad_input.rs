@@ -8,11 +8,22 @@ use crate::{
 pub struct JoyPadInput {
     selected_input: SelectedInput,
     // we're packing all button values into a single byte so the input thread can easily send all the data
-    buttons_pressed: Arc<AtomicU8>,
+    #[cfg(not(feature = "headless"))]
+    button_input: ButtonInput,
     currently_pressed: u8,
 }
 
 impl JoyPadInput {
+    const DEFAULT_INPUT_VALUE: u8 = 0xFF;
+
+    pub fn new(button_input: ButtonInput) -> Self {
+        Self {
+            button_input,
+            selected_input: Default::default(),
+            currently_pressed: Default::default(),
+        }
+    }
+
     pub fn write(&mut self, value: u8) {
         self.selected_input = SelectedInput::from(value);
     }
@@ -31,8 +42,19 @@ impl JoyPadInput {
         }
     }
 
+    fn new_button_pressed(prev_input: u8, new_input: u8) -> bool {
+        new_input & !prev_input != 0
+    }
+}
+
+#[cfg(feature = "headless")]
+impl JoyPadInput {
+    pub fn tick(&mut self) {}
+}
+#[cfg(not(feature = "headless"))]
+impl JoyPadInput {
     fn ingest_input(&mut self) {
-        self.currently_pressed = self.buttons_pressed.load(std::sync::atomic::Ordering::Relaxed);
+        self.currently_pressed = self.button_input.load(std::sync::atomic::Ordering::Relaxed);
     }
     pub fn tick(&mut self) {
         let prev_input = self.get_input_nibble();
@@ -40,19 +62,6 @@ impl JoyPadInput {
         let new_input = self.get_input_nibble();
         if Self::new_button_pressed(prev_input, new_input) {
             notate_event(GameBoyEvent::Interrupt(Interrupt::Joypad));
-        }
-    }
-    fn new_button_pressed(prev_input: u8, new_input: u8) -> bool {
-        new_input & !prev_input != 0
-    }
-}
-
-impl Default for JoyPadInput {
-    fn default() -> Self {
-        Self {
-            selected_input: Default::default(),
-            buttons_pressed: Default::default(),
-            currently_pressed: Default::default(),
         }
     }
 }
@@ -86,4 +95,9 @@ impl From<u8> for SelectedInput {
             _ => unreachable!(),
         }
     }
+}
+
+pub type ButtonInput = Arc<AtomicU8>;
+pub fn new_button_input() -> ButtonInput {
+    Arc::new(AtomicU8::new(JoyPadInput::DEFAULT_INPUT_VALUE))
 }

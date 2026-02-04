@@ -1,9 +1,14 @@
+use std::sync::{Arc, atomic::AtomicU8};
+
 use crate::{
     bus::{Address, BusAccessFailure, BusAccessible, MemoryTarget},
     game_boy::{GameBoyEvent, notate_event},
     graphics::{lcd::Lcd, oam::PriorityMode},
     io_devices::{
-        audio::Audio, interrupts::InterruptFlagRegister, joypad_input::JoyPadInput, timer_divider::TimerDivider,
+        audio::Audio,
+        interrupts::InterruptFlagRegister,
+        joypad_input::{ButtonInput, JoyPadInput},
+        timer_divider::TimerDivider,
     },
 };
 
@@ -15,7 +20,17 @@ pub struct IoRegisters {
     pub joypad: JoyPadInput,
 }
 
-impl IoRegisters {}
+impl IoRegisters {
+    pub fn new(button_input: ButtonInput) -> Self {
+        Self {
+            joypad: JoyPadInput::new(button_input),
+            lcd_registers: Default::default(),
+            interrupt_flag_register: Default::default(),
+            audio: Default::default(),
+            timer_divider: Default::default(),
+        }
+    }
+}
 
 impl BusAccessible for IoRegisters {
     const MM_DEVICE: MemoryTarget = MemoryTarget::IoRegisters;
@@ -90,18 +105,6 @@ impl BusAccessible for IoRegisters {
             IoSection::ObjectPriorityMode => todo!(),
             IoSection::WramBankSelect => todo!(),
             IoSection::VramDma => todo!(),
-        }
-    }
-}
-
-impl Default for IoRegisters {
-    fn default() -> Self {
-        Self {
-            lcd_registers: Default::default(),
-            interrupt_flag_register: Default::default(),
-            audio: Default::default(),
-            timer_divider: Default::default(),
-            joypad: JoyPadInput::default(),
         }
     }
 }
