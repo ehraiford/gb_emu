@@ -70,18 +70,18 @@ impl BusAccessible for IoRegisters {
             IoSection::TimerAndDivider => self.timer_divider.set(address, value),
             IoSection::Interrupts => self.interrupt_flag_register.set(value),
             IoSection::Audio => self.audio.set(address, value),
-            IoSection::WavePattern => todo!(),
+            IoSection::WavePattern => BusAccessFailure::Unimplemented.into(),
             IoSection::Lcd => self.lcd_registers.write(address, value),
-            IoSection::Keys => todo!(),
-            IoSection::VramBankSelect => todo!(),
+            IoSection::Keys => BusAccessFailure::Unimplemented.into(),
+            IoSection::VramBankSelect => BusAccessFailure::Unimplemented.into(),
             IoSection::BootRomMappingControl => notate_event(GameBoyEvent::UnmapBootRom),
-            IoSection::Ir => todo!(),
+            IoSection::Ir => BusAccessFailure::Unimplemented.into(),
             IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(),
             IoSection::ObjectPriorityMode => {
                 notate_event(GameBoyEvent::ChangeObjectPriorityMode(PriorityMode::from(value)))
             },
-            IoSection::WramBankSelect => todo!(),
-            IoSection::VramDma => todo!(),
+            IoSection::WramBankSelect => BusAccessFailure::Unimplemented.into(),
+            IoSection::VramDma => BusAccessFailure::Unimplemented.into(),
         }
     }
 
