@@ -6,7 +6,6 @@ use crate::{
 pub struct OamDma {
     remaining_bytes: u8,
     source_address: Address,
-    wait_tick: bool,
     currently_transferring: bool,
 }
 
@@ -18,7 +17,8 @@ impl OamDma {
     }
 
     fn get_destination_address(&self) -> Address {
-        MemoryTarget::ObjectAttributeMemory.get_base_address() + 160 - self.remaining_bytes as u16
+        MemoryTarget::ObjectAttributeMemory.get_base_address() + Self::TOTAL_TRANSFER_SIZE as u16
+            - self.remaining_bytes as u16
     }
 
     pub fn initiate_transfer(&mut self, input: u8) {
@@ -31,15 +31,8 @@ impl OamDma {
         if !self.is_transferring() {
             return;
         }
-        // this lets the transfer write 1 byte every two cycles
-        if self.wait_tick {
-            self.wait_tick = false;
-            return;
-        } else {
-            self.wait_tick = true;
-        }
-
         let byte = bus.peek(self.source_address);
+
         let destination_address = self.get_destination_address();
 
         bus.oam_dma_transfer(destination_address, byte);
@@ -66,7 +59,6 @@ impl Default for OamDma {
         Self {
             remaining_bytes: 0,
             source_address: 0x00,
-            wait_tick: true,
             currently_transferring: false,
         }
     }
