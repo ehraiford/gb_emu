@@ -5,7 +5,7 @@ use crate::{
     graphics::{
         lcd::Lcd,
         oam::{ObjectAttributeMemory, PriorityMode},
-        ppu::PpuTickMode,
+        ppu::PpuMode,
         video_ram::VideoRam,
     },
     helpers::{concat_2_bytes, log},
@@ -492,7 +492,7 @@ impl Display for BusAccessFailure {
 #[derive(Debug)]
 pub enum MemoryMapEvent {
     UnmapBootRom,
-    UpdatePpuMode(PpuTickMode),
+    UpdatePpuMode(PpuMode),
     StartOamDataTransfer,
     EndOamDataTransfer,
 }

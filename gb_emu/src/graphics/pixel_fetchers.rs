@@ -24,6 +24,10 @@ impl PixelFetchers {
         self.pixels_displayed = 0;
     }
 
+    pub fn take_scanned_objects(&mut self, objects_on_this_line: ObjectsOnThisLine) {
+        self.object_fetcher.take_scanned_objects(objects_on_this_line);
+    }
+
     pub fn reset_window_y(&mut self) {
         self.background_fetcher.reset_window_y();
     }
@@ -189,6 +193,11 @@ impl ObjectFifo {
     fn reset_for_new_scanline(&mut self) {
         self.queue.clear_queue();
         self.mode = ObjectFifoMode::Inactive;
+        self.objects_on_this_line.reset_for_new_scanline();
+    }
+
+    pub fn take_scanned_objects(&mut self, objects_on_this_line: ObjectsOnThisLine) {
+        self.objects_on_this_line = objects_on_this_line
     }
 
     fn determine_object_penalty(&self, leftmost_pixel_x_coord: u8) -> Dots {

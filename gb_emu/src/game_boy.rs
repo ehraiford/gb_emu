@@ -1,7 +1,7 @@
 use crate::{
     bus::{Bus, MemoryMapEvent},
     cartridge::cartridge::Cartridge,
-    graphics::{ppu::{Ppu, PpuTickMode}, video_ram::TileMapImage},
+    graphics::{ppu::{Ppu, PpuMode}, video_ram::TileMapImage},
     io_devices::{dma::OamDma, interrupts::Interrupt, joypad_input::ButtonInput},
     os_interface::window::SenderFrameHandle,
     processor::cpu::Cpu,
@@ -239,7 +239,7 @@ pub enum GameBoyEvent {
     ObjectsDisabled,
     ChangeObjectPriorityMode(crate::graphics::oam::PriorityMode),
     StartOamDmaTransfer(u8),
-    ChangeBusAccessForPpuMode(PpuTickMode),
+    ChangeBusAccessForPpuMode(PpuMode),
     EndOamDmaTransfer,
     Interrupt(Interrupt),
     IeTriggered, // Facilitates the delay between executing IE and actually enabling interrupts

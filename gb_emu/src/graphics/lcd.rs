@@ -3,7 +3,7 @@ use crate::{
     game_boy::{GameBoyEvent, notate_event},
     graphics::{
         oam::PaletteChoice,
-        ppu::PpuTickMode,
+        ppu::PpuMode,
         video_ram::{AccessMethod, TargetTileMap},
     },
     io_devices::interrupts::Interrupt,
@@ -196,8 +196,8 @@ impl Lcd {
         self.status_flags = status;
     }
 
-    fn mode_transition_raises_interrupt(&self, mode: PpuTickMode) -> bool {
-        if mode == PpuTickMode::VerticalBlank {
+    fn mode_transition_raises_interrupt(&self, mode: PpuMode) -> bool {
+        if mode == PpuMode::VerticalBlank {
             return false;
         }
 
@@ -208,7 +208,7 @@ impl Lcd {
         isolated_flag == 1
     }
 
-    pub fn set_ppu_mode(&mut self, mode: PpuTickMode) {
+    pub fn set_ppu_mode(&mut self, mode: PpuMode) {
         if self.mode_transition_raises_interrupt(mode) {
             notate_event(GameBoyEvent::Interrupt(Interrupt::Stat));
         }

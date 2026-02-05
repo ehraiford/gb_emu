@@ -50,7 +50,7 @@ impl Ppu {
         self.mode_tracking = Default::default();
     }
 
-    fn get_mode(&self) -> &PpuTickMode {
+    fn get_mode(&self) -> &PpuMode {
         &self.mode_tracking.mode
     }
 
@@ -91,17 +91,15 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
         self.ppu.oam_scanner.tick(self.oam, self.lcd);
     }
 
-    fn tick_drawing_pixels(&mut self, mut pixels_left_to_ignore: u8, mut pixels_left_to_push: u8) {
+    fn tick_drawing_pixels(&mut self) {
         if let Some(pixel) = self.ppu.pixel_fetchers.tick(self.lcd, self.v_ram) {
-            if pixels_left_to_ignore > 0 {
-                pixels_left_to_ignore -= 1;
+            if self.ppu.mode_tracking.pixels_left_to_ignore > 0 {
+                self.ppu.mode_tracking.pixels_left_to_ignore -= 1;
             } else {
                 self.ppu.screen.draw_pixel(pixel);
-                pixels_left_to_push -= 1;
+                self.ppu.mode_tracking.pixels_left_to_push -= 1;
             }
         }
-
-        self.ppu.mode_tracking.mode = PpuTickMode::DrawingPixels { pixels_left_to_push, pixels_left_to_ignore };
     }
 
     fn tick_horizontal_blank(&mut self) {}
@@ -110,26 +108,30 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
 
     pub fn tick(&mut self) {
         match self.ppu.get_mode() {
-            PpuTickMode::HorizontalBlank => self.tick_horizontal_blank(),
-            PpuTickMode::VerticalBlank => self.tick_vertical_blank(),
-            PpuTickMode::OamScan { .. } => self.tick_oam_scan(),
-            PpuTickMode::DrawingPixels { pixels_left_to_ignore, pixels_left_to_push } => {
-                self.tick_drawing_pixels(*pixels_left_to_ignore, *pixels_left_to_push)
-            },
+            PpuMode::HorizontalBlank => self.tick_horizontal_blank(),
+            PpuMode::VerticalBlank => self.tick_vertical_blank(),
+            PpuMode::OamScan => self.tick_oam_scan(),
+            PpuMode::DrawingPixels => self.tick_drawing_pixels(),
         };
 
-        let result = self
+        let (increment_ly, new_mode) = self
             .ppu
             .mode_tracking
-            .process_tick(self.lcd.get_ly(), self.lcd.get_scx());
+            .process_tick(self.lcd.get_ly(), self.lcd.get_scx())
+            .destructure();
 
-        if result.increment_ly {
+        if increment_ly {
             self.go_to_next_line();
         }
 
-        if let Some(mode) = result.new_mode {
+        if let Some(mode) = new_mode {
             notate_event(GameBoyEvent::ChangeBusAccessForPpuMode(mode));
             self.lcd.set_ppu_mode(mode);
+            if mode == PpuMode::DrawingPixels {
+                self.ppu
+                    .pixel_fetchers
+                    .take_scanned_objects(self.ppu.oam_scanner.objects_on_this_line);
+            }
         }
     }
 
@@ -141,95 +143,105 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
     }
 }
 
-struct PpuModeTracker {
-    mode: PpuTickMode,
-    remaining_dots_in_line: Dots,
+struct PpuTickOutcome {
+    increment_ly: bool,
+    new_mode: Option<PpuMode>,
 }
 
-struct PpuTickResult {
-    increment_ly: bool,
-    new_mode: Option<PpuTickMode>,
+impl PpuTickOutcome {
+    fn destructure(self) -> (bool, Option<PpuMode>) {
+        (self.increment_ly, self.new_mode)
+    }
+}
+
+struct PpuModeTracker {
+    mode: PpuMode,
+    remaining_dots_in_line: Dots,
+    completed_cycles: u16,
+    pixels_left_to_push: u8,
+    pixels_left_to_ignore: u8,
 }
 
 impl PpuModeTracker {
-    fn process_tick_horizontal_blank(&mut self, ly: u8) -> PpuTickResult {
+    fn process_tick_horizontal_blank(&mut self, ly: u8) -> PpuTickOutcome {
         if self.remaining_dots_in_line == 0 {
             self.remaining_dots_in_line = DOTS_PER_LINE;
             if ly < SCREEN_HEIGHT - 1 {
-                let new_mode = PpuTickMode::OamScan { completed_cycles: 0 };
-                self.mode = new_mode;
-                PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
+                self.start_oam_scan()
             } else {
                 notate_event(GameBoyEvent::Interrupt(Interrupt::VBlank));
-                let new_mode = PpuTickMode::VerticalBlank;
-                self.mode = new_mode;
-                PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
+                self.start_vertical_blank()
             }
         } else {
-            PpuTickResult { increment_ly: false, new_mode: None }
+            PpuTickOutcome { increment_ly: false, new_mode: None }
         }
     }
 
-    fn process_tick_vertical_blank(&mut self, ly: u8) -> PpuTickResult {
+    fn process_tick_vertical_blank(&mut self, ly: u8) -> PpuTickOutcome {
         if self.remaining_dots_in_line == 0 {
             self.remaining_dots_in_line = DOTS_PER_LINE;
 
             if ly >= Lcd::MAX_LY {
-                let new_mode = PpuTickMode::OamScan { completed_cycles: 0 };
-                self.mode = new_mode;
-                PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
+                self.start_oam_scan()
             } else {
-                let new_mode = PpuTickMode::VerticalBlank;
-                self.mode = new_mode;
-                PpuTickResult { increment_ly: true, new_mode: Some(new_mode) }
+                self.start_vertical_blank()
             }
         } else {
-            PpuTickResult { increment_ly: false, new_mode: None }
+            PpuTickOutcome { increment_ly: false, new_mode: None }
         }
     }
 
-    fn process_tick_oam_scan(&mut self, mut completed_cycles: u8, scx: u8) -> PpuTickResult {
-        completed_cycles += 1;
-        if completed_cycles == 80 {
-            let new_mode = PpuTickMode::DrawingPixels { pixels_left_to_push: 160, pixels_left_to_ignore: scx % 8 };
-            self.mode = new_mode;
-            PpuTickResult { increment_ly: false, new_mode: Some(new_mode) }
+    fn process_tick_oam_scan(&mut self, scx: u8) -> PpuTickOutcome {
+        self.completed_cycles += 1;
+
+        if self.completed_cycles == 80 {
+            self.start_drawing_pixels(scx)
         } else {
-            self.mode = PpuTickMode::OamScan { completed_cycles };
-            PpuTickResult { increment_ly: false, new_mode: None }
+            PpuTickOutcome { increment_ly: false, new_mode: None }
         }
     }
 
-    fn process_tick_drawing_pixels(&mut self, pixels_left_to_push: u8) -> PpuTickResult {
+    fn process_tick_drawing_pixels(&mut self) -> PpuTickOutcome {
         if self.remaining_dots_in_line == 0 {
             panic!();
         }
-
-        if pixels_left_to_push == 0 {
-            self.mode = PpuTickMode::HorizontalBlank;
-
-            // println!(
-            //     "Drawing Pixels took: {} cycles",
-            //     DOTS_PER_LINE - 80 - self.remaining_dots_in_line
-            // );
-            PpuTickResult {
-                increment_ly: false,
-                new_mode: Some(PpuTickMode::HorizontalBlank),
-            }
+        if self.pixels_left_to_push == 0 {
+            self.start_horizontal_blank()
         } else {
-            PpuTickResult { increment_ly: false, new_mode: None }
+            PpuTickOutcome { increment_ly: false, new_mode: None }
         }
     }
 
-    fn process_tick(&mut self, ly: u8, scx: u8) -> PpuTickResult {
+    fn process_tick(&mut self, ly: u8, scx: u8) -> PpuTickOutcome {
         self.remaining_dots_in_line -= 1;
         match self.mode {
-            PpuTickMode::HorizontalBlank => self.process_tick_horizontal_blank(ly),
-            PpuTickMode::VerticalBlank => self.process_tick_vertical_blank(ly),
-            PpuTickMode::OamScan { completed_cycles } => self.process_tick_oam_scan(completed_cycles, scx),
-            PpuTickMode::DrawingPixels { pixels_left_to_push, .. } => {
-                self.process_tick_drawing_pixels(pixels_left_to_push)
-            },
+            PpuMode::HorizontalBlank => self.process_tick_horizontal_blank(ly),
+            PpuMode::VerticalBlank => self.process_tick_vertical_blank(ly),
+            PpuMode::OamScan => self.process_tick_oam_scan(scx),
+            PpuMode::DrawingPixels => self.process_tick_drawing_pixels(),
+        }
+    }
+
+    fn start_oam_scan(&mut self) -> PpuTickOutcome {
+        self.mode = PpuMode::OamScan;
+        self.completed_cycles = 0;
+        PpuTickOutcome { increment_ly: true, new_mode: Some(PpuMode::OamScan) }
+    }
+    fn start_drawing_pixels(&mut self, scx: u8) -> PpuTickOutcome {
+        self.mode = PpuMode::DrawingPixels;
+        self.pixels_left_to_ignore = scx % 8;
+        self.pixels_left_to_push = 160;
+        PpuTickOutcome { increment_ly: false, new_mode: Some(PpuMode::DrawingPixels) }
+    }
+    fn start_vertical_blank(&mut self) -> PpuTickOutcome {
+        self.mode = PpuMode::VerticalBlank;
+        PpuTickOutcome { increment_ly: true, new_mode: Some(PpuMode::VerticalBlank) }
+    }
+    fn start_horizontal_blank(&mut self) -> PpuTickOutcome {
+        self.mode = PpuMode::HorizontalBlank;
+        PpuTickOutcome {
+            increment_ly: false,
+            new_mode: Some(PpuMode::HorizontalBlank),
         }
     }
 }
@@ -237,59 +249,57 @@ impl PpuModeTracker {
 impl Default for PpuModeTracker {
     fn default() -> Self {
         Self {
-            mode: PpuTickMode::OamScan { completed_cycles: 0 },
+            mode: PpuMode::OamScan,
             remaining_dots_in_line: DOTS_PER_LINE,
+            completed_cycles: 0,
+            pixels_left_to_push: 0,
+            pixels_left_to_ignore: 0,
         }
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum PpuTickMode {
+pub enum PpuMode {
     HorizontalBlank,
     VerticalBlank,
-    OamScan {
-        completed_cycles: u8,
-    },
-    DrawingPixels {
-        pixels_left_to_push: u8,
-        pixels_left_to_ignore: u8,
-    },
+    OamScan,
+    DrawingPixels,
 }
 
-impl PpuTickMode {
+impl PpuMode {
     pub fn get_cpu_accessible_video_targets(&self) -> Vec<MemoryTarget> {
         match self {
-            PpuTickMode::HorizontalBlank | PpuTickMode::VerticalBlank => {
+            PpuMode::HorizontalBlank | PpuMode::VerticalBlank => {
                 vec![MemoryTarget::VideoRam, MemoryTarget::ObjectAttributeMemory]
             },
-            PpuTickMode::OamScan { .. } => vec![MemoryTarget::VideoRam],
-            PpuTickMode::DrawingPixels { .. } => vec![],
+            PpuMode::OamScan { .. } => vec![MemoryTarget::VideoRam],
+            PpuMode::DrawingPixels { .. } => vec![],
         }
     }
     pub fn get_cpu_inaccessible_video_targets(&self) -> Vec<MemoryTarget> {
         match self {
-            PpuTickMode::HorizontalBlank | PpuTickMode::VerticalBlank => vec![],
-            PpuTickMode::OamScan { .. } => vec![MemoryTarget::ObjectAttributeMemory],
-            PpuTickMode::DrawingPixels { .. } => {
+            PpuMode::HorizontalBlank | PpuMode::VerticalBlank => vec![],
+            PpuMode::OamScan { .. } => vec![MemoryTarget::ObjectAttributeMemory],
+            PpuMode::DrawingPixels { .. } => {
                 vec![MemoryTarget::VideoRam, MemoryTarget::ObjectAttributeMemory]
             },
         }
     }
 }
 
-impl Default for PpuTickMode {
+impl Default for PpuMode {
     fn default() -> Self {
-        Self::OamScan { completed_cycles: 0 }
+        Self::OamScan
     }
 }
 
-impl From<PpuTickMode> for u8 {
-    fn from(mode: PpuTickMode) -> Self {
+impl From<PpuMode> for u8 {
+    fn from(mode: PpuMode) -> Self {
         match mode {
-            PpuTickMode::HorizontalBlank => 0,
-            PpuTickMode::VerticalBlank => 1,
-            PpuTickMode::OamScan { .. } => 2,
-            PpuTickMode::DrawingPixels { .. } => 3,
+            PpuMode::HorizontalBlank => 0,
+            PpuMode::VerticalBlank => 1,
+            PpuMode::OamScan { .. } => 2,
+            PpuMode::DrawingPixels { .. } => 3,
         }
     }
 }
@@ -350,7 +360,7 @@ impl Default for OamScannerStage {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct ObjectsOnThisLine {
     objects: [ObjectAttributes; 10],
     number_of_objects: u8, // cannot be more than 10
@@ -368,7 +378,7 @@ impl ObjectsOnThisLine {
     pub fn borrow_objects(&self) -> &[ObjectAttributes; 10] {
         &self.objects
     }
-    fn reset_for_new_scanline(&mut self) {
+    pub fn reset_for_new_scanline(&mut self) {
         self.number_of_objects = 0;
     }
 }
