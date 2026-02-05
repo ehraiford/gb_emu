@@ -4,7 +4,7 @@
         {
             "label": "run debug",
             "type": "shell",
-            "command": "cargo run -- 'C:\\Users\\evanr\\OneDrive\\Desktop\\Games\\Dr. Mario (World) (Rev 1).gb' run",
+            "command": "cargo run --  run --tile-map-viewer 'C:\\Users\\evanr\\OneDrive\\Desktop\\Games\\Dr. Mario (World) (Rev 1).gb' ",
             "options": {
                 "cwd": "gb_emu",
                 "env": {
@@ -16,7 +16,7 @@
         {
             "label": "run Dr. Mario",
             "type": "shell",
-            "command": "cargo run --release -- 'C:\\Users\\evanr\\OneDrive\\Desktop\\Games\\Dr. Mario (World) (Rev 1).gb' run",
+            "command": "cargo run --release --  run --tile-map-viewer 'C:\\Users\\evanr\\OneDrive\\Desktop\\Games\\Dr. Mario (World) (Rev 1).gb' ",
             "options": {
                 "cwd": "gb_emu",
                 "env": {
@@ -28,7 +28,7 @@
         {
             "label": "run Tetris",
             "type": "shell",
-            "command": "cargo run --release -- 'C:\\Users\\evanr\\OneDrive\\Desktop\\Games\\tetris.gb' run",
+            "command": "cargo run --release -- run --tile-map-viewer 'C:\\Users\\evanr\\OneDrive\\Desktop\\Games\\tetris.gb'",
             "options": {
                 "cwd": "gb_emu",
                 "env": {

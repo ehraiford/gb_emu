@@ -66,8 +66,15 @@ impl Bus {
     pub fn reset_divider_register(&mut self) {
         self.io_registers.timer_divider.reset_divider_register();
     }
-    pub fn handle_memory_map_event(&mut self, event: MemoryMapEvent) {
-        self.memory_map.handle_memory_map_event(event)
+
+    pub fn get_tile_map_images(&self) -> [crate::graphics::video_ram::TileMapImage; 2] {
+        let access_method = self
+            .io_registers
+            .lcd_registers
+            .get_background_window_tiles_address_mode();
+        let palette = self.io_registers.lcd_registers.get_bgp();
+
+        self.v_ram.get_tile_map_images(access_method, palette)
     }
 }
 
@@ -89,6 +96,10 @@ impl Bus {
 
     pub fn load_cartridge(&mut self, cartridge: Cartridge) {
         self.cartridge = cartridge;
+    }
+
+    pub fn handle_memory_map_event(&mut self, event: MemoryMapEvent) {
+        self.memory_map.handle_memory_map_event(event)
     }
 
     fn get_cpu_accessible_device_from_address(&self, address: Address) -> Option<MemoryTarget> {

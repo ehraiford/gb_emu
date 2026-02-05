@@ -172,7 +172,7 @@ impl Cpu {
         self.registers[5]
     }
     pub fn increase_pc(&mut self, value: u16) {
-        self.registers[5] += value
+        self.registers[5] = self.registers[5].wrapping_add(value)
     }
     pub fn set_pc(&mut self, value: u16) {
         self.registers[5] = value;

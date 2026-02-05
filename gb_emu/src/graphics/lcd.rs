@@ -223,7 +223,7 @@ impl Lcd {
     }
 
     pub fn object_on_scanline(&self, object_y_position: u8) -> bool {
-        let sprite_base = (object_y_position + self.get_object_size()) as u16;
+        let sprite_base = (object_y_position.wrapping_add(self.get_object_size())) as u16;
         let adjusted_ly = (self.get_ly() + 16) as u16;
 
         (object_y_position as u16..sprite_base).contains(&adjusted_ly)

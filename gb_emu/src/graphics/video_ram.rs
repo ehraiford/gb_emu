@@ -24,6 +24,41 @@ impl VideoRam {
         }
     }
 
+    pub fn get_tile_map_images(&self, access_method: AccessMethod, palette: u8) -> [TileMapImage; 2] {
+        [
+            self.get_tile_map_image(TargetTileMap::At0x9800, access_method, palette),
+            self.get_tile_map_image(TargetTileMap::At0x9C00, access_method, palette),
+        ]
+    }
+
+    fn get_tile_map_image(&self, map: TargetTileMap, access_method: AccessMethod, palette: u8) -> TileMapImage {
+        let tile_indeces = self.tile_maps.get_flat_memory(map);
+
+        let tiles: [&Tile; TileMap::TILES_IN_TILE_MAP] =
+            std::array::from_fn(|i| self.get_tile(access_method, tile_indeces[i]));
+
+        let mut pixel_iter = tiles.chunks_exact(32).flat_map(|row_of_tiles| {
+            // for each line
+            (0..Tile::LINES_IN_TILE).flat_map(move |line_num| {
+                // for each tile
+                row_of_tiles.iter().flat_map(move |tile| {
+                    // get the pixels from that tile for that line
+                    let pixels = tile.get_row_of_pixels(line_num);
+                    // move the colored pixels to the buffer
+                    pixels
+                        .into_iter()
+                        .map(move |p| ColoredPixel::from_raw_color_and_palette(p.color_number, palette))
+                })
+            })
+        });
+
+        let buffer: Box<[ColoredPixel; 65536]> = Box::new(std::array::from_fn(|_| {
+            pixel_iter.next().expect("Iterator length did not match array size")
+        }));
+
+        TileMapImage { buffer }
+    }
+
     pub fn get_tile_index_from_map(&self, map: &TargetTileMap, row: u8, column: u8) -> u8 {
         self.tile_maps.get_tile_index(map, row, column)
     }
@@ -152,6 +187,10 @@ pub struct Tile {
 }
 
 impl Tile {
+    const BYTES_IN_TILE: usize = 16;
+    const PIXELS_IN_TILE: usize = Self::BYTES_IN_TILE * 4;
+    const LINES_IN_TILE: u8 = 8;
+
     fn set_byte(&mut self, byte_index: usize, value: u8) {
         self.data[byte_index] = value;
     }
@@ -159,9 +198,13 @@ impl Tile {
     fn get_byte(&self, byte_index: usize) -> u8 {
         self.data[byte_index]
     }
+
+    fn get_row_of_pixels(&self, row_number: u8) -> [RawPixel; 8] {
+        RawPixel::from_bytes(row_number * 2, row_number * 2 + 1)
+    }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct RawPixel {
     pub color_number: u8,
 }
@@ -205,7 +248,7 @@ impl ColoredPixel {
         Self::from_raw_color_and_palette(raw_pixel.color_number, palette)
     }
 
-    fn from_raw_color_and_palette(color_number: u8, palette: u8) -> Self {
+    pub fn from_raw_color_and_palette(color_number: u8, palette: u8) -> Self {
         Self { color: palette >> (color_number * 2) & 0b11 }
     }
 
@@ -234,6 +277,8 @@ struct TileMap {
 }
 
 impl TileMap {
+    const TILES_IN_TILE_MAP: usize = 32 * 32;
+
     fn get_byte(&self, index: usize) -> u8 {
         self.tile_map[index / 32][index % 32]
     }
@@ -242,6 +287,9 @@ impl TileMap {
     }
     fn get_byte_from_coords(&self, row: u8, column: u8) -> u8 {
         self.tile_map[row as usize][column as usize]
+    }
+    fn get_flat_memory(&self) -> &[u8] {
+        self.tile_map.as_flattened()
     }
 }
 
@@ -275,6 +323,17 @@ impl TileMaps {
     pub fn get_tile_index(&self, map: &TargetTileMap, row: u8, column: u8) -> u8 {
         self.tile_map_bank[usize::from(*map)].get_byte_from_coords(row, column)
     }
+
+    fn get_tile_map(&self, map: TargetTileMap) -> &TileMap {
+        match map {
+            TargetTileMap::At0x9800 => &self.tile_map_bank[0],
+            TargetTileMap::At0x9C00 => &self.tile_map_bank[1],
+        }
+    }
+
+    fn get_flat_memory(&self, map: TargetTileMap) -> &[u8] {
+        self.get_tile_map(map).get_flat_memory()
+    }
 }
 
 #[derive(Default, Clone, Copy)]
@@ -300,17 +359,38 @@ struct TileByteIndex {
 
 impl TileByteIndex {
     const BLOCK_SIZE: usize = 128;
-    const BYTES_IN_TILE: usize = 16;
 
     /// Translates a local address to the indeces required to access it
     fn address_to_index(address: Address) -> Self {
         let address = address as usize;
 
-        let block_number = address / (Self::BYTES_IN_TILE * Self::BLOCK_SIZE);
-        let in_block_address = address % (Self::BYTES_IN_TILE * Self::BLOCK_SIZE);
-        let tile_index = in_block_address / Self::BYTES_IN_TILE;
-        let byte_index = in_block_address % Self::BYTES_IN_TILE;
+        let block_number = address / (Tile::BYTES_IN_TILE * Self::BLOCK_SIZE);
+        let in_block_address = address % (Tile::BYTES_IN_TILE * Self::BLOCK_SIZE);
+        let tile_index = in_block_address / Tile::BYTES_IN_TILE;
+        let byte_index = in_block_address % Tile::BYTES_IN_TILE;
 
         Self { block_number, tile_index, byte_index }
+    }
+}
+
+#[derive(Clone)]
+pub struct TileMapImage {
+    buffer: Box<[ColoredPixel; Self::PIXELS_IN_TILEMAP]>,
+}
+
+impl TileMapImage {
+    pub const PIXELS_IN_TILEMAP: usize = TileMap::TILES_IN_TILE_MAP * Tile::PIXELS_IN_TILE;
+    pub fn write_to_buffer(&self, destination: &mut [u32]) {
+        for (i, pixel) in self.buffer.iter().enumerate() {
+            destination[i] = pixel.to_minifb_u32();
+        }
+    }
+}
+
+impl Default for TileMapImage {
+    fn default() -> Self {
+        Self {
+            buffer: Box::new([Default::default(); Self::PIXELS_IN_TILEMAP]),
+        }
     }
 }

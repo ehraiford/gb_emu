@@ -10,8 +10,9 @@
             "request": "launch",
             "program": "${workspaceRoot}/gb_emu/target/debug/gb_emu.exe",
             "args": [
-                "C:\\Users\\evanr\\OneDrive\\Desktop\\Games\\Dr. Mario (World) (Rev 1).gb",
-                "run"
+                "run",
+                "--tile-map-viewer",
+                "C:\\Users\\evanr\\OneDrive\\Desktop\\Games\\Dr. Mario (World) (Rev 1).gb"
             ],
             "cwd": "${workspaceRoot}"
         }

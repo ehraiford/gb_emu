@@ -1,36 +1,97 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
+
+use crate::os_interface::debugging::{DebugReceiver, DebugSender, TileViewer};
 
 #[derive(Parser)]
 #[command(about = "Another GameBoy Emulator")]
 pub struct CommandLineArguments {
-    // Path to the ROM file to load
-    rom_path: PathBuf,
-
     #[command(subcommand)]
     command: CommandLineCommand,
 }
 
 impl CommandLineArguments {
     pub fn get_rom_path(&self) -> &PathBuf {
-        &self.rom_path
+        &self.command.get_rom_path()
     }
     pub fn get_command(&self) -> &CommandLineCommand {
         &self.command
+    }
+
+    pub fn get_debugging_handles(&self) -> Option<(DebugSender, DebugReceiver)> {
+        Some(DebugFeatures::get_debugging_handles(
+            &self.command.get_debug_features()?,
+        ))
     }
 }
 
 #[derive(Subcommand, Clone, PartialEq)]
 pub enum CommandLineCommand {
     Disassemble {
+        // Path to the ROM file to load
+        rom_path: PathBuf,
         output_path: PathBuf,
     },
-    Run,
+    Run {
+        // Path to the ROM file to load
+        rom_path: PathBuf,
+        #[command(flatten)]
+        debug_features: DebugFeatures,
+    },
     RunForNumberOfCycles {
+        // Path to the ROM file to load
+        rom_path: PathBuf,
         #[arg(value_parser = parse_int)]
         cycles: u64,
+        #[command(flatten)]
+        debug_features: DebugFeatures,
     },
+}
+
+impl CommandLineCommand {
+    fn get_rom_path(&self) -> &PathBuf {
+        match self {
+            CommandLineCommand::Disassemble { rom_path, .. }
+            | CommandLineCommand::Run { rom_path, .. }
+            | CommandLineCommand::RunForNumberOfCycles { rom_path, .. } => rom_path,
+        }
+    }
+
+    fn get_debug_features(&self) -> Option<DebugFeatures> {
+        match self {
+            CommandLineCommand::Disassemble { .. } => None,
+            CommandLineCommand::Run { debug_features, .. }
+            | CommandLineCommand::RunForNumberOfCycles { debug_features, .. } => Some(*debug_features),
+        }
+    }
+}
+
+#[derive(Args, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct DebugFeatures {
+    #[arg(long)]
+    tile_map_viewer: bool,
+    #[arg(long)]
+    log_instructions: bool,
+}
+
+impl DebugFeatures {
+    pub fn get_debugging_handles(&self) -> (DebugSender, DebugReceiver) {
+        let logging = self.log_instructions.then(|| ());
+
+        let (tile_view_receiver, tile_view_sender) = match self.tile_map_viewer {
+            true => {
+                let (receiver, sender) = TileViewer::new();
+                (Some(receiver), Some(sender))
+            },
+            false => (None, None),
+        };
+
+        let sender = DebugSender { logging, tile_view_sender };
+        let receiver = DebugReceiver { logging, tile_view_receiver };
+
+        (sender, receiver)
+    }
 }
 
 fn parse_int(string: &str) -> Result<u64, String> {

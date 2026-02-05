@@ -218,7 +218,7 @@ impl ObjectFifo {
         }
 
         match self.mode {
-            ObjectFifoMode::GetDataLow { object_attributes, sleep_cycle: _ } => {
+            ObjectFifoMode::GetDataLow { object_attributes, .. } => {
                 let (tile_index, byte_number) =
                     object_attributes.get_tile_index_and_byte_number(lcd.get_ly(), lcd.get_object_size());
                 let low_byte = v_ram.get_tile_byte(AccessMethod::Method8000, tile_index, byte_number);
@@ -233,9 +233,9 @@ impl ObjectFifo {
             ObjectFifoMode::GetDataHigh {
                 low_byte,
                 object_attributes,
-                sleep_cycle: _,
                 tile_index,
                 byte_number,
+                sleep_cycle: _,
             } => {
                 let high_byte = v_ram.get_tile_byte(AccessMethod::Method8000, tile_index, byte_number);
                 let pixels = RawPixel::from_bytes(low_byte, high_byte);
@@ -280,27 +280,17 @@ impl ObjectFifoMode {
     fn should_sleep(&self) -> bool {
         match self {
             ObjectFifoMode::Inactive => false,
-            ObjectFifoMode::GetDataLow { object_attributes: _, sleep_cycle }
-            | ObjectFifoMode::GetDataHigh {
-                low_byte: _,
-                object_attributes: _,
-                sleep_cycle,
-                tile_index: _,
-                byte_number: _,
-            } => *sleep_cycle,
+            ObjectFifoMode::GetDataLow { sleep_cycle, .. } | ObjectFifoMode::GetDataHigh { sleep_cycle, .. } => {
+                *sleep_cycle
+            },
         }
     }
     fn sleep(&mut self) {
         match self {
             ObjectFifoMode::Inactive => unreachable!("Sleep shouldn't even be called in Inactive mode"),
-            ObjectFifoMode::GetDataLow { object_attributes: _, sleep_cycle }
-            | ObjectFifoMode::GetDataHigh {
-                low_byte: _,
-                object_attributes: _,
-                sleep_cycle,
-                tile_index: _,
-                byte_number: _,
-            } => *sleep_cycle = false,
+            ObjectFifoMode::GetDataLow { sleep_cycle, .. } | ObjectFifoMode::GetDataHigh { sleep_cycle, .. } => {
+                *sleep_cycle = false
+            },
         }
     }
 }
@@ -347,7 +337,7 @@ impl BackGroundFifo {
         }
 
         match self.mode {
-            BackGroundFifoMode::GetTile { sleep_cycle: _ } => {
+            BackGroundFifoMode::GetTile { .. } => {
                 let access_method = lcd.get_background_window_tiles_address_mode();
 
                 // DECISION: Use fetcher X (tiles_fetched * 8) to choose the tilemap
@@ -473,38 +463,16 @@ impl BackGroundFifoMode {
     fn should_sleep(&self) -> bool {
         match self {
             BackGroundFifoMode::GetTile { sleep_cycle }
-            | BackGroundFifoMode::GetTileDataLow {
-                sleep_cycle,
-                access_method: _,
-                tile_number: _,
-                byte_number: _,
-            }
-            | BackGroundFifoMode::GetTileDataHigh {
-                sleep_cycle,
-                access_method: _,
-                tile_number: _,
-                low_byte: _,
-                byte_number: _,
-            } => *sleep_cycle,
+            | BackGroundFifoMode::GetTileDataLow { sleep_cycle, .. }
+            | BackGroundFifoMode::GetTileDataHigh { sleep_cycle, .. } => *sleep_cycle,
             _ => false,
         }
     }
     fn sleep(&mut self) {
         match self {
             BackGroundFifoMode::GetTile { sleep_cycle }
-            | BackGroundFifoMode::GetTileDataLow {
-                sleep_cycle,
-                access_method: _,
-                tile_number: _,
-                byte_number: _,
-            }
-            | BackGroundFifoMode::GetTileDataHigh {
-                sleep_cycle,
-                access_method: _,
-                tile_number: _,
-                low_byte: _,
-                byte_number: _,
-            } => *sleep_cycle = false,
+            | BackGroundFifoMode::GetTileDataLow { sleep_cycle, .. }
+            | BackGroundFifoMode::GetTileDataHigh { sleep_cycle, .. } => *sleep_cycle = false,
         }
     }
 }

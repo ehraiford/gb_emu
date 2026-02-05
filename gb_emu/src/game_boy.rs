@@ -1,7 +1,7 @@
 use crate::{
     bus::{Bus, MemoryMapEvent},
     cartridge::cartridge::Cartridge,
-    graphics::ppu::{Ppu, PpuTickMode},
+    graphics::{ppu::{Ppu, PpuTickMode}, video_ram::TileMapImage},
     io_devices::{dma::OamDma, interrupts::Interrupt, joypad_input::ButtonInput},
     os_interface::window::SenderFrameHandle,
     processor::cpu::Cpu,
@@ -160,6 +160,10 @@ impl GameBoy {
 
     fn mode_transition(&mut self, new_mode: GameBoyMode) {
         self.state.mode_transition(new_mode, &mut self.bus);
+    }
+
+    pub fn get_tile_map_images(&self) -> [TileMapImage; 2] {
+        self.bus.get_tile_map_images()
     }
 }
 

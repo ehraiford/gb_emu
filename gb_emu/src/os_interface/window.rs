@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use crate::emulator::EmulatorCommand;
 use crate::graphics::ppu::{Frame, SCREEN_HEIGHT, SCREEN_SIZE, SCREEN_WIDTH};
 use crate::io_devices::joypad_input::ButtonInput;
+use crate::os_interface::debugging::{DebugReceiver, TileViewer};
 
 const WINDOW_NAME: &str = &"Another GameBoy Emulator";
 const INPUT_POLLS_PER_SECOND: u32 = 60;
@@ -22,7 +23,7 @@ const KEY_MAPPING: [Key; 8] = [
     Key::Enter, // Bit 6: Select
     Key::Space, // Bit 7: Start
 ];
-pub fn get_window() -> Window {
+pub fn get_main_window() -> Window {
     Window::new(
         WINDOW_NAME,
         SCREEN_WIDTH as usize,
@@ -32,13 +33,24 @@ pub fn get_window() -> Window {
     .unwrap()
 }
 
+pub fn get_tile_map_window() -> Window {
+    Window::new(
+        "Tile Viewer",
+        TileViewer::WINDOW_WIDTH,
+        TileViewer::WINDOW_HEIGHT,
+        WindowOptions { scale: minifb::Scale::X2, ..Default::default() },
+    )
+    .unwrap()
+}
+
 pub struct OsWindow {
-    window: Window,
+    main_window: Window,
     last_sent_input: u8,
     button_input: ButtonInput,
     frame_handle: ReceiverFrameHandle,
     shared_command: Arc<Mutex<EmulatorCommand>>,
     spin_sleeper: SpinSleeper,
+    debug_receiver: DebugReceiver,
 }
 
 impl OsWindow {
@@ -46,24 +58,26 @@ impl OsWindow {
         frame_handle: ReceiverFrameHandle,
         button_input: ButtonInput,
         shared_command: Arc<Mutex<EmulatorCommand>>,
+        debug_receiver: DebugReceiver,
     ) -> Self {
         Self {
-            window: get_window(),
+            main_window: get_main_window(),
             button_input,
             frame_handle,
             shared_command,
             spin_sleeper: SpinSleeper::new(100_000).with_spin_strategy(spin_sleep::SpinStrategy::YieldThread),
             last_sent_input: 0xFF,
+            debug_receiver,
         }
     }
 
-    pub fn window_loop(&mut self, start_command: EmulatorCommand) {
+    pub fn start_loop(&mut self, start_command: EmulatorCommand) {
         let inner_duration = Duration::from_secs(1) / INPUT_POLLS_PER_SECOND;
         let outer_duration = Duration::from_secs(1) / WINDOW_FRAME_RATE;
 
         *self.shared_command.lock().unwrap() = start_command;
 
-        while self.window.is_open() {
+        while self.main_window.is_open() {
             let loop_start = Instant::now();
 
             loop {
@@ -86,12 +100,13 @@ impl OsWindow {
             }
 
             self.update_display();
+            self.debug_receiver.update()
         }
     }
 
     fn update_display(&mut self) {
         if self.frame_handle.update_frame() {
-            self.window
+            self.main_window
                 .update_with_buffer(
                     &self.frame_handle.get_frame()[..],
                     SCREEN_WIDTH as usize,
@@ -99,14 +114,14 @@ impl OsWindow {
                 )
                 .unwrap()
         } else {
-            self.window.update();
+            self.main_window.update();
         }
     }
 
     fn poll_input(&self) -> u8 {
         let mut input = 0x00;
         for i in 0..8 {
-            if !self.window.is_key_down(KEY_MAPPING[i]) {
+            if !self.main_window.is_key_down(KEY_MAPPING[i]) {
                 input |= 0b1 << i
             }
         }
@@ -143,7 +158,7 @@ impl ReceiverFrameHandle {
             return false;
         }
 
-        if let Ok(pending_frame) = self.shared.pending_frame.lock() {
+        if let Ok(pending_frame) = self.shared.pending_frame.try_lock() {
             pending_frame.send_to_pixel_buffer(&mut self.pixel_buffer);
         }
 

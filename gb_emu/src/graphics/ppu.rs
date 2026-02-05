@@ -112,7 +112,7 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
         match self.ppu.get_mode() {
             PpuTickMode::HorizontalBlank => self.tick_horizontal_blank(),
             PpuTickMode::VerticalBlank => self.tick_vertical_blank(),
-            PpuTickMode::OamScan { completed_cycles: _ } => self.tick_oam_scan(),
+            PpuTickMode::OamScan { .. } => self.tick_oam_scan(),
             PpuTickMode::DrawingPixels { pixels_left_to_ignore, pixels_left_to_push } => {
                 self.tick_drawing_pixels(*pixels_left_to_ignore, *pixels_left_to_push)
             },
@@ -227,7 +227,7 @@ impl PpuModeTracker {
             PpuTickMode::HorizontalBlank => self.process_tick_horizontal_blank(ly),
             PpuTickMode::VerticalBlank => self.process_tick_vertical_blank(ly),
             PpuTickMode::OamScan { completed_cycles } => self.process_tick_oam_scan(completed_cycles, scx),
-            PpuTickMode::DrawingPixels { pixels_left_to_push, pixels_left_to_ignore: _ } => {
+            PpuTickMode::DrawingPixels { pixels_left_to_push, .. } => {
                 self.process_tick_drawing_pixels(pixels_left_to_push)
             },
         }
@@ -262,15 +262,15 @@ impl PpuTickMode {
             PpuTickMode::HorizontalBlank | PpuTickMode::VerticalBlank => {
                 vec![MemoryTarget::VideoRam, MemoryTarget::ObjectAttributeMemory]
             },
-            PpuTickMode::OamScan { completed_cycles: _ } => vec![MemoryTarget::VideoRam],
-            PpuTickMode::DrawingPixels { pixels_left_to_ignore: _, pixels_left_to_push: _ } => vec![],
+            PpuTickMode::OamScan { .. } => vec![MemoryTarget::VideoRam],
+            PpuTickMode::DrawingPixels { .. } => vec![],
         }
     }
     pub fn get_cpu_inaccessible_video_targets(&self) -> Vec<MemoryTarget> {
         match self {
             PpuTickMode::HorizontalBlank | PpuTickMode::VerticalBlank => vec![],
-            PpuTickMode::OamScan { completed_cycles: _ } => vec![MemoryTarget::ObjectAttributeMemory],
-            PpuTickMode::DrawingPixels { pixels_left_to_ignore: _, pixels_left_to_push: _ } => {
+            PpuTickMode::OamScan { .. } => vec![MemoryTarget::ObjectAttributeMemory],
+            PpuTickMode::DrawingPixels { .. } => {
                 vec![MemoryTarget::VideoRam, MemoryTarget::ObjectAttributeMemory]
             },
         }
@@ -288,8 +288,8 @@ impl From<PpuTickMode> for u8 {
         match mode {
             PpuTickMode::HorizontalBlank => 0,
             PpuTickMode::VerticalBlank => 1,
-            PpuTickMode::OamScan { completed_cycles: _ } => 2,
-            PpuTickMode::DrawingPixels { pixels_left_to_ignore: _, pixels_left_to_push: _ } => 3,
+            PpuTickMode::OamScan { .. } => 2,
+            PpuTickMode::DrawingPixels { .. } => 3,
         }
     }
 }
