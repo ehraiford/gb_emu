@@ -339,7 +339,7 @@ impl TileMaps {
     }
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, Debug)]
 pub enum TargetTileMap {
     #[default]
     At0x9800,

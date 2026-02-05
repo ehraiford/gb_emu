@@ -80,7 +80,6 @@ impl Lcd {
         self.scy
     }
     pub fn get_wx(&self) -> u8 {
-        println!("WX is {}", self.wx);
         self.wx
     }
     pub fn get_wy(&self) -> u8 {
@@ -99,15 +98,14 @@ impl Lcd {
     }
 
     pub fn get_target_tilemap(&self, x_coordinate: u8) -> TargetTileMap {
-        match self.coordinate_in_window(x_coordinate) {
-            true => match self.get_control_flag(LcdControlFlag::WindowTileMap) {
-                true => TargetTileMap::At0x9C00,
-                false => TargetTileMap::At0x9800,
-            },
-            false => match self.get_control_flag(LcdControlFlag::BackgroundTileMap) {
-                true => TargetTileMap::At0x9C00,
-                false => TargetTileMap::At0x9800,
-            },
+        let flag = match self.window_enabled() && self.coordinate_in_window(x_coordinate) {
+            true => LcdControlFlag::WindowTileMap,
+            false => LcdControlFlag::BackgroundTileMap,
+        };
+
+        match self.get_control_flag(flag) {
+            true => TargetTileMap::At0x9C00,
+            false => TargetTileMap::At0x9800,
         }
     }
 
@@ -123,9 +121,6 @@ impl Lcd {
     }
 
     pub fn window_enabled(&self) -> bool {
-        if self.get_control_flag(LcdControlFlag::WindowEnable) {
-            println!("Window enabled",);
-        }
         self.get_control_flag(LcdControlFlag::WindowEnable)
     }
 

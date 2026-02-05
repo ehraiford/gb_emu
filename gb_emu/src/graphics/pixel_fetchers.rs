@@ -340,14 +340,12 @@ impl BackGroundFifo {
             BackGroundFifoMode::GetTile { .. } => {
                 let access_method = lcd.get_background_window_tiles_address_mode();
 
-                // DECISION: Use fetcher X (tiles_fetched * 8) to choose the tilemap
                 let fetcher_x = self.tiles_fetched * 8;
                 let map = lcd.get_target_tilemap(fetcher_x);
 
                 let (column, row, in_sprite_row) = self.get_tile_location(lcd);
                 let tile_number = v_ram.get_tile_index_from_map(&map, row, column);
 
-                // Increment tiles_fetched AFTER fetching so the first tile is 0
                 self.tiles_fetched = self.tiles_fetched.wrapping_add(1);
 
                 self.mode = BackGroundFifoMode::GetTileDataLow {
