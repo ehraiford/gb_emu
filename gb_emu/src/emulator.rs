@@ -137,9 +137,11 @@ impl From<CommandLineCommand> for EmulatorCommand {
 pub fn emulator_thread(mut emulator: Emulator, mutexed_command: Arc<Mutex<EmulatorCommand>>) {
     std::thread::spawn(move || {
         loop {
-            if let Ok(command) = mutexed_command.lock() {
-                emulator.run_command(*command);
-            }
+            let Ok(command) = mutexed_command.lock() else {
+                continue;
+            };
+
+            emulator.run_command(*command);
         }
     });
 }

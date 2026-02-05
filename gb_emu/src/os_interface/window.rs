@@ -24,23 +24,31 @@ const KEY_MAPPING: [Key; 8] = [
     Key::Space, // Bit 7: Start
 ];
 pub fn get_main_window() -> Window {
-    Window::new(
+    let mut window = Window::new(
         WINDOW_NAME,
         SCREEN_WIDTH as usize,
         SCREEN_HEIGHT as usize,
         WindowOptions { scale: minifb::Scale::X4, ..Default::default() },
     )
-    .unwrap()
+    .unwrap();
+
+    window.set_position(100, 100);
+
+    window
 }
 
 pub fn get_tile_map_window() -> Window {
-    Window::new(
+    let mut window = Window::new(
         "Tile Viewer",
         TileViewer::WINDOW_WIDTH,
         TileViewer::WINDOW_HEIGHT,
         WindowOptions { scale: minifb::Scale::X2, ..Default::default() },
     )
-    .unwrap()
+    .unwrap();
+
+    window.set_position(1000, 100);
+
+    window
 }
 
 pub struct OsWindow {
@@ -158,7 +166,7 @@ impl ReceiverFrameHandle {
             return false;
         }
 
-        if let Ok(pending_frame) = self.shared.pending_frame.try_lock() {
+        if let Ok(pending_frame) = self.shared.pending_frame.lock() {
             pending_frame.send_to_pixel_buffer(&mut self.pixel_buffer);
         }
 

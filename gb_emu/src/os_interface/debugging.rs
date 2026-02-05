@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    u32,
+};
 
 use minifb::Window;
 
@@ -37,13 +40,15 @@ impl TileViewer {
     pub const EMPTY_LINES_BETWEEN_MAPS: usize = 10;
 
     pub fn new() -> (Self, Arc<Mutex<[TileMapImage; 2]>>) {
-        let this = Self {
+        let mut this = Self {
             window: get_tile_map_window(),
             tile_maps: Arc::new(Mutex::new([TileMapImage::default(), TileMapImage::default()])),
             last_image_buffer: Box::new(
                 [ColoredPixel::screen_off().to_minifb_u32(); Self::WINDOW_HEIGHT * Self::WINDOW_WIDTH],
             ),
         };
+
+        this.set_bufer();
 
         let sender = this.tile_maps.clone();
 
@@ -65,7 +70,7 @@ impl TileViewer {
     // Updates the last image buffer we're holding in the struct.
     // Returns whether or not we actually got a new image to display
     fn try_update_image_buffer(&mut self) -> bool {
-        let (image_0, image_1) = if let Ok(buffers) = self.tile_maps.try_lock() {
+        let (image_0, image_1) = if let Ok(buffers) = self.tile_maps.lock() {
             let image_0 = buffers[0].clone();
             let image_1 = buffers[1].clone();
             (image_0, image_1)
@@ -81,13 +86,13 @@ impl TileViewer {
         let map_len = TileMapImage::PIXELS_IN_TILEMAP;
         let middle_len = Self::EMPTY_LINES_BETWEEN_MAPS * Self::WINDOW_WIDTH;
 
-        // 1. Write Top Map
         image_0.write_to_buffer(&mut self.last_image_buffer[..map_len]);
-
-        // 2. Clear Middle Section
-        self.last_image_buffer[map_len..map_len + middle_len].fill(0);
-
-        // 3. Write Bottom Map
         image_1.write_to_buffer(&mut self.last_image_buffer[map_len + middle_len..]);
+    }
+
+    fn set_bufer(&mut self) {
+        let map_len = TileMapImage::PIXELS_IN_TILEMAP;
+        let middle_len = Self::EMPTY_LINES_BETWEEN_MAPS * Self::WINDOW_WIDTH;
+        self.last_image_buffer[map_len..map_len + middle_len].fill(u32::MAX);
     }
 }
