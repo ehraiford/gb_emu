@@ -15,9 +15,9 @@ const WINDOW_FRAME_RATE: u32 = 60;
 
 const KEY_MAPPING: [Key; 8] = [
     Key::D,     // Bit 0: Right
-    Key::S,     // Bit 1: Left
+    Key::A,     // Bit 1: Left
     Key::W,     // Bit 2: Up
-    Key::A,     // Bit 3: Down
+    Key::S,     // Bit 3: Down
     Key::K,     // Bit 4: A
     Key::J,     // Bit 5: B
     Key::Enter, // Bit 6: Select
