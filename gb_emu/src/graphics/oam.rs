@@ -153,8 +153,7 @@ impl ObjectAttributes {
     }
 
     pub fn is_at_x_position(&self, x_address: u8) -> bool {
-        let rightmost_pixel_position = self.x_position.saturating_add(8);
-        (self.x_position..rightmost_pixel_position).contains(&(x_address.wrapping_add(8)))
+        self.x_position == x_address + 8
     }
 }
 

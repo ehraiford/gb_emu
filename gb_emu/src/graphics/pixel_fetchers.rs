@@ -42,7 +42,7 @@ impl PixelFetchers {
                 self.tick_ppu_fetching_object(lcd, v_ram);
                 None
             },
-            FetchersMode::PoppingObjectPixels => return self.tick_popping_object_pixels(lcd, v_ram),
+            FetchersMode::PoppingObjectPixels => self.tick_popping_object_pixels(lcd, v_ram),
         };
 
         if pixel.is_some() {

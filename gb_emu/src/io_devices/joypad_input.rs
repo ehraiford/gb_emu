@@ -43,10 +43,6 @@ impl JoyPadInput {
     }
 
     fn new_button_pressed(prev_nibble: u8, new_nibble: u8) -> bool {
-        println!(
-            "Prev: {prev_nibble:08b}, new_nibble: {new_nibble:08b}: calculation: {}",
-            prev_nibble & !new_nibble != 0
-        );
         prev_nibble & !new_nibble != 0
     }
 }
@@ -63,7 +59,6 @@ impl JoyPadInput {
         let old_value = self.currently_pressed;
 
         self.currently_pressed = self.button_input.load(std::sync::atomic::Ordering::Acquire);
-
         self.currently_pressed != old_value
     }
     pub fn tick(&mut self) {
@@ -111,4 +106,13 @@ impl From<u8> for SelectedInput {
 pub type ButtonInput = Arc<AtomicU8>;
 pub fn new_button_input() -> ButtonInput {
     Arc::new(AtomicU8::new(JoyPadInput::DEFAULT_INPUT_VALUE))
+}
+
+fn _print_input(value: u8) {
+    let input = ["Right", "Left", "Up", "Down", "A", "B", "Select", "Start"];
+    for i in 0..8 {
+        if (value >> i) & 0b1 == 0 {
+            println!("{} is set", input[i])
+        }
+    }
 }

@@ -375,8 +375,8 @@ impl ObjectsOnThisLine {
     fn is_at_capacity(&self) -> bool {
         self.number_of_objects == 10
     }
-    pub fn borrow_objects(&self) -> &[ObjectAttributes; 10] {
-        &self.objects
+    pub fn borrow_objects(&self) -> &[ObjectAttributes] {
+        &self.objects[0..self.number_of_objects as usize]
     }
     pub fn reset_for_new_scanline(&mut self) {
         self.number_of_objects = 0;

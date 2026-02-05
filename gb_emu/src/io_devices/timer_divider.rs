@@ -60,7 +60,7 @@ impl TimerDivider {
 
     pub fn set_register(&mut self, register: TimerDividerRegister, value: u8) {
         match register {
-            TimerDividerRegister::Divider => self.registers[TimerDividerRegister::Divider.get_index()] = 0,
+            TimerDividerRegister::Divider => self.registers[TimerDividerRegister::Divider.get_index()] = value,
             TimerDividerRegister::Counter => BusAccessFailure::TriedWritingToReadOnlyMemory.into(),
             TimerDividerRegister::Control => self.set_control_register(value),
             TimerDividerRegister::Modulo => self.registers[TimerDividerRegister::Modulo.get_index()] = value,
@@ -126,6 +126,7 @@ impl Default for TimerDivider {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
 pub enum TimerDividerRegister {
     Divider,
     Counter,
