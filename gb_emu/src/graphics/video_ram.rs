@@ -200,7 +200,10 @@ impl Tile {
     }
 
     fn get_row_of_pixels(&self, row_number: u8) -> [RawPixel; 8] {
-        RawPixel::from_bytes(row_number * 2, row_number * 2 + 1)
+        RawPixel::from_bytes(
+            self.data[row_number as usize * 2],
+            self.data[row_number as usize * 2 + 1],
+        )
     }
 }
 
