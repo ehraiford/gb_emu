@@ -35,6 +35,8 @@ impl OamDma {
         if self.wait_tick {
             self.wait_tick = false;
             return;
+        } else {
+            self.wait_tick = true;
         }
 
         let byte = bus.peek(self.source_address);
