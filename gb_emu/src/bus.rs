@@ -8,7 +8,7 @@ use crate::{
         ppu::PpuMode,
         video_ram::VideoRam,
     },
-    helpers::{concat_2_bytes, log},
+    helpers::{Bit, concat_2_bytes, log},
     io_devices::{
         interrupts::{Interrupt, InterruptEnableRegister},
         io_registers::IoRegisters,
@@ -63,6 +63,9 @@ impl Bus {
     pub fn tick_joypad(&mut self) {
         self.io_registers.joypad.tick();
     }
+    pub fn tick_serial(&mut self) {
+        self.io_registers.serial.tick();
+    }
     pub fn reset_divider_register(&mut self) {
         self.io_registers.timer_divider.reset_divider_register();
     }
@@ -76,8 +79,8 @@ impl Bus {
 
         self.v_ram.get_tile_map_images(access_method, palette)
     }
-    pub fn get_serial_byte(&self) -> u8 {
-        self.io_registers.serial.read(0xFF01)
+    pub fn get_serial_output(&self) -> Vec<&Bit> {
+        self.io_registers.serial.get_serial_output()
     }
 }
 

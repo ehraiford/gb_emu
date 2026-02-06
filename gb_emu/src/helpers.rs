@@ -11,7 +11,7 @@ pub fn concat_2_bytes(left: u8, right: u8) -> u16 {
 }
 
 /// gets a chunk of bits in a byte specified by the leftmost and rightmost (inclusive) bits desired.
-pub fn _get_bitfield(mut byte: u8, left: u8, right: u8) -> u8 {
+pub fn get_bitfield(mut byte: u8, left: u8, right: u8) -> u8 {
     byte = (byte << (7 - left)) >> (7 - left); // zero out left bits
     byte >>= right; // shift remaining bits to the far right of the return val
     byte
@@ -117,5 +117,93 @@ impl<const MAX_SIZE: usize, T: Default + Copy> StackAllocQueue<T, MAX_SIZE> {
     }
     pub fn length(&self) -> u8 {
         self.length
+    }
+}
+
+pub struct RingBuffer<T: Default + Copy, const BUFFER_SIZE: usize> {
+    buffer: [T; BUFFER_SIZE],
+    write_pos: usize,
+    count: usize,
+}
+
+impl<T: Default + Copy, const BUFFER_SIZE: usize> RingBuffer<T, BUFFER_SIZE> {
+    pub fn new() -> Self {
+        Self { buffer: [T::default(); BUFFER_SIZE], write_pos: 0, count: 0 }
+    }
+
+    pub fn push(&mut self, item: T) {
+        self.buffer[self.write_pos] = item;
+
+        self.write_pos = (self.write_pos + 1) % BUFFER_SIZE;
+
+        if self.count < BUFFER_SIZE {
+            self.count += 1;
+        }
+    }
+    pub fn as_vec(&self) -> Vec<&T> {
+        let (first, second) = if self.count < BUFFER_SIZE {
+            (&self.buffer[0..self.write_pos], &[][..])
+        } else {
+            (&self.buffer[self.write_pos..], &self.buffer[..self.write_pos])
+        };
+
+        first.iter().chain(second.iter()).collect()
+    }
+}
+
+impl<T: Default + Copy, const BUFFER_SIZE: usize> Default for RingBuffer<T, BUFFER_SIZE> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A representation of an individual bit.
+/// It's just a bit more meaningful than a bool.
+#[derive(Clone, Copy, Default)]
+pub enum Bit {
+    #[default]
+    Low,
+    High,
+}
+
+impl Bit {
+    pub fn from_byte(byte: u8) -> [Self; 8] {
+        std::array::from_fn(|i| Self::from_lowest_bit_in_byte(byte >> i))
+    }
+
+    pub fn to_byte(bits: [&Self; 8]) -> u8 {
+        let mut byte = 0;
+        for (i, bit) in bits.iter().enumerate() {
+            byte |= bit.as_u8() << i
+        }
+        byte
+    }
+
+    pub fn as_u8(&self) -> u8 {
+        match self {
+            Bit::High => 1,
+            Bit::Low => 0,
+        }
+    }
+
+    pub fn from_lowest_bit_in_byte(byte: u8) -> Self {
+        match byte & 0b1 {
+            0 => Self::Low,
+            1 => Self::High,
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn to_char(bits: [&Self; 8]) -> char {
+        Bit::to_byte(bits) as char
+    }
+}
+
+impl From<bool> for Bit {
+    fn from(value: bool) -> Self {
+        match value {
+            true => Bit::High,
+            false => Bit::Low,
+        }
     }
 }

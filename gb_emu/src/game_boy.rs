@@ -5,6 +5,7 @@ use crate::{
         ppu::{Ppu, PpuMode, PpuOperationContext},
         video_ram::TileMapImage,
     },
+    helpers::Bit,
     io_devices::{dma::OamDma, interrupts::Interrupt, joypad_input::ButtonInput},
     os_interface::window::SenderFrameHandle,
     processor::cpu::Cpu,
@@ -85,11 +86,16 @@ impl GameBoy {
         self.bus.tick_joypad();
     }
 
+    fn tick_serial(&mut self) {
+        self.bus.tick_serial();
+    }
+
     fn tick_peripherals_lockstep(&mut self) {
         for _ in 0..(self.state.cpu_lockstep_catchup.0) {
             self.tick_timer_divider();
             self.tick_oam_dma();
             self.tick_ppu();
+            self.tick_serial();
         }
         self.state.cpu_lockstep_catchup.0 = 0;
     }
@@ -190,8 +196,8 @@ impl GameBoy {
     pub fn get_tile_map_images(&self) -> [TileMapImage; 2] {
         self.bus.get_tile_map_images()
     }
-    pub fn get_serial_byte(&self) -> u8 {
-        self.bus.get_serial_byte()
+    pub fn get_serial_output(&self) -> Vec<&Bit> {
+        self.bus.get_serial_output()
     }
 }
 

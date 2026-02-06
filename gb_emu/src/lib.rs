@@ -11,12 +11,12 @@ use crate::{
 use clap::Parser;
 
 mod bus;
-mod cartridge;
+pub mod cartridge;
 mod emulator;
 pub mod game_boy;
 mod graphics;
-mod helpers;
-mod io_devices;
+pub mod helpers;
+pub mod io_devices;
 mod onboard_memory;
 mod os_interface;
 mod processor;
@@ -37,7 +37,11 @@ pub fn run_program() {
 }
 
 #[cfg(feature = "headless")]
-fn run_emulator(rom_data: &[u8], emulator_command: EmulatorCommand, _: CommandLineArguments) {}
+fn run_emulator(rom_data: &[u8], emulator_command: EmulatorCommand, _: CommandLineArguments) {
+    let mut emulator = Emulator::new();
+    emulator.load_rom(rom_data);
+    emulator.run_command(emulator_command);
+}
 
 #[cfg(not(feature = "headless"))]
 fn run_emulator(rom_data: &[u8], emulator_command: EmulatorCommand, command_line_args: CommandLineArguments) {
