@@ -30,9 +30,7 @@ fn main() {
         command => EmulatorCommand::from(command.clone()),
     };
 
-    let (debug_sender, debug_receiver) = command_line_args
-        .get_debugging_handles()
-        .expect("This is only None if it was disassembly which was already handled");
+    let (debug_sender, debug_receiver) = command_line_args.get_debugging_handles();
 
     let rom_data: Vec<u8> = std::fs::read(command_line_args.get_rom_path()).unwrap();
     let (ppu_handle, window_frame_handle, button_input) = get_os_interface_variables();

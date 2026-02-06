@@ -19,10 +19,8 @@ impl CommandLineArguments {
         &self.command
     }
 
-    pub fn get_debugging_handles(&self) -> Option<(DebugSender, DebugReceiver)> {
-        Some(DebugFeatures::get_debugging_handles(
-            &self.command.get_debug_features()?,
-        ))
+    pub fn get_debugging_handles(&self) -> (DebugSender, DebugReceiver) {
+        DebugFeatures::get_debugging_handles(&self.command.get_debug_features())
     }
 }
 
@@ -47,6 +45,10 @@ pub enum CommandLineCommand {
         #[command(flatten)]
         debug_features: DebugFeatures,
     },
+    RunAsFastAsPossible {
+        // Path to the ROM file to load
+        rom_path: PathBuf,
+    },
 }
 
 impl CommandLineCommand {
@@ -54,20 +56,21 @@ impl CommandLineCommand {
         match self {
             CommandLineCommand::Disassemble { rom_path, .. }
             | CommandLineCommand::Run { rom_path, .. }
-            | CommandLineCommand::RunForNumberOfCycles { rom_path, .. } => rom_path,
+            | CommandLineCommand::RunForNumberOfCycles { rom_path, .. }
+            | CommandLineCommand::RunAsFastAsPossible { rom_path } => rom_path,
         }
     }
 
-    fn get_debug_features(&self) -> Option<DebugFeatures> {
+    fn get_debug_features(&self) -> DebugFeatures {
         match self {
-            CommandLineCommand::Disassemble { .. } => None,
+            CommandLineCommand::Disassemble { .. } | Self::RunAsFastAsPossible { .. } => DebugFeatures::default(),
             CommandLineCommand::Run { debug_features, .. }
-            | CommandLineCommand::RunForNumberOfCycles { debug_features, .. } => Some(*debug_features),
+            | CommandLineCommand::RunForNumberOfCycles { debug_features, .. } => *debug_features,
         }
     }
 }
 
-#[derive(Args, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Args, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 pub struct DebugFeatures {
     #[arg(long)]
     tile_map_viewer: bool,

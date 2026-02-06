@@ -58,6 +58,12 @@ impl Emulator {
         }
     }
 
+    fn run_as_fast_as_possible(&mut self) {
+        loop {
+            self.tick();
+        }
+    }
+
     fn run_frame(&mut self) {
         let target_m_cycle_amount = self.executed_m_cycles + Self::M_CYCLES_IN_FRAME;
         while self.executed_m_cycles < target_m_cycle_amount {
@@ -83,6 +89,7 @@ impl Emulator {
             EmulatorCommand::Run => self.run(),
             EmulatorCommand::RunForNumberOfCycles(cycles) => self.run_for_num_cycles(cycles),
             EmulatorCommand::Wait => std::thread::sleep(Duration::from_millis(10)),
+            EmulatorCommand::RunAsFastAsPossible => self.run_as_fast_as_possible(),
         }
     }
 
@@ -121,6 +128,7 @@ pub enum EmulatorCommand {
     Run,
     RunForNumberOfCycles(u64),
     Wait,
+    RunAsFastAsPossible,
 }
 
 impl From<CommandLineCommand> for EmulatorCommand {
@@ -128,6 +136,7 @@ impl From<CommandLineCommand> for EmulatorCommand {
         match command {
             CommandLineCommand::Run { .. } => Self::Run,
             CommandLineCommand::RunForNumberOfCycles { cycles, .. } => Self::RunForNumberOfCycles(cycles),
+            CommandLineCommand::RunAsFastAsPossible { .. } => Self::RunAsFastAsPossible,
             CommandLineCommand::Disassemble { .. } => unreachable!(),
         }
     }
