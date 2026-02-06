@@ -633,18 +633,31 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         let operand0_value = self.get_u16_operand(operand0);
         let operand1_value = self.get_u16_operand(operand1);
 
-        let (result, overflowed) = operand0_value.overflowing_add(operand1_value);
+        if matches!(operand1, SixteenBitOperand::E8) {
+            let sp = operand0_value;
+            let immediate = operand1_value as u8;
 
-        self.set_u16_operand(operand0, result);
+            self.set_flags(
+                false,
+                false,
+                (sp as u8 & 0x0F) + (immediate & 0x0F) > 0x0F,
+                (sp as u8).checked_add(immediate).is_none(),
+            );
+            InstructionOutcome::Ok
+        } else {
+            let (result, overflowed) = operand0_value.overflowing_add(operand1_value);
 
-        self.set_flags(
-            self.cpu.get_flag(Flag::Zero),
-            false,
-            bit_11_overflow(vec![operand0_value, operand1_value]),
-            overflowed,
-        );
+            self.set_u16_operand(operand0, result);
 
-        InstructionOutcome::Ok
+            self.set_flags(
+                self.cpu.get_flag(Flag::Zero),
+                false,
+                bit_11_overflow(vec![operand0_value, operand1_value]),
+                overflowed,
+            );
+
+            InstructionOutcome::Ok
+        }
     }
 
     fn and(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
@@ -687,8 +700,9 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     }
 
     fn complement_carry_flag(&mut self) -> InstructionOutcome {
-        let carry = self.cpu.get_flag(Flag::Carry);
-        self.cpu.set_flag(Flag::Carry, !carry);
+        let new_carry = !self.cpu.get_flag(Flag::Carry);
+
+        self.set_flags(self.cpu.get_flag(Flag::Zero), false, false, new_carry);
 
         InstructionOutcome::Ok
     }
@@ -722,27 +736,35 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
 
     fn decimal_adjust_accumulator(&mut self) -> InstructionOutcome {
         let mut adjustment = 0;
-        match self.cpu.get_flag(Flag::Subtraction) {
-            true => {
-                if self.cpu.get_flag(Flag::HalfCarry) {
-                    adjustment += 0x6;
-                }
-                if self.cpu.get_flag(Flag::Carry) {
-                    adjustment += 0x60;
-                }
-                self.subtract(&EightBitOperand::Immediate(adjustment))
-            },
-            false => {
-                let a = self.get_a();
-                if self.cpu.get_flag(Flag::HalfCarry) || a & 0xF > 0x9 {
-                    adjustment += 0x6;
-                }
-                if self.cpu.get_flag(Flag::Carry) || a > 0x99 {
-                    adjustment += 0x60;
-                }
-                self.add_8_bit(&EightBitOperand::Immediate(adjustment))
-            },
+        let mut new_carry = self.cpu.get_flag(Flag::Carry);
+        let a = self.get_a();
+
+        if self.cpu.get_flag(Flag::Subtraction) {
+            if self.cpu.get_flag(Flag::HalfCarry) {
+                adjustment |= 0x06;
+            }
+            if self.cpu.get_flag(Flag::Carry) {
+                adjustment |= 0x60;
+            }
+        } else {
+            if (a & 0x0F) > 0x09 || self.cpu.get_flag(Flag::HalfCarry) {
+                adjustment |= 0x06;
+            }
+            if a > 0x99 || self.cpu.get_flag(Flag::Carry) {
+                adjustment |= 0x60;
+                new_carry = true;
+            }
         }
+
+        let result = if self.cpu.get_flag(Flag::Subtraction) {
+            a.wrapping_sub(adjustment)
+        } else {
+            a.wrapping_add(adjustment)
+        };
+
+        self.set_a(result);
+        self.set_flags(result == 0, self.cpu.get_flag(Flag::Subtraction), false, new_carry);
+        InstructionOutcome::Ok
     }
 
     fn decrement_8_bit(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
@@ -1072,7 +1094,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
 
     fn shift_right_arithmetically(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
         let value = self.get_u8_operand(operand);
-        let sign = value >> 7;
+        let sign = value & 0x80;
 
         let new_carry = value & 1 == 1;
         let result = (value >> 1) | sign;

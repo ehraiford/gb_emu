@@ -1,11 +1,4 @@
 {
-    "rust-analyzer.cargo.features": [
-        "headless"
-    ],
-    "rust-analyzer.cargo.extraArgs": [
-        "--features",
-        "headless"
-    ],
     "editor.formatOnSave": true,
     "[rust]": {
         "editor.formatOnSave": true

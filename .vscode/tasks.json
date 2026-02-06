@@ -44,6 +44,17 @@
                 }
             },
             "problemMatcher": "$rustc"
-        }
+        },
+        {
+            "label": "run Blargg Test",
+            "type": "shell",
+            "command": "cargo run --release -- run-as-fast-as-possible ${workspaceFolder}/test_roms/blargg_test_roms/cpu_instrs.gb",
+            "options": {
+                "env": {
+                    "RUST_BACKTRACE": "1"
+                }
+            },
+            "problemMatcher": "$rustc"
+        },
     ]
 }

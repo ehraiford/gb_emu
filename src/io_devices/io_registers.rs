@@ -1,8 +1,8 @@
-use std::sync::{Arc, atomic::AtomicU8};
+use std::sync::{atomic::AtomicU8, Arc};
 
 use crate::{
     bus::{Address, BusAccessFailure, BusAccessible, MemoryTarget},
-    game_boy::{GameBoyEvent, notate_event},
+    game_boy::{notate_event, GameBoyEvent},
     graphics::{lcd::Lcd, oam::PriorityMode},
     io_devices::{
         audio::Audio,
@@ -63,7 +63,7 @@ impl BusAccessible for IoRegisters {
             IoSection::Audio => self.audio.read(address),
             IoSection::WavePattern => todo!(),
             IoSection::Lcd => self.lcd_registers.read(address),
-            IoSection::Keys => todo!(),
+            IoSection::Keys => BusAccessFailure::Unimplemented.into(),
             IoSection::VramBankSelect => todo!(),
             IoSection::BootRomMappingControl => BusAccessFailure::TriedAccessingUnusableMemory.into(),
             IoSection::Ir => todo!(),
@@ -171,7 +171,7 @@ impl IoSection {
     fn from_address(address: Address) -> Option<Self> {
         let mut i = 0;
         while i < IO_MAP.len() {
-            if IO_MAP[i].1.0 <= address && IO_MAP[i].1.1 > address {
+            if IO_MAP[i].1 .0 <= address && IO_MAP[i].1 .1 > address {
                 return Some(IO_MAP[i].0);
             }
             i += 1;
