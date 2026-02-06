@@ -45,11 +45,6 @@ impl Ppu {
         }
     }
 
-    pub fn enable(&mut self) {
-        self.reset_for_new_frame();
-        self.mode_tracking = Default::default();
-    }
-
     fn get_mode(&self) -> &PpuMode {
         &self.mode_tracking.mode
     }
@@ -85,6 +80,18 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
         lcd: &'d mut Lcd,
     ) -> Self {
         Self { ppu, v_ram, oam, lcd }
+    }
+
+    pub fn enable(&mut self) {
+        self.ppu.reset_for_new_frame();
+        self.ppu.mode_tracking = Default::default();
+        self.lcd.set_ppu_mode(Default::default());
+    }
+
+    pub fn disable(&mut self) {
+        self.ppu.reset_for_new_frame();
+        self.ppu.mode_tracking.start_horizontal_blank();
+        self.lcd.set_ppu_mode(PpuMode::HorizontalBlank);
     }
 
     fn tick_oam_scan(&mut self) {
@@ -237,7 +244,7 @@ impl PpuModeTracker {
         self.mode = PpuMode::VerticalBlank;
         PpuTickOutcome { increment_ly: true, new_mode: Some(PpuMode::VerticalBlank) }
     }
-    fn start_horizontal_blank(&mut self) -> PpuTickOutcome {
+    pub fn start_horizontal_blank(&mut self) -> PpuTickOutcome {
         self.mode = PpuMode::HorizontalBlank;
         PpuTickOutcome {
             increment_ly: false,

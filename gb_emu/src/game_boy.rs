@@ -1,7 +1,10 @@
 use crate::{
     bus::{Bus, MemoryMapEvent},
     cartridge::cartridge::Cartridge,
-    graphics::{ppu::{Ppu, PpuMode}, video_ram::TileMapImage},
+    graphics::{
+        ppu::{Ppu, PpuMode, PpuOperationContext},
+        video_ram::TileMapImage,
+    },
     io_devices::{dma::OamDma, interrupts::Interrupt, joypad_input::ButtonInput},
     os_interface::window::SenderFrameHandle,
     processor::cpu::Cpu,
@@ -92,7 +95,7 @@ impl GameBoy {
             },
             GameBoyMode::Stopped => todo!(),
             GameBoyMode::Halted => {
-                if self.has_unhandled_interrupts() {
+                if self.should_exit_halt() {
                     self.mode_transition(GameBoyMode::Executing);
                     self.tick()
                 } else {
@@ -105,8 +108,8 @@ impl GameBoy {
         }
     }
 
-    fn has_unhandled_interrupts(&self) -> bool {
-        self.cpu.interrupts_are_enabled() && self.bus.try_get_interrupt().is_some()
+    fn should_exit_halt(&self) -> bool {
+        self.bus.try_get_interrupt().is_some()
     }
 
     fn handle_changes(&mut self) {
@@ -144,8 +147,12 @@ impl GameBoy {
 
     fn handle_change_lcd_ppu_enabled(&mut self, enabled: bool) {
         self.bus.reset_ly();
+        let (v_ram, oam, lcd) = self.bus.get_ppu_context_mem();
+        let mut ppu_context = PpuOperationContext::new(&mut self.ppu, v_ram, oam, lcd);
         if enabled {
-            self.ppu.enable();
+            ppu_context.enable();
+        } else {
+            ppu_context.disable();
         }
     }
 
@@ -159,7 +166,13 @@ impl GameBoy {
     }
 
     fn mode_transition(&mut self, new_mode: GameBoyMode) {
-        self.state.mode_transition(new_mode, &mut self.bus);
+        match new_mode {
+            GameBoyMode::Executing => (),
+            GameBoyMode::Stopped => self.bus.reset_divider_register(),
+            GameBoyMode::Halted => (),
+        }
+
+        self.state.mode = new_mode;
     }
 
     pub fn get_tile_map_images(&self) -> [TileMapImage; 2] {
@@ -172,16 +185,7 @@ struct GameBoyState {
     cpu_lockstep_catchup: MCycles,
 }
 
-impl GameBoyState {
-    fn mode_transition(&mut self, new_mode: GameBoyMode, bus: &mut Bus) {
-        match new_mode {
-            GameBoyMode::Executing => (),
-            GameBoyMode::Stopped => bus.reset_divider_register(),
-            GameBoyMode::Halted => (),
-        }
-        self.mode = new_mode;
-    }
-}
+impl GameBoyState {}
 
 impl Default for GameBoyState {
     fn default() -> Self {
