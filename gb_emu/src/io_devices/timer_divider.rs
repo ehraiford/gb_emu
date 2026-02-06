@@ -46,11 +46,11 @@ impl TimerDivider {
         self.set_register(TimerDividerRegister::Divider, 0);
     }
 
-    pub fn get(&self, address: Address) -> u8 {
+    pub fn read(&self, address: Address) -> u8 {
         self.registers[TimerDivider::get_local_address(address) as usize]
     }
 
-    pub fn set(&mut self, address: Address, value: u8) {
+    pub fn write(&mut self, address: Address, value: u8) {
         self.set_register(TimerDividerRegister::from_global_address(address), value);
     }
 

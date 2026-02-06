@@ -35,12 +35,24 @@ pub struct GameBoy {
 }
 
 impl GameBoy {
+    #[cfg(not(feature = "headless"))]
     pub fn new(frame_handle: SenderFrameHandle, button_input: ButtonInput) -> Self {
         Self {
             ppu: Ppu::new(frame_handle),
             state: Default::default(),
             cpu: Default::default(),
             bus: Bus::new(button_input),
+            oam_dma: Default::default(),
+        }
+    }
+
+    #[cfg(feature = "headless")]
+    pub fn new() -> Self {
+        Self {
+            ppu: Ppu::new(),
+            state: Default::default(),
+            cpu: Default::default(),
+            bus: Bus::new(),
             oam_dma: Default::default(),
         }
     }
@@ -177,6 +189,9 @@ impl GameBoy {
 
     pub fn get_tile_map_images(&self) -> [TileMapImage; 2] {
         self.bus.get_tile_map_images()
+    }
+    pub fn get_serial_byte(&self) -> u8 {
+        self.bus.get_serial_byte()
     }
 }
 

@@ -36,11 +36,11 @@ pub struct InterruptFlagRegister {
 }
 
 impl InterruptFlagRegister {
-    pub fn get(&self) -> u8 {
+    pub fn read(&self) -> u8 {
         self.value
     }
 
-    pub fn set(&mut self, value: u8) {
+    pub fn write(&mut self, value: u8) {
         self.value = value;
     }
 

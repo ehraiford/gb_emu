@@ -25,25 +25,11 @@ impl Emulator {
     const M_CYCLES_IN_FRAME: MCycles = MCycles(17_556);
     const FRAME_DURATION: Duration = Duration::from_nanos(16_742_706);
 
-    pub fn new(frame_handle: SenderFrameHandle, button_input: ButtonInput, debug_sender: DebugSender) -> Self {
-        Self {
-            gameboy: GameBoy::new(frame_handle, button_input),
-            executed_m_cycles: MCycles(0),
-            start_time: Instant::now(),
-            spin_sleeper: SpinSleeper::new(100_000).with_spin_strategy(spin_sleep::SpinStrategy::YieldThread),
-            ticked_frames: 0,
-            #[cfg(not(feature = "headless"))]
-            debug_sender,
-        }
-    }
-
     pub fn load_rom(&mut self, rom_data: &[u8]) {
         let cartridge = Cartridge::new(&rom_data).unwrap();
         self.gameboy.load_cartridge(cartridge);
     }
-}
 
-impl Emulator {
     fn run_for_num_cycles(&mut self, cycles: u64) {
         self.start_time = Instant::now();
         while self.executed_m_cycles < MCycles(cycles) {
@@ -93,18 +79,6 @@ impl Emulator {
         }
     }
 
-    fn send_debug_data_to_ui_thread(&mut self) {
-        if let Some(()) = &self.debug_sender.logging {
-            todo!("This hasn't been implemented yet")
-        }
-        if let Some(tile_sender) = &self.debug_sender.tile_view_sender {
-            let tile_map_iamges = self.get_tile_map_images();
-            if let Ok(mut tile_sender) = tile_sender.try_lock() {
-                *tile_sender = tile_map_iamges;
-            }
-        }
-    }
-
     fn get_tile_map_images(&self) -> [TileMapImage; 2] {
         self.gameboy.get_tile_map_images()
     }
@@ -120,6 +94,56 @@ impl Emulator {
 
     fn get_expected_duration(&self) -> Duration {
         Self::FRAME_DURATION * self.ticked_frames
+    }
+}
+
+#[cfg(feature = "headless")]
+impl Emulator {
+    pub fn new() -> Self {
+        Self {
+            gameboy: GameBoy::new(),
+            executed_m_cycles: MCycles(0),
+            start_time: Instant::now(),
+            spin_sleeper: SpinSleeper::new(100_000).with_spin_strategy(spin_sleep::SpinStrategy::YieldThread),
+            ticked_frames: 0,
+        }
+    }
+}
+#[cfg(not(feature = "headless"))]
+impl Emulator {
+    fn send_debug_data_to_ui_thread(&mut self) {
+        if let Some(()) = &self.debug_sender.logging {
+            todo!("This hasn't been implemented yet")
+        }
+        if let Some(tile_sender) = &self.debug_sender.tile_view_sender {
+            let tile_map_iamges = self.get_tile_map_images();
+            if let Ok(mut tile_sender) = tile_sender.try_lock() {
+                *tile_sender = tile_map_iamges;
+            }
+        }
+    }
+
+    pub fn new(frame_handle: SenderFrameHandle, button_input: ButtonInput, debug_sender: DebugSender) -> Self {
+        Self {
+            gameboy: GameBoy::new(frame_handle, button_input),
+            executed_m_cycles: MCycles(0),
+            start_time: Instant::now(),
+            spin_sleeper: SpinSleeper::new(100_000).with_spin_strategy(spin_sleep::SpinStrategy::YieldThread),
+            ticked_frames: 0,
+            debug_sender,
+        }
+    }
+
+    pub fn start_emulator_thread(mut self, mutexed_command: Arc<Mutex<EmulatorCommand>>) {
+        std::thread::spawn(move || {
+            loop {
+                let Ok(command) = mutexed_command.lock() else {
+                    continue;
+                };
+
+                self.run_command(*command);
+            }
+        });
     }
 }
 
@@ -140,17 +164,4 @@ impl From<CommandLineCommand> for EmulatorCommand {
             CommandLineCommand::Disassemble { .. } => unreachable!(),
         }
     }
-}
-
-#[cfg(not(feature = "headless"))]
-pub fn emulator_thread(mut emulator: Emulator, mutexed_command: Arc<Mutex<EmulatorCommand>>) {
-    std::thread::spawn(move || {
-        loop {
-            let Ok(command) = mutexed_command.lock() else {
-                continue;
-            };
-
-            emulator.run_command(*command);
-        }
-    });
 }

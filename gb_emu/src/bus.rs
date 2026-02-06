@@ -76,12 +76,32 @@ impl Bus {
 
         self.v_ram.get_tile_map_images(access_method, palette)
     }
+    pub fn get_serial_byte(&self) -> u8 {
+        self.io_registers.serial.read(0xFF01)
+    }
 }
 
 impl Bus {
+    #[cfg(not(feature = "headless"))]
     pub fn new(button_input: ButtonInput) -> Self {
         Self {
             io_registers: IoRegisters::new(button_input),
+            cartridge: Default::default(),
+            v_ram: Default::default(),
+            w_ram_00: Default::default(),
+            bankable_w_ram: Default::default(),
+            oam: Default::default(),
+            h_ram: Default::default(),
+            ie: Default::default(),
+            boot_rom: Default::default(),
+            memory_map: Default::default(),
+        }
+    }
+
+    #[cfg(feature = "headless")]
+    pub fn new() -> Self {
+        Self {
+            io_registers: IoRegisters::new(),
             cartridge: Default::default(),
             v_ram: Default::default(),
             w_ram_00: Default::default(),

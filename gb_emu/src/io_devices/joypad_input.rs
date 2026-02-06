@@ -16,14 +16,6 @@ pub struct JoyPadInput {
 impl JoyPadInput {
     const DEFAULT_INPUT_VALUE: u8 = 0xFF;
 
-    pub fn new(button_input: ButtonInput) -> Self {
-        Self {
-            button_input,
-            selected_input: Default::default(),
-            currently_pressed: 0xFF,
-        }
-    }
-
     pub fn write(&mut self, value: u8) {
         self.selected_input = SelectedInput::from(value);
     }
@@ -49,10 +41,21 @@ impl JoyPadInput {
 
 #[cfg(feature = "headless")]
 impl JoyPadInput {
+    pub fn new() -> Self {
+        Self { selected_input: Default::default(), currently_pressed: 0xFF }
+    }
     pub fn tick(&mut self) {}
 }
 #[cfg(not(feature = "headless"))]
 impl JoyPadInput {
+    pub fn new(button_input: ButtonInput) -> Self {
+        Self {
+            button_input,
+            selected_input: Default::default(),
+            currently_pressed: 0xFF,
+        }
+    }
+
     /// sets the currently_pressed field to the value taken from the atomic u8 and returns whether it changed.
     /// Note: This is NOT enough to say a new button was pressed because it has both possible lower nibbles packed into it.
     fn ingest_input(&mut self) -> bool {

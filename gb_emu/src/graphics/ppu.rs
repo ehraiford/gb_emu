@@ -26,9 +26,20 @@ pub struct Ppu {
 }
 
 impl Ppu {
+    #[cfg(not(feature = "headless"))]
     pub fn new(frame_handle: SenderFrameHandle) -> Self {
         Self {
             screen: Screen::new(frame_handle),
+            mode_tracking: Default::default(),
+            pixel_fetchers: Default::default(),
+            oam_scanner: Default::default(),
+        }
+    }
+
+    #[cfg(feature = "headless")]
+    pub fn new() -> Self {
+        Self {
+            screen: Screen::new(),
             mode_tracking: Default::default(),
             pixel_fetchers: Default::default(),
             oam_scanner: Default::default(),
@@ -405,20 +416,14 @@ struct Screen {
     shared: Arc<TripleBuffer>,
 }
 
-impl Screen {
-    pub fn new(frame_handle: SenderFrameHandle) -> Self {
-        Self {
-            current_pixel_index: 0,
-            frame_being_drawn: frame_handle.buffer,
-            #[cfg(not(feature = "headless"))]
-            shared: frame_handle.shared,
-        }
-    }
-}
+impl Screen {}
 #[cfg(feature = "headless")]
 impl Screen {
+    pub fn new() -> Self {
+        Self { current_pixel_index: 0, frame_being_drawn: Frame::default() }
+    }
     fn draw_pixel(&mut self, pixel: ColoredPixel) {
-        self.frame_being_drawn[self.current_pixel_index as usize] = pixel;
+        self.frame_being_drawn.set_pixel(pixel, self.current_pixel_index);
         self.current_pixel_index += 1;
     }
 
@@ -431,6 +436,14 @@ impl Screen {
 
 #[cfg(not(feature = "headless"))]
 impl Screen {
+    pub fn new(frame_handle: SenderFrameHandle) -> Self {
+        Self {
+            current_pixel_index: 0,
+            frame_being_drawn: frame_handle.buffer,
+            shared: frame_handle.shared,
+        }
+    }
+
     fn draw_pixel(&mut self, pixel: ColoredPixel) {
         self.frame_being_drawn.set_pixel(pixel, self.current_pixel_index);
         self.current_pixel_index += 1;

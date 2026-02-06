@@ -8,6 +8,7 @@ use crate::{
         audio::Audio,
         interrupts::InterruptFlagRegister,
         joypad_input::{ButtonInput, JoyPadInput},
+        serial::Serial,
         timer_divider::TimerDivider,
     },
 };
@@ -18,9 +19,11 @@ pub struct IoRegisters {
     pub audio: Audio,
     pub timer_divider: TimerDivider,
     pub joypad: JoyPadInput,
+    pub serial: Serial,
 }
 
 impl IoRegisters {
+    #[cfg(not(feature = "headless"))]
     pub fn new(button_input: ButtonInput) -> Self {
         Self {
             joypad: JoyPadInput::new(button_input),
@@ -28,6 +31,18 @@ impl IoRegisters {
             interrupt_flag_register: Default::default(),
             audio: Default::default(),
             timer_divider: Default::default(),
+            serial: Default::default(),
+        }
+    }
+    #[cfg(feature = "headless")]
+    pub fn new() -> Self {
+        Self {
+            joypad: JoyPadInput::new(),
+            lcd_registers: Default::default(),
+            interrupt_flag_register: Default::default(),
+            audio: Default::default(),
+            timer_divider: Default::default(),
+            serial: Default::default(),
         }
     }
 }
@@ -42,10 +57,10 @@ impl BusAccessible for IoRegisters {
 
         match section {
             IoSection::JoypadInput => self.joypad.read(),
-            IoSection::SerialTransfer => BusAccessFailure::Unimplemented.into(),
-            IoSection::TimerAndDivider => self.timer_divider.get(address),
-            IoSection::Interrupts => self.interrupt_flag_register.get(),
-            IoSection::Audio => self.audio.get(address),
+            IoSection::SerialTransfer => self.serial.read(address),
+            IoSection::TimerAndDivider => self.timer_divider.read(address),
+            IoSection::Interrupts => self.interrupt_flag_register.read(),
+            IoSection::Audio => self.audio.read(address),
             IoSection::WavePattern => todo!(),
             IoSection::Lcd => self.lcd_registers.read(address),
             IoSection::Keys => todo!(),
@@ -66,10 +81,10 @@ impl BusAccessible for IoRegisters {
 
         match section {
             IoSection::JoypadInput => self.joypad.write(value),
-            IoSection::SerialTransfer => BusAccessFailure::Unimplemented.into(),
-            IoSection::TimerAndDivider => self.timer_divider.set(address, value),
-            IoSection::Interrupts => self.interrupt_flag_register.set(value),
-            IoSection::Audio => self.audio.set(address, value),
+            IoSection::SerialTransfer => self.serial.write(address, value),
+            IoSection::TimerAndDivider => self.timer_divider.write(address, value),
+            IoSection::Interrupts => self.interrupt_flag_register.write(value),
+            IoSection::Audio => self.audio.write(address, value),
             IoSection::WavePattern => BusAccessFailure::Unimplemented.into(),
             IoSection::Lcd => self.lcd_registers.write(address, value),
             IoSection::Keys => BusAccessFailure::Unimplemented.into(),
@@ -91,10 +106,10 @@ impl BusAccessible for IoRegisters {
         };
         match section {
             IoSection::JoypadInput => self.joypad.read(),
-            IoSection::SerialTransfer => BusAccessFailure::Unimplemented.into(),
-            IoSection::TimerAndDivider => self.timer_divider.get(address),
-            IoSection::Interrupts => self.interrupt_flag_register.get(),
-            IoSection::Audio => self.audio.get(address),
+            IoSection::SerialTransfer => self.serial.read(address),
+            IoSection::TimerAndDivider => self.timer_divider.read(address),
+            IoSection::Interrupts => self.interrupt_flag_register.read(),
+            IoSection::Audio => self.audio.read(address),
             IoSection::WavePattern => todo!(),
             IoSection::Lcd => self.lcd_registers.peek(address),
             IoSection::Keys => todo!(),
