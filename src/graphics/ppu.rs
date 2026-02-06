@@ -425,6 +425,10 @@ impl Screen {
     fn draw_pixel(&mut self, pixel: ColoredPixel) {
         self.frame_being_drawn.set_pixel(pixel, self.current_pixel_index);
         self.current_pixel_index += 1;
+
+        if self.current_pixel_index == SCREEN_SIZE as u16 {
+            self.current_pixel_index = 0;
+        }
     }
 
     fn turn_off_screen(&mut self) {

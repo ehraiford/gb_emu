@@ -6,7 +6,6 @@
             "type": "shell",
             "command": "cargo run --  run --tile-map-viewer ${workspaceFolder}/test_roms/'Dr. Mario.gb'",
             "options": {
-                "cwd": "gb_emu",
                 "env": {
                     "RUST_BACKTRACE": "1"
                 }
@@ -18,7 +17,6 @@
             "type": "shell",
             "command": "cargo run --release --  run --tile-map-viewer ${workspaceFolder}/test_roms/'Dr. Mario.gb'",
             "options": {
-                "cwd": "gb_emu",
                 "env": {
                     "RUST_BACKTRACE": "1"
                 }
@@ -30,7 +28,6 @@
             "type": "shell",
             "command": "cargo run --release -- run --tile-map-viewer ${workspaceFolder}/test_roms/Tetris.gb",
             "options": {
-                "cwd": "gb_emu",
                 "env": {
                     "RUST_BACKTRACE": "1"
                 }
@@ -42,7 +39,6 @@
             "type": "shell",
             "command": "cargo test --features headless",
             "options": {
-                "cwd": "gb_emu",
                 "env": {
                     "RUST_BACKTRACE": "1"
                 }

@@ -330,7 +330,7 @@ impl BackGroundFifo {
             (window_x / 8, self.window_y / 8, self.window_y % 8)
         } else {
             let scx = lcd.get_scx();
-            let calced_y = (lcd.get_ly() + lcd.get_scy()) & 0xFF;
+            let calced_y = (lcd.get_ly().wrapping_add(lcd.get_scy())) & 0xFF;
             let fetcher_bg_x = (scx.wrapping_add(fetcher_x)) & 0xFF;
 
             (fetcher_bg_x / 8, calced_y >> 3, calced_y & 7)
