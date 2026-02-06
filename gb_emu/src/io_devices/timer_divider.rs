@@ -28,7 +28,7 @@ impl TimerDivider {
             self.divider_m_cycles = 0;
             let mut divider = self.get_register(TimerDividerRegister::Divider);
             divider = divider.wrapping_add(1);
-            self.set_register(TimerDividerRegister::Divider, divider);
+            self.registers[TimerDividerRegister::Divider.get_index()] = divider; // manually set it since the normal set method sets it to zero
         }
     }
 
@@ -60,10 +60,9 @@ impl TimerDivider {
 
     pub fn set_register(&mut self, register: TimerDividerRegister, value: u8) {
         match register {
-            TimerDividerRegister::Divider => self.registers[TimerDividerRegister::Divider.get_index()] = value,
-            TimerDividerRegister::Counter => BusAccessFailure::TriedWritingToReadOnlyMemory.into(),
+            TimerDividerRegister::Divider => self.registers[TimerDividerRegister::Divider.get_index()] = 0,
             TimerDividerRegister::Control => self.set_control_register(value),
-            TimerDividerRegister::Modulo => self.registers[TimerDividerRegister::Modulo.get_index()] = value,
+            _ => self.registers[register.get_index()] = value,
         }
     }
 
