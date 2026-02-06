@@ -2,9 +2,9 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "run debug",
+            "label": "run debug Dr. Mario",
             "type": "shell",
-            "command": "cargo run --  run --tile-map-viewer 'C:\\Users\\evanr\\OneDrive\\Desktop\\Games\\Dr. Mario (World) (Rev 1).gb' ",
+            "command": "cargo run --  run --tile-map-viewer ${workspaceFolder}/test_roms/'Dr. Mario.gb'",
             "options": {
                 "cwd": "gb_emu",
                 "env": {
@@ -16,7 +16,7 @@
         {
             "label": "run Dr. Mario",
             "type": "shell",
-            "command": "cargo run --release --  run --tile-map-viewer 'C:\\Users\\evanr\\OneDrive\\Desktop\\Games\\Dr. Mario (World) (Rev 1).gb' ",
+            "command": "cargo run --release --  run --tile-map-viewer ${workspaceFolder}/test_roms/'Dr. Mario.gb'",
             "options": {
                 "cwd": "gb_emu",
                 "env": {
@@ -28,7 +28,19 @@
         {
             "label": "run Tetris",
             "type": "shell",
-            "command": "cargo run --release -- run --tile-map-viewer 'C:\\Users\\evanr\\OneDrive\\Desktop\\Games\\tetris.gb'",
+            "command": "cargo run --release -- run --tile-map-viewer ${workspaceFolder}/test_roms/Tetris.gb",
+            "options": {
+                "cwd": "gb_emu",
+                "env": {
+                    "RUST_BACKTRACE": "1"
+                }
+            },
+            "problemMatcher": "$rustc"
+        },
+        {
+            "label": "Run Tests Headless",
+            "type": "shell",
+            "command": "cargo test --features headless",
             "options": {
                 "cwd": "gb_emu",
                 "env": {
