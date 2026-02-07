@@ -22,7 +22,7 @@ impl BusAccessible for InterruptEnableRegister {
     }
 
     fn write(&mut self, _: Address, value: u8) {
-        self.value = value;
+        self.value = value & 0b0001_1111;
     }
 
     fn peek(&self, _: Address) -> u8 {
@@ -41,7 +41,7 @@ impl InterruptFlagRegister {
     }
 
     pub fn write(&mut self, value: u8) {
-        self.value = value;
+        self.value = value & 0b0001_1111;
     }
 
     pub fn raise_flag(&mut self, flag: &Interrupt) {

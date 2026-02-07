@@ -35,6 +35,17 @@
             "problemMatcher": "$rustc"
         },
         {
+            "label": "run Mario Land",
+            "type": "shell",
+            "command": "cargo run --release -- run --tile-map-viewer '${workspaceFolder}/test_roms/Super Mario Land.gb'",
+            "options": {
+                "env": {
+                    "RUST_BACKTRACE": "1"
+                }
+            },
+            "problemMatcher": "$rustc"
+        },
+        {
             "label": "Run Tests Headless",
             "type": "shell",
             "command": "cargo test --features headless",
@@ -48,7 +59,7 @@
         {
             "label": "run Blargg Test",
             "type": "shell",
-            "command": "cargo run --release -- run-as-fast-as-possible ${workspaceFolder}/test_roms/blargg_test_roms/cpu_instrs.gb",
+            "command": "cargo run --release -- run-as-fast-as-possible ${workspaceFolder}/test_roms/blargg_test_roms/halt_bug.gb",
             "options": {
                 "env": {
                     "RUST_BACKTRACE": "1"

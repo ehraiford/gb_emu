@@ -474,10 +474,16 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
                 OperandType::EightBitOperand => {
                     self.add_8_bit(&EightBitOperand::try_from(instruction.operands[1]).unwrap())
                 },
-                OperandType::SixteenBitOperand => self.add_16_bit(
-                    &SixteenBitOperand::try_from(instruction.operands[0]).unwrap(),
-                    &SixteenBitOperand::try_from(instruction.operands[1]).unwrap(),
-                ),
+                OperandType::SixteenBitOperand => {
+                    if instruction.operands[0] == Operand::SP && instruction.operands[1] == Operand::E8 {
+                        self.add_sp_e8(&SixteenBitOperand::try_from(instruction.operands[1]).unwrap())
+                    } else {
+                        self.add_16_bit(
+                            &SixteenBitOperand::try_from(instruction.operands[0]).unwrap(),
+                            &SixteenBitOperand::try_from(instruction.operands[1]).unwrap(),
+                        )
+                    }
+                },
                 _ => unreachable!("There shouldn't be any places this is called that reaches here."),
             },
             OpCode::And => self.and(&EightBitOperand::try_from(instruction.operands[1]).unwrap()),
@@ -544,10 +550,18 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
                     &EightBitOperand::try_from(instruction.operands[0]).unwrap(),
                     &EightBitOperand::try_from(instruction.operands[1]).unwrap(),
                 ),
-                (OperandType::SixteenBitOperand, OperandType::SixteenBitOperand) => self.load_16_bit(
-                    &SixteenBitOperand::try_from(instruction.operands[0]).unwrap(),
-                    &SixteenBitOperand::try_from(instruction.operands[1]).unwrap(),
-                ),
+                (OperandType::SixteenBitOperand, OperandType::SixteenBitOperand) => {
+                    // special case for ld hl sp+e8
+                    if instruction.operands[0] == Operand::HL && instruction.bytes == 2 {
+                        self.ld_hl_sp_e8()
+                    } else {
+                        // Standard 16-bit load (LD SP, HL etc.)
+                        self.load_16_bit(
+                            &SixteenBitOperand::try_from(instruction.operands[0]).unwrap(),
+                            &SixteenBitOperand::try_from(instruction.operands[1]).unwrap(),
+                        )
+                    }
+                },
                 // Special case for LD [A16] SP
                 (OperandType::EightBitOperand, OperandType::SixteenBitOperand) => self.load_a16_pointer_sp(),
                 _ => unreachable!("There shouldn't be any places this is called that reaches here."),
@@ -629,35 +643,41 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         InstructionOutcome::Ok
     }
 
+    fn add_sp_e8(&mut self, e8: &SixteenBitOperand) -> InstructionOutcome {
+        let sp = self.cpu.get_sp();
+        let raw_byte = self.bus.read(self.cpu.get_pc() + 1);
+        let e8 = self.get_u16_operand(e8);
+
+        let result = sp.wrapping_add(e8);
+
+        self.cpu.set_sp(result);
+
+        self.set_flags(
+            false,
+            false,
+            bit_3_overflow(vec![sp as u8, raw_byte as u8]),
+            bit_7_overflow(vec![sp as u8, raw_byte as u8]),
+        );
+
+        InstructionOutcome::Ok
+    }
+
     fn add_16_bit(&mut self, operand0: &SixteenBitOperand, operand1: &SixteenBitOperand) -> InstructionOutcome {
         let operand0_value = self.get_u16_operand(operand0);
         let operand1_value = self.get_u16_operand(operand1);
 
-        if matches!(operand1, SixteenBitOperand::E8) {
-            let sp = operand0_value;
-            let immediate = operand1_value as u8;
+        let (result, overflowed) = operand0_value.overflowing_add(operand1_value);
 
-            self.set_flags(
-                false,
-                false,
-                (sp as u8 & 0x0F) + (immediate & 0x0F) > 0x0F,
-                (sp as u8).checked_add(immediate).is_none(),
-            );
-            InstructionOutcome::Ok
-        } else {
-            let (result, overflowed) = operand0_value.overflowing_add(operand1_value);
+        self.set_u16_operand(operand0, result);
 
-            self.set_u16_operand(operand0, result);
+        self.set_flags(
+            self.cpu.get_flag(Flag::Zero),
+            false,
+            bit_11_overflow(vec![operand0_value, operand1_value]),
+            overflowed,
+        );
 
-            self.set_flags(
-                self.cpu.get_flag(Flag::Zero),
-                false,
-                bit_11_overflow(vec![operand0_value, operand1_value]),
-                overflowed,
-            );
-
-            InstructionOutcome::Ok
-        }
+        InstructionOutcome::Ok
     }
 
     fn and(&mut self, operand: &EightBitOperand) -> InstructionOutcome {
@@ -864,6 +884,23 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         InstructionOutcome::Ok
     }
 
+    fn ld_hl_sp_e8(&mut self) -> InstructionOutcome {
+        let sp = self.cpu.get_sp();
+        let raw_byte = self.bus.read(self.cpu.get_pc() + 1);
+        let offset = (raw_byte as i8) as u16;
+        let result = sp.wrapping_add(offset);
+
+        self.cpu.set_hl(result);
+
+        self.set_flags(
+            false,
+            false,
+            bit_3_overflow(vec![sp as u8, raw_byte]),
+            bit_7_overflow(vec![sp as u8, raw_byte]),
+        );
+
+        InstructionOutcome::Ok
+    }
     fn load_16_bit(&mut self, operand0: &SixteenBitOperand, operand1: &SixteenBitOperand) -> InstructionOutcome {
         let value = self.get_u16_operand(operand1);
         self.set_u16_operand(operand0, value);
@@ -1188,6 +1225,12 @@ fn bit_3_overflow(operands: Vec<u8>) -> bool {
     let mut result = 0;
     operands.iter().for_each(|o| result += o & 0x0F);
     result > 0x0F
+}
+
+fn bit_7_overflow(operands: Vec<u8>) -> bool {
+    let mut result = 0u16;
+    operands.iter().for_each(|o| result += *o as u16);
+    result > 0xFF
 }
 
 fn bit_11_overflow(operands: Vec<u16>) -> bool {
