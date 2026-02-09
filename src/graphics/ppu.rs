@@ -224,10 +224,18 @@ impl PpuModeTracker {
             panic!();
         }
         if self.pixels_left_to_push == 0 {
+            // self._print_cycles_taken_for_drawing_pixels();
             self.start_horizontal_blank()
         } else {
             PpuTickOutcome { increment_ly: false, new_mode: None }
         }
+    }
+
+    fn _print_cycles_taken_for_drawing_pixels(&self) {
+        println!(
+            "Drawing Pixels Length: {} Cycles",
+            DOTS_PER_LINE - self.remaining_dots_in_line - 80
+        )
     }
 
     fn process_tick(&mut self, ly: u8, scx: u8) -> PpuTickOutcome {
