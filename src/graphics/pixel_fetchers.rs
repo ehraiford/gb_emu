@@ -42,7 +42,6 @@ impl PixelFetchers {
                 self.tick_ppu_fetching_object(lcd, v_ram);
                 None
             },
-            FetchersMode::PoppingObjectPixels => self.tick_popping_object_pixels(lcd, v_ram),
         };
 
         if pixel.is_some() {
@@ -50,23 +49,6 @@ impl PixelFetchers {
         }
 
         pixel
-    }
-
-    fn tick_popping_object_pixels(&mut self, lcd: &Lcd, v_ram: &VideoRam) -> Option<ColoredPixel> {
-        self.background_fetcher.tick_fetching(lcd, v_ram);
-
-        if self.background_fetcher.queue.length() == 0 {
-            // we need pixels in the background queue to compare against
-            return None;
-        }
-
-        if let Some(object_pixel) = self.object_fetcher.try_get_pixel() {
-            let background_pixel = self.background_fetcher.pop_pixel();
-            Some(Self::arbitrate_pixels(background_pixel, object_pixel, lcd))
-        } else {
-            self.mode = FetchersMode::NormalExecution;
-            None
-        }
     }
 
     fn tick_normal_execution(&mut self, lcd: &Lcd, v_ram: &VideoRam) -> Option<ColoredPixel> {
@@ -77,15 +59,26 @@ impl PixelFetchers {
             None
         } else {
             self.background_fetcher.tick_fetching(lcd, v_ram);
-            self.try_pop_background_pixel(lcd)
+            if self.background_fetcher.queue.length() == 0 {
+                return None;
+            }
+
+            let pixel_to_draw = if let Some(object_pixel) = self.object_fetcher.try_get_pixel() {
+                let background_pixel = self.background_fetcher.pop_pixel();
+                Some(Self::arbitrate_pixels(background_pixel, object_pixel, lcd))
+            } else {
+                self.try_pop_background_pixel(lcd)
+            };
+
+            pixel_to_draw
         }
     }
 
     fn tick_ppu_fetching_object(&mut self, lcd: &Lcd, v_ram: &VideoRam) {
         self.object_fetcher.tick_fetching(lcd, v_ram);
 
-        if self.object_fetcher.queue.length() != 0 {
-            self.mode = FetchersMode::PoppingObjectPixels;
+        if self.object_fetcher.mode == ObjectFifoMode::Inactive {
+            self.mode = FetchersMode::NormalExecution;
         }
     }
 
@@ -144,7 +137,6 @@ enum FetchersMode {
         remaining_penalty: u8,
     },
     FetchingObject,
-    PoppingObjectPixels,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -167,6 +159,16 @@ impl FifoObjectPixel {
     }
     pub fn get_palette_choice(&self) -> PaletteChoice {
         self.palette
+    }
+}
+
+impl<'a> FifoObjectPixel {
+    fn determine_dominant_pixel(pixel_a: &'a Self, pixel_b: &'a Self) -> &'a Self {
+        if pixel_a.is_transparent() && !pixel_b.is_transparent() {
+            pixel_b
+        } else {
+            pixel_a
+        }
     }
 }
 
@@ -204,16 +206,11 @@ impl ObjectFifo {
         todo!()
     }
 
-    fn check_coordinates(&self, fetcher_x: u8, lcd: &Lcd) -> Option<ObjectAttributes> {
+    fn check_coordinates(&mut self, fetcher_x: u8, lcd: &Lcd) -> Option<ObjectAttributes> {
         if !lcd.object_enabled() {
             return None;
         }
-        for atrributes in self.objects_on_this_line.borrow_objects() {
-            if atrributes.is_at_x_position(fetcher_x) {
-                return Some(*atrributes);
-            }
-        }
-        None
+        self.objects_on_this_line.take_object_at_x(fetcher_x)
     }
 
     fn try_get_pixel(&mut self) -> Option<FifoObjectPixel> {
@@ -249,6 +246,7 @@ impl ObjectFifo {
                 let high_byte = v_ram.get_tile_byte(AccessMethod::Method8000, tile_index, byte_number);
                 let pixels = RawPixel::from_bytes(low_byte, high_byte);
                 self.push_pixels(pixels, object_attributes);
+                self.mode = ObjectFifoMode::Inactive;
             },
             ObjectFifoMode::Inactive => unreachable!("Tick shouldn't even be called in Inactive mode"),
         }
@@ -258,14 +256,19 @@ impl ObjectFifo {
         if attributes.is_x_flipped() {
             pixels.reverse();
         }
-        for pixel in pixels {
-            self.queue
-                .push(FifoObjectPixel::from_raw_pixel_and_attributes(pixel, attributes));
+        for (i, pixel) in pixels.iter().enumerate() {
+            let new_pixel = FifoObjectPixel::from_raw_pixel_and_attributes(*pixel, attributes);
+
+            if let Some(existing_pixel) = self.queue.try_get_entry_mut(i) {
+                *existing_pixel = *FifoObjectPixel::determine_dominant_pixel(existing_pixel, &new_pixel);
+            } else {
+                self.queue.push(new_pixel);
+            }
         }
     }
 }
 
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 enum ObjectFifoMode {
     #[default]
     Inactive,

@@ -112,6 +112,16 @@ impl<const MAX_SIZE: usize, T: Default + Copy> StackAllocQueue<T, MAX_SIZE> {
         }
     }
 
+    pub fn try_get_entry_mut(&mut self, index: usize) -> Option<&mut T> {
+        if index >= self.length as usize {
+            return None;
+        }
+
+        let ring_index = (self.front_index as usize + index) % MAX_SIZE;
+
+        Some(&mut self.queue[ring_index])
+    }
+
     pub fn clear_queue(&mut self) {
         self.length = 0;
     }

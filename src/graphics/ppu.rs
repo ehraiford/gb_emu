@@ -382,6 +382,7 @@ impl Default for OamScannerStage {
 pub struct ObjectsOnThisLine {
     objects: [ObjectAttributes; 10],
     number_of_objects: u8, // cannot be more than 10
+    taken_objects: [bool; 10],
 }
 
 impl ObjectsOnThisLine {
@@ -393,11 +394,25 @@ impl ObjectsOnThisLine {
     fn is_at_capacity(&self) -> bool {
         self.number_of_objects == 10
     }
-    pub fn borrow_objects(&self) -> &[ObjectAttributes] {
-        &self.objects[0..self.number_of_objects as usize]
-    }
+
     pub fn reset_for_new_scanline(&mut self) {
         self.number_of_objects = 0;
+        self.taken_objects = [Default::default(); 10];
+    }
+    fn take_object(&mut self, index: usize) -> Option<ObjectAttributes> {
+        self.objects.get(index).map(|o| {
+            self.taken_objects[index] = true;
+            *o
+        })
+    }
+    pub fn take_object_at_x(&mut self, x: u8) -> Option<ObjectAttributes> {
+        for i in 0..self.number_of_objects as usize {
+            if !self.taken_objects[i] && self.objects[i].is_at_x_position(x) {
+                return self.take_object(i);
+            }
+        }
+
+        None
     }
 }
 
