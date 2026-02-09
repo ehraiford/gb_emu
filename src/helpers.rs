@@ -159,7 +159,7 @@ impl<T: Default + Copy, const BUFFER_SIZE: usize> Default for RingBuffer<T, BUFF
 
 /// A representation of an individual bit.
 /// It's just a bit more meaningful than a bool.
-#[derive(Clone, Copy, Default)]
+#[derive(PartialEq, Eq, Clone, Copy, Default, Debug)]
 pub enum Bit {
     #[default]
     Low,

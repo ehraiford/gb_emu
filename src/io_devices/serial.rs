@@ -141,6 +141,15 @@ impl Serial {
     }
 }
 
+pub fn turn_output_to_string(mut bits: Vec<&Bit>) -> String {
+    let mut message = String::new();
+    for chunk in bits.chunks_exact_mut(8) {
+        chunk.reverse();
+        message.push(Bit::to_char(chunk.try_into().unwrap()));
+    }
+    message
+}
+
 impl Default for Serial {
     fn default() -> Self {
         Self {
@@ -184,5 +193,41 @@ impl ControlFlag {
             ControlFlag::ClockSpeed => 1,
             ControlFlag::ClockSelect => 0,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    const ENABLE_TRANSFER: u8 = 0x81; // SC values to enable transfer and set as master
+
+    fn send_out_bit(serial: &mut Serial) {
+        for _ in 0..Serial::M_CYCLES_IN_A_TICK {
+            serial.tick();
+        }
+    }
+
+    fn send_out_byte(serial: &mut Serial, byte: u8) {
+        serial.write(0xFF01, byte);
+        serial.write(0xFF02, ENABLE_TRANSFER);
+        for _ in 0..8 {
+            send_out_bit(serial);
+        }
+    }
+
+    #[test]
+    fn test_serial_out() {
+        let mut serial = Serial::default();
+
+        let test_message = "This is a test!";
+
+        for byte in test_message.as_bytes().iter() {
+            send_out_byte(&mut serial, *byte);
+        }
+
+        let recomposed_message = turn_output_to_string(serial.get_serial_output());
+
+        assert_eq!(test_message, recomposed_message)
     }
 }
