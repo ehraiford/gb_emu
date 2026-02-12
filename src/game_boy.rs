@@ -1,3 +1,8 @@
+#[cfg(not(feature = "headless"))]
+use crate::io_devices::joypad_input::ButtonInput;
+#[cfg(not(feature = "headless"))]
+use crate::os_interface::window::SenderFrameHandle;
+
 use crate::{
     bus::{Bus, MemoryMapEvent},
     cartridge::cartridge::Cartridge,
@@ -6,8 +11,7 @@ use crate::{
         video_ram::TileMapImage,
     },
     helpers::Bit,
-    io_devices::{dma::OamDma, interrupts::Interrupt, joypad_input::ButtonInput},
-    os_interface::window::SenderFrameHandle,
+    io_devices::{dma::OamDma, interrupts::Interrupt},
     processor::cpu::Cpu,
 };
 
@@ -29,10 +33,10 @@ fn drain_events() -> Vec<GameBoyEvent> {
 
 pub struct GameBoy {
     state: GameBoyState,
-    cpu: Cpu,
     ppu: Ppu,
     bus: Bus,
     oam_dma: OamDma,
+    cpu: Cpu,
 }
 
 impl GameBoy {
@@ -52,20 +56,14 @@ impl GameBoy {
         Self {
             ppu: Ppu::new(),
             state: Default::default(),
-            cpu: Default::default(),
             bus: Bus::new(),
             oam_dma: Default::default(),
+            cpu: Cpu::default(),
         }
     }
 
     pub fn load_cartridge(&mut self, cartridge: Cartridge) {
         self.bus.load_cartridge(cartridge)
-    }
-
-    fn tick_cpu(&mut self) {
-        let t_cycles = self.cpu.tick(&mut self.bus);
-
-        self.state.cpu_lockstep_catchup = t_cycles;
     }
 
     fn tick_oam_dma(&mut self) {
@@ -90,40 +88,18 @@ impl GameBoy {
         self.bus.tick_serial();
     }
 
-    fn tick_peripherals_lockstep(&mut self) {
-        for _ in 0..(self.state.cpu_lockstep_catchup.0) {
-            self.tick_timer_divider();
-            self.tick_oam_dma();
-            self.tick_ppu();
-            self.tick_serial();
-        }
-        self.state.cpu_lockstep_catchup.0 = 0;
+    fn tick_new_cpu(&mut self) {
+        self.cpu.tick(&mut self.bus)
     }
 
-    pub fn tick(&mut self) -> MCycles {
+    pub fn tick(&mut self) {
         self.tick_joypad();
-        match self.state.mode {
-            GameBoyMode::Executing => {
-                self.tick_cpu();
-                let ticked_m_cycles = self.state.cpu_lockstep_catchup;
-                self.handle_changes();
-                self.tick_peripherals_lockstep();
-                self.handle_changes();
-                ticked_m_cycles
-            },
-            GameBoyMode::Stopped => todo!(),
-            GameBoyMode::Halted => {
-                if self.should_exit_halt() {
-                    self.mode_transition(GameBoyMode::Executing);
-                    self.tick()
-                } else {
-                    self.state.cpu_lockstep_catchup = MCycles(1);
-                    self.tick_peripherals_lockstep();
-                    self.handle_changes();
-                    MCycles(1)
-                }
-            },
-        }
+        self.tick_new_cpu();
+        self.tick_timer_divider();
+        self.tick_oam_dma();
+        self.tick_ppu();
+        self.tick_serial();
+        self.handle_changes();
     }
 
     fn should_exit_halt(&self) -> bool {
@@ -151,6 +127,10 @@ impl GameBoy {
             GameBoyEvent::IeTriggered => notate_event(GameBoyEvent::EnableInterrupts),
             GameBoyEvent::EnableInterrupts => self.cpu.enable_interrupts(),
             GameBoyEvent::ObjectsDisabled => self.handle_objects_disabled(),
+            GameBoyEvent::TriedRunningIllegalInstruction => {
+                println!();
+                panic!()
+            },
         }
     }
 
@@ -269,4 +249,5 @@ pub enum GameBoyEvent {
     Interrupt(Interrupt),
     IeTriggered, // Facilitates the delay between executing IE and actually enabling interrupts
     EnableInterrupts,
+    TriedRunningIllegalInstruction,
 }

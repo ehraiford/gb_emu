@@ -399,12 +399,6 @@ impl From<Operand> for Condition {
     }
 }
 
-pub enum InstructionOutcome {
-    TookConditionalBranch(u16),
-    Ok,
-    ExplicitlySetPC,
-}
-
 pub mod m_cycle_accuracy {
     use crate::processor::instructions::{OpCode, Operand};
 
@@ -435,8 +429,10 @@ pub mod m_cycle_accuracy {
         CbPrefix,
         PopStackIntoLsbPc,
         PopStackIntoMsbPc,
-        PushMsbPCToStack,
-        PushLsbPCToStackAndUpdatePC,
+        PushMsbPCToStackOperand0,
+        PushMsbPCToStackOperand1,
+        PushLsbPcToStackOperand0,
+        PushLsbPcToStackOperand1,
         Illegal,
     }
 
@@ -676,8 +672,8 @@ pub mod m_cycle_accuracy {
                 ReadIntoOperand0Lsb,
                 ReadIntoOperand0Msb,
                 Wait,
-                PushMsbPCToStack,
-                PushLsbPCToStackAndUpdatePC,
+                PushMsbPCToStackOperand0,
+                PushLsbPcToStackOperand0,
             ],
         ),
         StepTableEntry::new(
@@ -688,8 +684,8 @@ pub mod m_cycle_accuracy {
                 ReadIntoOperand1Lsb,
                 ReadIntoOperand1MsbAndCheckCondition,
                 Wait,
-                PushMsbPCToStack,
-                PushLsbPCToStackAndUpdatePC,
+                PushMsbPCToStackOperand1,
+                PushLsbPcToStackOperand1,
             ],
         ), // ENDS EARLY IF CONDITION NOT MET
         StepTableEntry::new(Ret, &[], &[Decode, PopStackIntoLsbPc, PopStackIntoMsbPc, Wait]),
@@ -702,7 +698,7 @@ pub mod m_cycle_accuracy {
         StepTableEntry::new(
             Rst,
             &[Imm3Bit],
-            &[Decode, Wait, PushMsbPCToStack, PushLsbPCToStackAndUpdatePC],
+            &[Decode, Wait, PushMsbPCToStackOperand0, PushLsbPcToStackOperand0],
         ),
         StepTableEntry::new(Halt, &[], &[Decode]),
         StepTableEntry::new(Stop, &[], &[Decode]),

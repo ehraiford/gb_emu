@@ -3,7 +3,5 @@
     "[rust]": {
         "editor.formatOnSave": true
     },
-    "rust-analyzer.cargo.features": [
-        "headless"
-    ]
+    "rust-analyzer.cargo.features": []
 }

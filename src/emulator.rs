@@ -67,7 +67,8 @@ impl Emulator {
     }
 
     fn tick(&mut self) {
-        self.executed_m_cycles += self.gameboy.tick();
+        self.gameboy.tick();
+        self.executed_m_cycles += MCycles(1);
     }
 
     pub fn run_command(&mut self, command: EmulatorCommand) {

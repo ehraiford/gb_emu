@@ -52,7 +52,7 @@ class Operation:
         return "&[" + ", ".join(operands) + "]"
 
     def get_instantiation(self) -> str:
-        return f"Instruction::new(OpCode::{self.name}, {self.get_operands()}, {str(int(self.cycles[-1] / 4))}, {self.bytes})"
+        return f"Instruction::new(OpCode::{self.name}, {self.get_operands()}, {str(int(self.cycles[0] / 4))}, {self.bytes})"
 
 def create_list(target_list: list, specifier: str, data: dict):
     for opcode_hex, operation in data[specifier].items():

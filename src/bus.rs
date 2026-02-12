@@ -21,7 +21,7 @@ use crate::{
     },
     processor::{
         instruction_tables::{CBPREFIXED, UNPREFIXED},
-        instructions::{Instruction, InstructionOutcome, OpCode},
+        instructions::{Instruction, OpCode},
     },
 };
 
@@ -485,13 +485,6 @@ impl From<BusAccessFailure> for u16 {
     }
 }
 
-impl From<BusAccessFailure> for InstructionOutcome {
-    fn from(failure: BusAccessFailure) -> Self {
-        log(format_args!("{}", failure));
-        Self::DEFAULT_BUS_VALUE
-    }
-}
-
 impl From<BusAccessFailure> for () {
     fn from(failure: BusAccessFailure) -> Self {
         log(format_args!("{}", failure));
@@ -533,9 +526,6 @@ impl BusDefault for u8 {
 }
 impl BusDefault for u16 {
     const DEFAULT_BUS_VALUE: Self = 0xFFFF;
-}
-impl BusDefault for InstructionOutcome {
-    const DEFAULT_BUS_VALUE: Self = InstructionOutcome::Ok;
 }
 impl BusDefault for () {
     const DEFAULT_BUS_VALUE: Self = ();

@@ -74,7 +74,7 @@ impl InterruptFlagRegister {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Interrupt {
     Joypad,
     Serial,
