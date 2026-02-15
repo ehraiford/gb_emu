@@ -88,13 +88,13 @@ impl GameBoy {
         self.bus.tick_serial();
     }
 
-    fn tick_new_cpu(&mut self) {
+    fn tick_cpu(&mut self) {
         self.cpu.tick(&mut self.bus)
     }
 
     pub fn tick(&mut self) {
         self.tick_joypad();
-        self.tick_new_cpu();
+        self.tick_cpu();
         self.tick_timer_divider();
         self.tick_oam_dma();
         self.tick_ppu();
@@ -128,8 +128,7 @@ impl GameBoy {
             GameBoyEvent::EnableInterrupts => self.cpu.enable_interrupts(),
             GameBoyEvent::ObjectsDisabled => self.handle_objects_disabled(),
             GameBoyEvent::TriedRunningIllegalInstruction => {
-                println!();
-                panic!()
+                todo!()
             },
         }
     }

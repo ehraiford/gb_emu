@@ -1,9 +1,6 @@
 use std::fmt::Display;
 
-use crate::processor::{
-    instruction_tables::{CBPREFIXED, UNPREFIXED},
-    instructions::m_cycle_accuracy::{MicroOp, get_step_table_entry},
-};
+use crate::processor::instructions::m_cycle_accuracy::{MicroOp, get_step_table_entry};
 
 pub struct Instruction {
     pub op_code: OpCode,
@@ -25,21 +22,10 @@ impl Instruction {
     }
 
     pub const fn nop() -> &'static Self {
-        &UNPREFIXED[0]
+        &super::instruction_tables::UNPREFIXED[0]
     }
 }
 
-impl TryFrom<[u8; 3]> for &Instruction {
-    type Error = InstructionError;
-
-    fn try_from(value: [u8; 3]) -> Result<Self, Self::Error> {
-        match UNPREFIXED[value[0] as usize].op_code {
-            OpCode::Prefix => Ok(&CBPREFIXED[value[1] as usize]),
-            OpCode::Illegal => Err(InstructionError::InvalidOperation(value[0])),
-            _ => Ok(&UNPREFIXED[value[0] as usize]),
-        }
-    }
-}
 impl Display for &Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.op_code)?;
@@ -229,156 +215,6 @@ impl Display for Operand {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum OperandType {
-    EightBitOperand,
-    SixteenBitOperand,
-    SignedEightBit,
-    Condition,
-}
-
-impl From<Operand> for OperandType {
-    fn from(value: Operand) -> Self {
-        match value {
-            Operand::A => Self::EightBitOperand,
-            Operand::A16Pointer => Self::EightBitOperand,
-            Operand::B => Self::EightBitOperand,
-            Operand::N8 => Self::EightBitOperand,
-            Operand::BCPointer => Self::EightBitOperand,
-            Operand::C => Self::EightBitOperand,
-            Operand::D => Self::EightBitOperand,
-            Operand::DEPointer => Self::EightBitOperand,
-            Operand::E => Self::EightBitOperand,
-            Operand::FF00OffsetByA8 => Self::EightBitOperand,
-            Operand::FF00OffsetByC => Self::EightBitOperand,
-            Operand::H => Self::EightBitOperand,
-            Operand::HLDPointer => Self::EightBitOperand,
-            Operand::HLIPointer => Self::EightBitOperand,
-            Operand::HLPointer => Self::EightBitOperand,
-            Operand::Immediate(_) => Self::EightBitOperand,
-            Operand::L => Self::EightBitOperand,
-            Operand::HL => Self::SixteenBitOperand,
-            Operand::AF => Self::SixteenBitOperand,
-            Operand::BC => Self::SixteenBitOperand,
-            Operand::DE => Self::SixteenBitOperand,
-            Operand::SP => Self::SixteenBitOperand,
-            Operand::A16 => Self::SixteenBitOperand,
-            Operand::N16 => Self::SixteenBitOperand,
-            Operand::Carry => Self::Condition,
-            Operand::NotCarry => Self::Condition,
-            Operand::NotZero => Self::Condition,
-            Operand::Zero => Self::Condition,
-            Operand::E8 => Self::SignedEightBit,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum InstructionError {
-    InvalidOperation(u8),
-    InvalidOperand,
-    LdhLowValue(u16),
-    OperandCannotBeSet,
-    MemoryAccessError,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum EightBitOperand {
-    A,
-    A16Pointer,
-    B,
-    HLPointer,
-    HLIPointer,
-    HLDPointer,
-    BCPointer,
-    L,
-    C,
-    D,
-    DEPointer,
-    E,
-    FF00OffsetByA8,
-    FF00OffsetByC,
-    H,
-    N8,
-    Immediate(u8),
-}
-
-impl TryFrom<Operand> for EightBitOperand {
-    type Error = InstructionError;
-
-    fn try_from(value: Operand) -> Result<Self, Self::Error> {
-        match value {
-            Operand::A => Ok(Self::A),
-            Operand::A16Pointer => Ok(Self::A16Pointer),
-            Operand::B => Ok(Self::B),
-            Operand::HLPointer => Ok(Self::HLPointer),
-            Operand::BCPointer => Ok(Self::BCPointer),
-            Operand::L => Ok(Self::L),
-            Operand::C => Ok(Self::C),
-            Operand::D => Ok(Self::D),
-            Operand::DEPointer => Ok(Self::DEPointer),
-            Operand::E => Ok(Self::E),
-            Operand::FF00OffsetByA8 => Ok(Self::FF00OffsetByA8),
-            Operand::FF00OffsetByC => Ok(Self::FF00OffsetByC),
-            Operand::H => Ok(Self::H),
-            Operand::N8 => Ok(Self::N8),
-            Operand::Immediate(val) => Ok(Self::Immediate(val)),
-            Operand::HLDPointer => Ok(Self::HLDPointer),
-            Operand::HLIPointer => Ok(Self::HLIPointer),
-            _ => Err(InstructionError::InvalidOperand),
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum SixteenBitOperand {
-    BC,
-    DE,
-    HL,
-    AF,
-    A16,
-    N16,
-    SP,
-    E8,
-    Immediate(u16),
-}
-
-impl TryFrom<Operand> for SixteenBitOperand {
-    type Error = InstructionError;
-
-    fn try_from(value: Operand) -> Result<Self, Self::Error> {
-        match value {
-            Operand::BC => Ok(Self::BC),
-            Operand::DE => Ok(Self::DE),
-            Operand::HL => Ok(Self::HL),
-            Operand::AF => Ok(Self::AF),
-            Operand::A16 => Ok(Self::A16),
-            Operand::N16 => Ok(Self::N16),
-            Operand::SP => Ok(Self::SP),
-            Operand::E8 => Ok(Self::E8),
-            _ => Err(InstructionError::InvalidOperand),
-        }
-    }
-}
-/// It feels silly to have this for just one type but it keeps format consistent.
-/// Plus, Rust Enums are Zero-Cost Abstractions, right?
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SignedEightBitOperand {
-    I8,
-}
-
-impl TryFrom<Operand> for SignedEightBitOperand {
-    type Error = InstructionError;
-
-    fn try_from(value: Operand) -> Result<Self, Self::Error> {
-        if value == Operand::E8 {
-            Ok(SignedEightBitOperand::I8)
-        } else {
-            Err(InstructionError::InvalidOperand)
-        }
-    }
-}
-
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub enum Condition {
     NotZero,
@@ -407,14 +243,12 @@ pub mod m_cycle_accuracy {
         ReadIntoOperand1,
         ReadIntoOperand0,
         Write,
-        WriteBackOperand0,
-        WriteBackOperand1,
+        WriteBack,
         PopLsb,
         PopMsb,
         ReadE8Operand0,
         ReadE8Operand1,
         ReadSPPlusE8,
-        ReadE8AndCheckCondition,
         WriteSPLow,
         WriteSPHigh,
         PushMsb,
@@ -422,10 +256,8 @@ pub mod m_cycle_accuracy {
         ReadIntoOperand0Lsb,
         ReadIntoOperand1Lsb,
         ReadIntoOperand1Msb,
-        ReadIntoOperand1MsbAndCheckCondition,
         ReadIntoOperand0Msb,
         Wait,
-        CheckCondition,
         CbPrefix,
         PopStackIntoLsbPc,
         PopStackIntoMsbPc,
@@ -580,10 +412,10 @@ pub mod m_cycle_accuracy {
         StepTableEntry::new(Cp, &[A, N8], &[Decode, ReadIntoOperand1]),
         StepTableEntry::new(Inc, &[R8], &[Decode]),
         StepTableEntry::new(Inc, &[A], &[Decode]),
-        StepTableEntry::new(Inc, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBackOperand0]),
+        StepTableEntry::new(Inc, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBack]),
         StepTableEntry::new(Dec, &[R8], &[Decode]),
         StepTableEntry::new(Dec, &[A], &[Decode]),
-        StepTableEntry::new(Dec, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBackOperand0]),
+        StepTableEntry::new(Dec, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBack]),
         StepTableEntry::new(And, &[A, R8], &[Decode]),
         StepTableEntry::new(And, &[A, A], &[Decode]),
         StepTableEntry::new(And, &[A, HLPointer], &[Decode, ReadIntoOperand1]),
@@ -616,54 +448,46 @@ pub mod m_cycle_accuracy {
         StepTableEntry::new(Rra, &[], &[Decode]),
         StepTableEntry::new(Rlc, &[R8], &[Decode]),
         StepTableEntry::new(Rlc, &[A], &[Decode]),
-        StepTableEntry::new(Rlc, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBackOperand0]),
+        StepTableEntry::new(Rlc, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBack]),
         StepTableEntry::new(Rrc, &[R8], &[Decode]),
         StepTableEntry::new(Rrc, &[A], &[Decode]),
-        StepTableEntry::new(Rrc, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBackOperand0]),
+        StepTableEntry::new(Rrc, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBack]),
         StepTableEntry::new(Rl, &[R8], &[Decode]),
         StepTableEntry::new(Rl, &[A], &[Decode]),
-        StepTableEntry::new(Rl, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBackOperand0]),
+        StepTableEntry::new(Rl, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBack]),
         StepTableEntry::new(Rr, &[R8], &[Decode]),
         StepTableEntry::new(Rr, &[A], &[Decode]),
-        StepTableEntry::new(Rr, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBackOperand0]),
+        StepTableEntry::new(Rr, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBack]),
         StepTableEntry::new(Sla, &[R8], &[Decode]),
         StepTableEntry::new(Sla, &[A], &[Decode]),
-        StepTableEntry::new(Sla, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBackOperand0]),
+        StepTableEntry::new(Sla, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBack]),
         StepTableEntry::new(Sra, &[R8], &[Decode]),
         StepTableEntry::new(Sra, &[A], &[Decode]),
-        StepTableEntry::new(Sra, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBackOperand0]),
+        StepTableEntry::new(Sra, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBack]),
         StepTableEntry::new(Swap, &[R8], &[Decode]),
         StepTableEntry::new(Swap, &[A], &[Decode]),
-        StepTableEntry::new(Swap, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBackOperand0]),
+        StepTableEntry::new(Swap, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBack]),
         StepTableEntry::new(Srl, &[R8], &[Decode]),
         StepTableEntry::new(Srl, &[A], &[Decode]),
-        StepTableEntry::new(Srl, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBackOperand0]),
+        StepTableEntry::new(Srl, &[HLPointer], &[Decode, ReadIntoOperand0, WriteBack]),
         StepTableEntry::new(Bit, &[Imm3Bit, R8], &[Decode]),
         StepTableEntry::new(Bit, &[Imm3Bit, A], &[Decode]),
         StepTableEntry::new(Bit, &[Imm3Bit, HLPointer], &[Decode, ReadIntoOperand1]),
         StepTableEntry::new(Res, &[Imm3Bit, R8], &[Decode]),
         StepTableEntry::new(Res, &[Imm3Bit, A], &[Decode]),
-        StepTableEntry::new(
-            Res,
-            &[Imm3Bit, HLPointer],
-            &[Decode, ReadIntoOperand1, WriteBackOperand1],
-        ),
+        StepTableEntry::new(Res, &[Imm3Bit, HLPointer], &[Decode, ReadIntoOperand1, WriteBack]),
         StepTableEntry::new(Set, &[Imm3Bit, R8], &[Decode]),
         StepTableEntry::new(Set, &[Imm3Bit, A], &[Decode]),
-        StepTableEntry::new(
-            Set,
-            &[Imm3Bit, HLPointer],
-            &[Decode, ReadIntoOperand1, WriteBackOperand1],
-        ),
+        StepTableEntry::new(Set, &[Imm3Bit, HLPointer], &[Decode, ReadIntoOperand1, WriteBack]),
         StepTableEntry::new(Jp, &[N16], &[Decode, ReadIntoOperand0Lsb, ReadIntoOperand0Msb, Wait]),
         StepTableEntry::new(Jp, &[Hl], &[Decode]),
         StepTableEntry::new(
             Jp,
             &[Cond, N16],
-            &[Decode, ReadIntoOperand1Lsb, ReadIntoOperand1MsbAndCheckCondition, Wait],
+            &[Decode, ReadIntoOperand1Lsb, ReadIntoOperand1Msb, Wait],
         ), // ENDS EARLY IF CONDITION NOT MET
         StepTableEntry::new(Jr, &[E8], &[Decode, ReadE8Operand0, Wait]),
-        StepTableEntry::new(Jr, &[Cond, E8], &[Decode, ReadE8AndCheckCondition, Wait]), // ENDS EARLY IF CONDITION NOT MET
+        StepTableEntry::new(Jr, &[Cond, E8], &[Decode, ReadE8Operand1, Wait]), // ENDS EARLY IF CONDITION NOT MET
         StepTableEntry::new(
             Call,
             &[N16],
@@ -682,7 +506,7 @@ pub mod m_cycle_accuracy {
             &[
                 Decode,
                 ReadIntoOperand1Lsb,
-                ReadIntoOperand1MsbAndCheckCondition,
+                ReadIntoOperand1Msb,
                 Wait,
                 PushMsbPCToStackOperand1,
                 PushLsbPcToStackOperand1,
@@ -692,7 +516,7 @@ pub mod m_cycle_accuracy {
         StepTableEntry::new(
             Ret,
             &[Cond],
-            &[Decode, CheckCondition, PopStackIntoLsbPc, PopStackIntoMsbPc, Wait],
+            &[Wait, Decode, PopStackIntoLsbPc, PopStackIntoMsbPc, Wait],
         ), // ENDS EARLY IF CONDITION NOT MET
         StepTableEntry::new(Reti, &[], &[Decode, PopStackIntoLsbPc, PopStackIntoMsbPc, Wait]),
         StepTableEntry::new(
