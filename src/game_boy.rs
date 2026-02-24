@@ -102,10 +102,6 @@ impl GameBoy {
         self.handle_changes();
     }
 
-    fn should_exit_halt(&self) -> bool {
-        self.bus.try_get_interrupt().is_some()
-    }
-
     fn handle_changes(&mut self) {
         for change in drain_events() {
             self.handle_change(change)
@@ -124,8 +120,6 @@ impl GameBoy {
             },
             GameBoyEvent::ChangeLcdPpuEnabled(enabled) => self.handle_change_lcd_ppu_enabled(enabled),
             GameBoyEvent::Interrupt(interrupt) => self.bus.raise_interrupt_flag(&interrupt),
-            GameBoyEvent::IeTriggered => notate_event(GameBoyEvent::EnableInterrupts),
-            GameBoyEvent::EnableInterrupts => self.cpu.enable_interrupts(),
             GameBoyEvent::ObjectsDisabled => self.handle_objects_disabled(),
             GameBoyEvent::TriedRunningIllegalInstruction => {
                 todo!()
@@ -246,7 +240,5 @@ pub enum GameBoyEvent {
     ChangeBusAccessForPpuMode(PpuMode),
     EndOamDmaTransfer,
     Interrupt(Interrupt),
-    IeTriggered, // Facilitates the delay between executing IE and actually enabling interrupts
-    EnableInterrupts,
     TriedRunningIllegalInstruction,
 }

@@ -18,7 +18,7 @@ impl BusAccessible for InterruptEnableRegister {
     const MM_DEVICE: MemoryTarget = MemoryTarget::InterruptEnableRegister;
 
     fn read(&mut self, _: Address) -> u8 {
-        self.value
+        self.value | 0b1110_0000
     }
 
     fn write(&mut self, _: Address, value: u8) {
@@ -74,7 +74,7 @@ impl InterruptFlagRegister {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Interrupt {
     Joypad,
     Serial,

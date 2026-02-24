@@ -266,6 +266,7 @@ pub mod m_cycle_accuracy {
         PushLsbPcToStackOperand0,
         PushLsbPcToStackOperand1,
         Illegal,
+        CheckForInterrupts,
     }
 
     #[derive(PartialEq, Clone, Copy, Debug)]
@@ -524,7 +525,7 @@ pub mod m_cycle_accuracy {
             &[Imm3Bit],
             &[Decode, Wait, PushMsbPCToStackOperand0, PushLsbPcToStackOperand0],
         ),
-        StepTableEntry::new(Halt, &[], &[Decode]),
+        StepTableEntry::new(Halt, &[], &[CheckForInterrupts]),
         StepTableEntry::new(Stop, &[], &[Decode]),
         StepTableEntry::new(Di, &[], &[Decode]),
         StepTableEntry::new(Ei, &[], &[Decode]),

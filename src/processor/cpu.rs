@@ -18,6 +18,7 @@ pub struct Cpu {
     pc: u16,
 
     ime: bool,
+    ei_delay: u8, // special field to add cycle delay to enabling interrupts
     state: CpuState,
     instruction_state_machine: InstructionStateMachine,
 }
@@ -89,7 +90,7 @@ impl Cpu {
         self.ime = false;
     }
     pub fn enable_interrupts(&mut self) {
-        self.ime = true;
+        self.ei_delay = 2; // one for EI, one for the next instruction
     }
 
     fn get_flag(&self, flag: Flag) -> bool {
@@ -135,10 +136,10 @@ impl Cpu {
             OpCode::Cp => self.compare(operands.get_u8s().unwrap()),
             OpCode::Cpl => self.complement(),
             OpCode::Di => self.disable_interrupts(),
-            OpCode::Ei => notate_event(GameBoyEvent::EnableInterrupts),
+            OpCode::Ei => self.enable_interrupts(),
             OpCode::Daa => self.decimal_adjust_accumulator(),
             OpCode::Dec => self.decrement(operands),
-            OpCode::Halt => self.halt(),
+            OpCode::Halt => self.halt(operands.get_cond().unwrap()),
             OpCode::Jp => self.jump(operands),
             OpCode::Inc => self.increment(operands),
             OpCode::Jr => self.jump_relative(operands),
@@ -463,8 +464,12 @@ impl Cpu {
         );
     }
 
-    fn halt(&mut self) {
-        self.state = CpuState::Halted;
+    fn halt(&mut self, pending_interrupts: bool) {
+        // if IME is disabled but we have pending interrupts, we do the halt bug
+        match !self.ime && pending_interrupts && self.ei_delay == 0 {
+            true => self.state = CpuState::HaltBug,
+            false => self.state = CpuState::Halted,
+        };
         notate_event(GameBoyEvent::ChangeGameBoyMode(crate::game_boy::GameBoyMode::Halted));
     }
 
@@ -551,7 +556,7 @@ impl Cpu {
     /// Just enables interrupts.
     /// The rest of the logic for RETI is handled across other M Cycles.
     fn reti(&mut self) {
-        notate_event(GameBoyEvent::EnableInterrupts)
+        self.ime = true;
     }
 
     fn clear_bit(&mut self, operands: (u8, u8)) {
@@ -812,6 +817,7 @@ impl InstructionStateMachine {
                 OperandValue::U16(U16Operand::Calculated(operand_0)),
                 OperandValue::U16(U16Operand::Calculated(operand_1)),
             ) => Some(CalcedOperands::TwoU16(operand_0, operand_1)),
+
             (OperandValue::Condition(cond), OperandValue::Unused) => Some(CalcedOperands::Cond(cond)),
 
             (
@@ -1083,7 +1089,7 @@ enum I8Operand {
     Calculated(i8),
 }
 
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 enum CpuState {
     PerformingInstruction,
     /// Checks for interrupts before performing the next instruction
@@ -1093,11 +1099,12 @@ enum CpuState {
     FetchingInstruction,
     InterruptHandler(Interrupt, InterruptStep),
     Halted,
+    HaltBug,
 }
 
 impl CpuState {}
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum InterruptStep {
     FirstWait,
     SecondWait,
@@ -1116,8 +1123,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         Self { cpu, bus }
     }
 
-    fn print_detailed_operation(&mut self, instruction: &'static Instruction) {
-        return;
+    fn _print_detailed_operation(&mut self, instruction: &'static Instruction) {
         print!("PC: {} => {} ", self.cpu.pc - 1, instruction.op_code);
         for operand in instruction.operands {
             match operand {
@@ -1177,6 +1183,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             CpuState::FetchingInstruction => self.fetch_next_instruction(),
             CpuState::InterruptHandler(interrupt, step) => self.tick_handling_interrupt(*interrupt, *step),
             CpuState::Halted => self.tick_halted(),
+            _ => unreachable!("Remaining states are exited at the end of the cycle they occur"),
         }
     }
 
@@ -1241,8 +1248,23 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     fn fetch_next_instruction(&mut self) {
         let fetched_byte = self.read_at_pc_and_incr();
         let instruction = &UNPREFIXED[fetched_byte as usize];
-        self.print_detailed_operation(instruction);
         self.cpu.update_to_next_instruction(instruction);
+    }
+    fn fetch_next_instruction_halt_bug(&mut self) {
+        self.fetch_next_instruction();
+        self.cpu.pc = self.cpu.pc.wrapping_sub(1);
+    }
+
+    fn handle_ei_delay(&mut self) {
+        match self.cpu.ei_delay {
+            0 => (),
+            1 => {
+                self.cpu.ei_delay = 0;
+                self.cpu.ime = true;
+            },
+            2 => self.cpu.ei_delay = 1,
+            _ => unreachable!("Is never more than 2"),
+        }
     }
 }
 
@@ -1277,11 +1299,17 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             MicroOp::ReadE8Operand0 => self.read_e8(0),
             MicroOp::ReadE8Operand1 => self.read_e8(1),
             MicroOp::WriteBack => self.write_back(),
+            MicroOp::CheckForInterrupts => self.check_for_interrupt(),
         }
 
-        // if that was the last instruction
         if self.cpu.instruction_state_machine.just_completed_instruction() {
-            self.fetch_next_instruction();
+            self.handle_ei_delay();
+
+            match self.cpu.state {
+                CpuState::Halted => (),
+                CpuState::HaltBug => self.fetch_next_instruction_halt_bug(),
+                _ => self.fetch_next_instruction(),
+            }
         } else {
             self.cpu.instruction_state_machine.step_index += 1;
         }
@@ -1366,6 +1394,12 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         );
     }
 
+    fn check_for_interrupt(&mut self) {
+        let pending_interrupt = self.bus.try_get_interrupt().is_some();
+        self.cpu
+            .set_instruction_operand(OperandValue::Condition(pending_interrupt), 0);
+    }
+
     fn pop_lsb(&mut self) {
         let popped_value = self.pop_from_stack();
         self.cpu.set_operand_lsb(popped_value, 0);
@@ -1399,7 +1433,6 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         self.cpu
             .instruction_state_machine
             .update_to_next_instruction(instruction);
-        self.print_detailed_operation(&CBPREFIXED[fetched_byte]);
         self.cpu.state = CpuState::PerformingInstruction;
     }
 
