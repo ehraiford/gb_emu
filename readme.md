@@ -23,7 +23,7 @@ There were a number of reasons for the creation of this project.
 
 As such, this was the ordering of my priorities with the project. 
 
-    1. Accuracy: There are a number of wonky things the GameBoy does to eke out a bit more performance (particularly the PPU since it's got an integrated LCD). The eccentricities of the hardware should be captured in the code. I've tried to abstract the design when appropriate but, if an abstraction could potentially impact the accuracy of the system, I've tried to avoid them accept as stopgaps to more permanent solutions.
+    1. Accuracy: There are a number of wonky things the GameBoy does to eke out a bit more performance (particularly the PPU since it's got an integrated LCD). The eccentricities of the hardware should be captured in the code. I've tried to abstract the design when appropriate but, if an abstraction could potentially impact the accuracy of the system, I've tried to avoid them except as stopgaps to more permanent solutions.
     
     2. Readability, Extensability, and Adaptability: I find writing code that affords its intention while still being easy to rework for new problems or as your understanding of your requirements evolves is one of the most interesting parts of writing software.This generally amounted to recursive composition of increasingly focused scope for modules, structs, and methods, verbose but explicit naming, and a reliance on enums.
 
