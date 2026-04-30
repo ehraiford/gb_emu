@@ -205,7 +205,7 @@ impl Bus {
             MemoryTarget::InterruptEnableRegister => self.ie.peek(address),
         }
     }
-    pub fn write(&mut self, address: Address, value: u8) -> () {
+    pub fn write(&mut self, address: Address, value: u8)  {
         let Some(device) = self.get_cpu_accessible_device_from_address(address) else {
             return BusAccessFailure::InaccessibleByCpu.into();
         };
@@ -301,7 +301,7 @@ pub trait BusAccessible {
     }
 
     fn read(&mut self, address: Address) -> u8;
-    fn write(&mut self, address: Address, value: u8) -> ();
+    fn write(&mut self, address: Address, value: u8);
     fn peek(&self, address: Address) -> u8;
 }
 

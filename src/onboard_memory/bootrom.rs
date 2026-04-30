@@ -8,7 +8,7 @@ impl BootRom {
     pub fn read(&self, address: Address) -> u8 {
         self.data[address as usize]
     }
-    pub fn write(&mut self, _address: Address, _value: u8) -> () {
+    pub fn write(&mut self, _address: Address, _value: u8) {
         BusAccessFailure::TriedWritingToReadOnlyMemory.into()
     }
 }
