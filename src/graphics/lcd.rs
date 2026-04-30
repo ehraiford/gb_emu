@@ -328,7 +328,7 @@ impl LcdRegister {
             9 => Some(LcdRegister::BackgroundPalette),
             0xA => Some(LcdRegister::ObjectPalette0),
             0xB => Some(LcdRegister::ObjectPalette1),
-            _ => GBCColorPaletteRegister::from_global_address(address).map(|r| Self::GameBoyColor(r)),
+            _ => GBCColorPaletteRegister::from_global_address(address).map(Self::GameBoyColor),
         }
     }
 }

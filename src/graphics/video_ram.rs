@@ -105,9 +105,9 @@ impl BusAccessible for VideoRam {
             let address = Self::local(address);
             let byte_index = TileByteIndex::address_to_index(address);
             let ram_bank = self.get_ram_bank_mut();
-            ram_bank.get_byte(byte_index).into()
+            ram_bank.get_byte(byte_index)
         } else {
-            self.tile_maps.get_byte(address - Self::TILE_MAP_START_ADDR).into()
+            self.tile_maps.get_byte(address - Self::TILE_MAP_START_ADDR)
         }
     }
 
@@ -118,11 +118,10 @@ impl BusAccessible for VideoRam {
             let byte_index = TileByteIndex::address_to_index(address);
             let ram_bank = self.get_ram_bank_mut();
 
-            ram_bank.set_byte(byte_index, value).into()
+            ram_bank.set_byte(byte_index, value)
         } else {
             self.tile_maps
                 .set_byte(address - Self::TILE_MAP_START_ADDR, value)
-                .into()
         }
     }
 
@@ -208,6 +207,7 @@ impl Tile {
 }
 
 #[derive(Copy, Clone, Debug)]
+#[derive(Default)]
 pub struct RawPixel {
     pub color_number: u8,
 }
@@ -228,11 +228,6 @@ impl RawPixel {
     }
 }
 
-impl Default for RawPixel {
-    fn default() -> Self {
-        Self { color_number: Default::default() }
-    }
-}
 
 #[derive(Clone, Copy, Debug)]
 pub struct ColoredPixel {
@@ -275,6 +270,7 @@ impl Default for ColoredPixel {
 }
 
 #[derive(Clone, Copy)]
+#[derive(Default)]
 struct TileMap {
     tile_map: [[u8; 32]; 32],
 }
@@ -296,11 +292,6 @@ impl TileMap {
     }
 }
 
-impl Default for TileMap {
-    fn default() -> Self {
-        Self { tile_map: [[Default::default(); 32]; 32] }
-    }
-}
 
 #[derive(Default, Clone, Copy)]
 struct TileMaps {

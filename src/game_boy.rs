@@ -18,7 +18,7 @@ use crate::{
 use std::cell::RefCell;
 
 thread_local! {
-    static GAMEBOY_EVENTS: RefCell<Vec<GameBoyEvent>> = RefCell::new(Vec::new());
+    static GAMEBOY_EVENTS: RefCell<Vec<GameBoyEvent>> = const { RefCell::new(Vec::new()) };
 }
 
 pub fn notate_event(event: GameBoyEvent) {

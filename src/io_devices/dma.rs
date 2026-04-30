@@ -3,6 +3,7 @@ use crate::{
     game_boy::{GameBoyEvent, notate_event},
 };
 
+#[derive(Default)]
 pub struct OamDma {
     remaining_bytes: u8,
     source_address: Address,
@@ -54,12 +55,3 @@ impl OamDma {
     }
 }
 
-impl Default for OamDma {
-    fn default() -> Self {
-        Self {
-            remaining_bytes: 0,
-            source_address: 0x00,
-            currently_transferring: false,
-        }
-    }
-}

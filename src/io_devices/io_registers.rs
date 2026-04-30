@@ -1,4 +1,3 @@
-use std::sync::{atomic::AtomicU8, Arc};
 
 use crate::{
     bus::{Address, BusAccessFailure, BusAccessible, MemoryTarget},

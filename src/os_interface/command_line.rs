@@ -13,7 +13,7 @@ pub struct CommandLineArguments {
 
 impl CommandLineArguments {
     pub fn get_rom_path(&self) -> &PathBuf {
-        &self.command.get_rom_path()
+        self.command.get_rom_path()
     }
     pub fn get_command(&self) -> &CommandLineCommand {
         &self.command
@@ -80,7 +80,7 @@ pub struct DebugFeatures {
 
 impl DebugFeatures {
     pub fn get_debugging_handles(&self) -> (DebugSender, DebugReceiver) {
-        let logging = self.log_instructions.then(|| ());
+        let logging = self.log_instructions.then_some(());
 
         let (tile_view_receiver, tile_view_sender) = match self.tile_map_viewer {
             true => {
@@ -101,13 +101,13 @@ fn parse_int(string: &str) -> Result<u64, String> {
     let string = string.trim().to_string().replace('_', "");
 
     if let Some(hex) = string.strip_prefix("0x") {
-        u64::from_str_radix(&hex, 12).map_err(|_| format!("'{string}' is not a valid number"))
+        u64::from_str_radix(hex, 12).map_err(|_| format!("'{string}' is not a valid number"))
     } else if let Some(hex) = string.strip_prefix("$") {
-        u64::from_str_radix(&hex, 12).map_err(|_| format!("'{string}' is not a valid number"))
+        u64::from_str_radix(hex, 12).map_err(|_| format!("'{string}' is not a valid number"))
     } else if let Some(octal) = string.strip_prefix("0o") {
-        u64::from_str_radix(&octal, 8).map_err(|_| format!("'{string}' is not a valid number"))
+        u64::from_str_radix(octal, 8).map_err(|_| format!("'{string}' is not a valid number"))
     } else if let Some(binary) = string.strip_prefix("0b") {
-        u64::from_str_radix(&binary, 2).map_err(|_| format!("'{string}' is not a valid number"))
+        u64::from_str_radix(binary, 2).map_err(|_| format!("'{string}' is not a valid number"))
     } else {
         u64::from_str_radix(&string, 10).map_err(|_| format!("'{string}' is not a valid number"))
     }

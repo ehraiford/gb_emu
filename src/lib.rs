@@ -49,7 +49,7 @@ fn run_emulator(rom_data: &[u8], emulator_command: EmulatorCommand, command_line
     let (ppu_handle, window_frame_handle, button_input) = get_os_interface_variables();
 
     let mut emulator: Emulator = Emulator::new(ppu_handle, Arc::<AtomicU8>::clone(&button_input), debug_sender);
-    emulator.load_rom(&rom_data);
+    emulator.load_rom(rom_data);
 
     let shared_command = Arc::new(Mutex::new(EmulatorCommand::Wait));
     emulator.start_emulator_thread(shared_command.clone());

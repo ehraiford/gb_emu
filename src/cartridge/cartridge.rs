@@ -156,7 +156,7 @@ pub struct ControlledMemory {
 
 impl ControlledMemory {
     pub fn new(mbc_type: Option<MBCType>, num_rom_banks: usize, num_ram_banks: usize) -> Self {
-        let memory_bank_controller = mbc_type.map(|t| MemoryBankController::new(t));
+        let memory_bank_controller = mbc_type.map(MemoryBankController::new);
         Self {
             memory_bank_controller,
             bankable_roms: BankableRoms::new(num_rom_banks - 1),

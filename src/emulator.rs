@@ -26,7 +26,7 @@ impl Emulator {
     const FRAME_DURATION: Duration = Duration::from_nanos(16_742_706);
 
     pub fn load_rom(&mut self, rom_data: &[u8]) {
-        let cartridge = Cartridge::new(&rom_data).unwrap();
+        let cartridge = Cartridge::new(rom_data).unwrap();
         self.gameboy.load_cartridge(cartridge);
     }
 

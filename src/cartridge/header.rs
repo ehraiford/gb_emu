@@ -27,7 +27,7 @@ impl Header {
     }
 
     pub fn get_expected_bank_size_in_kb(&self) -> usize {
-        self.num_ram_banks * 8 + self.num_rom_banks * 16
+        self.num_rom_banks * 16
     }
 
     pub fn get_num_ram_banks(&self) -> usize {

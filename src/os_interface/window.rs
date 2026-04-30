@@ -9,7 +9,7 @@ use crate::graphics::ppu::{Frame, SCREEN_HEIGHT, SCREEN_SIZE, SCREEN_WIDTH};
 use crate::io_devices::joypad_input::ButtonInput;
 use crate::os_interface::debugging::{DebugReceiver, TileViewer};
 
-const WINDOW_NAME: &str = &"Another GameBoy Emulator";
+const WINDOW_NAME: &str = "Another GameBoy Emulator";
 const INPUT_POLLS_PER_SECOND: u32 = 60;
 const WINDOW_FRAME_RATE: u32 = 60;
 

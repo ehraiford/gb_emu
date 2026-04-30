@@ -10,7 +10,7 @@ pub struct RomBank {
 
 impl RomBank {
     pub fn read(&mut self, address: Address) -> u8 {
-        self.data[address as usize].into()
+        self.data[address as usize]
     }
 
     pub fn write(&mut self, _: Address, _: u8) {
@@ -18,7 +18,7 @@ impl RomBank {
     }
 
     pub fn peek(&self, address: Address) -> u8 {
-        self.data[address as usize].into()
+        self.data[address as usize]
     }
 
     pub fn get_data_mut(&mut self) -> &mut [u8] {
@@ -47,7 +47,7 @@ impl<const SIZE: usize> RamBank<SIZE> {
     }
 
     pub fn read(&mut self, address: Address) -> u8 {
-        self.data[address as usize].into()
+        self.data[address as usize]
     }
 
     pub fn write(&mut self, address: Address, value: u8) {

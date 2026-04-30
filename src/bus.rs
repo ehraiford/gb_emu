@@ -151,18 +151,18 @@ impl Bus {
         let first_byte = self.read(pc);
 
         let unprefixed_instruction = &UNPREFIXED[first_byte as usize];
-        let outcome = match unprefixed_instruction.op_code {
-            OpCode::Prefix => {
-                let second_byte = self.read(pc + 1);
-                let prefixed_instruction = &CBPREFIXED[second_byte as usize];
-                prefixed_instruction
-            },
-            _ => unprefixed_instruction,
-        };
+        
 
         // log("Next instruction is: {:?}", instruction.op_code);
 
-        outcome
+        (match unprefixed_instruction.op_code {
+            OpCode::Prefix => {
+                let second_byte = self.read(pc + 1);
+                
+                &CBPREFIXED[second_byte as usize]
+            },
+            _ => unprefixed_instruction,
+        }) as _
     }
 
     pub fn read(&mut self, address: Address) -> u8 {
@@ -378,9 +378,9 @@ impl MemoryMap {
     fn get_cpu_accessible_device_from_address(&self, address: Address) -> Option<MemoryTarget> {
         let device = self.get_mapping_from_address(address);
         if device.inaccessible() {
-            return None;
+            None
         } else {
-            return Some(device.device);
+            Some(device.device)
         }
     }
 

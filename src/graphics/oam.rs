@@ -36,13 +36,13 @@ impl BusAccessible for ObjectAttributeMemory {
     fn read(&mut self, address: Address) -> u8 {
         let (index, byte_num) = Self::convert_address_to_sprite_and_byte_numbers(address);
 
-        self.objects[index].get_byte(byte_num).into()
+        self.objects[index].get_byte(byte_num)
     }
 
     fn write(&mut self, address: Address, value: u8) {
         let (index, byte_num) = Self::convert_address_to_sprite_and_byte_numbers(address);
 
-        self.objects[index].set_byte(byte_num, value).into()
+        self.objects[index].set_byte(byte_num, value)
     }
 
     fn peek(&self, address: Address) -> u8 {

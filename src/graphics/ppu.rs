@@ -285,9 +285,11 @@ impl Default for PpuModeTracker {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Default)]
 pub enum PpuMode {
     HorizontalBlank,
     VerticalBlank,
+    #[default]
     OamScan,
     DrawingPixels,
 }
@@ -298,34 +300,29 @@ impl PpuMode {
             PpuMode::HorizontalBlank | PpuMode::VerticalBlank => {
                 vec![MemoryTarget::VideoRam, MemoryTarget::ObjectAttributeMemory]
             },
-            PpuMode::OamScan { .. } => vec![MemoryTarget::VideoRam],
-            PpuMode::DrawingPixels { .. } => vec![],
+            PpuMode::OamScan => vec![MemoryTarget::VideoRam],
+            PpuMode::DrawingPixels => vec![],
         }
     }
     pub fn get_cpu_inaccessible_video_targets(&self) -> Vec<MemoryTarget> {
         match self {
             PpuMode::HorizontalBlank | PpuMode::VerticalBlank => vec![],
-            PpuMode::OamScan { .. } => vec![MemoryTarget::ObjectAttributeMemory],
-            PpuMode::DrawingPixels { .. } => {
+            PpuMode::OamScan => vec![MemoryTarget::ObjectAttributeMemory],
+            PpuMode::DrawingPixels => {
                 vec![MemoryTarget::VideoRam, MemoryTarget::ObjectAttributeMemory]
             },
         }
     }
 }
 
-impl Default for PpuMode {
-    fn default() -> Self {
-        Self::OamScan
-    }
-}
 
 impl From<PpuMode> for u8 {
     fn from(mode: PpuMode) -> Self {
         match mode {
             PpuMode::HorizontalBlank => 0,
             PpuMode::VerticalBlank => 1,
-            PpuMode::OamScan { .. } => 2,
-            PpuMode::DrawingPixels { .. } => 3,
+            PpuMode::OamScan => 2,
+            PpuMode::DrawingPixels => 3,
         }
     }
 }

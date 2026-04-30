@@ -550,7 +550,7 @@ pub mod m_cycle_accuracy {
             i += 1;
         }
 
-        return true;
+        true
     }
 
     pub const fn get_step_table_entry(opcode: OpCode, operands: &[Operand]) -> &'static [MicroOp] {
@@ -558,7 +558,7 @@ pub mod m_cycle_accuracy {
 
         while i < STEP_TABLE.len() {
             if is_a_match(opcode, operands, &STEP_TABLE[i]) {
-                return &STEP_TABLE[i].steps;
+                return STEP_TABLE[i].steps;
             } else {
                 i += 1;
             }

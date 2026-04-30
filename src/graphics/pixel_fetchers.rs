@@ -63,14 +63,14 @@ impl PixelFetchers {
                 return None;
             }
 
-            let pixel_to_draw = if let Some(object_pixel) = self.object_fetcher.try_get_pixel() {
+            
+
+            if let Some(object_pixel) = self.object_fetcher.try_get_pixel() {
                 let background_pixel = self.background_fetcher.pop_pixel();
                 Some(Self::arbitrate_pixels(background_pixel, object_pixel, lcd))
             } else {
                 self.try_pop_background_pixel(lcd)
-            };
-
-            pixel_to_draw
+            }
         }
     }
 
@@ -202,7 +202,7 @@ impl ObjectFifo {
         self.objects_on_this_line = objects_on_this_line
     }
 
-    fn determine_object_penalty(&self, leftmost_pixel_x_coord: u8) -> Dots {
+    fn determine_object_penalty(&self, _leftmost_pixel_x_coord: u8) -> Dots {
         todo!()
     }
 
@@ -307,6 +307,7 @@ impl ObjectFifoMode {
     }
 }
 
+#[derive(Default)]
 struct BackGroundFifo {
     queue: StackAllocQueue<FifoBackgroundPixel, 16>,
     mode: BackGroundFifoMode,
@@ -333,8 +334,8 @@ impl BackGroundFifo {
             (window_x / 8, self.window_y / 8, self.window_y % 8)
         } else {
             let scx = lcd.get_scx();
-            let calced_y = (lcd.get_ly().wrapping_add(lcd.get_scy())) & 0xFF;
-            let fetcher_bg_x = (scx.wrapping_add(fetcher_x)) & 0xFF;
+            let calced_y = lcd.get_ly().wrapping_add(lcd.get_scy()) ;
+            let fetcher_bg_x = scx.wrapping_add(fetcher_x) ;
 
             (fetcher_bg_x / 8, calced_y >> 3, calced_y & 7)
         }
@@ -372,7 +373,7 @@ impl BackGroundFifo {
                 self.mode = BackGroundFifoMode::GetTileDataHigh {
                     sleep_cycle: true,
                     access_method,
-                    tile_number: tile_number,
+                    tile_number,
                     byte_number: byte_number + 1,
                     low_byte,
                 }
@@ -430,18 +431,6 @@ impl BackGroundFifo {
     }
 }
 
-impl Default for BackGroundFifo {
-    fn default() -> Self {
-        Self {
-            queue: Default::default(),
-            mode: Default::default(),
-            pixels_popped: 0,
-            tiles_fetched: 0,
-            window_y: 0,
-            window_displayed_this_line: false,
-        }
-    }
-}
 
 #[derive(Debug)]
 enum BackGroundFifoMode {

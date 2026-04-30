@@ -1,5 +1,5 @@
 use crate::{
-    bus::{Address, BusAccessFailure},
+    bus::Address,
     game_boy::{GameBoyEvent, notate_event},
     io_devices::interrupts::Interrupt,
 };
@@ -55,7 +55,7 @@ impl TimerDivider {
     }
 
     pub fn get_register(&self, register: TimerDividerRegister) -> u8 {
-        self.registers[register.get_index() as usize]
+        self.registers[register.get_index()]
     }
 
     pub fn set_register(&mut self, register: TimerDividerRegister, value: u8) {
