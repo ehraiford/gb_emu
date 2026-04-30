@@ -45,7 +45,7 @@ impl Header {
             match element {
                 CartridgeElement::MBC(specified_type) => mbc_type = Some(*specified_type),
                 CartridgeElement::Ram => num_ram_banks = self.num_ram_banks,
-                CartridgeElement::Battery => todo!(),
+                CartridgeElement::Battery => (),
                 CartridgeElement::MMM01 => todo!(),
                 CartridgeElement::Timer => todo!(),
                 CartridgeElement::Rumble => todo!(),

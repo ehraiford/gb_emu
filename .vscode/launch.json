@@ -8,7 +8,7 @@
             "program": "${workspaceRoot}/target/debug/gb_emu.exe",
             "args": [
                 "run-as-fast-as-possible",
-                "${workspaceFolder}/test_roms/Dr. Mario.gb"
+                "${workspaceFolder}/test_roms/blargg_test_roms/11-op a,(hl).gb"
             ],
             "cwd": "${workspaceRoot}"
         }

@@ -57,9 +57,20 @@
             "problemMatcher": "$rustc"
         },
         {
-            "label": "run Blargg Test",
+            "label": "run Blargg Test Interrupt Instrs",
             "type": "shell",
-            "command": "cargo run --release -- run-as-fast-as-possible ${workspaceFolder}/test_roms/blargg_test_roms/halt_bug.gb",
+            "command": "cargo run --release -- run-as-fast-as-possible ${workspaceFolder}/test_roms/blargg_test_roms/02-interrupts.gb",
+            "options": {
+                "env": {
+                    "RUST_BACKTRACE": "1"
+                }
+            },
+            "problemMatcher": "$rustc"
+        },
+        {
+            "label": "run Blargg Test OP A HL",
+            "type": "shell",
+            "command": "cargo run --release -- run-as-fast-as-possible ${workspaceFolder}/test_roms/'blargg_test_roms/11-op a,(hl).gb'",
             "options": {
                 "env": {
                     "RUST_BACKTRACE": "1"

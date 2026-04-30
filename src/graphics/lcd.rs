@@ -178,22 +178,9 @@ impl Lcd {
         self.control_flags = value;
     }
 
-    fn set_control_flag(&mut self, flag: LcdControlFlag, value: bool) {
-        let index = flag.get_index();
-        self.control_flags &= 0b1 << index;
-        self.control_flags |= value as u8;
-    }
-
     fn get_status_flag(&self, flag: LcdStatusFlag) -> bool {
         let (shift, mask) = flag.get_shift_and_mask();
         (self.status_flags >> shift) & mask == 1
-    }
-    fn set_status_flag(&mut self, flag: LcdStatusFlag, value: bool) {
-        let (shift, _) = flag.get_shift_and_mask();
-        let mut status = self.status_flags;
-        status &= 0b1 << shift;
-        status |= (value as u8) << shift;
-        self.status_flags = status;
     }
 
     fn mode_transition_raises_interrupt(&self, mode: PpuMode) -> bool {

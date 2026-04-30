@@ -1396,6 +1396,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
 
     fn check_for_interrupt(&mut self) {
         let pending_interrupt = self.bus.try_get_interrupt().is_some();
+        self.cpu.instruction_state_machine.set_operand(OperandValue::Unused, 1);
         self.cpu
             .set_instruction_operand(OperandValue::Condition(pending_interrupt), 0);
     }
