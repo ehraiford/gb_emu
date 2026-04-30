@@ -85,6 +85,32 @@ fn run_blargg_test(cartridge: Cartridge) {
 }
 
 #[test]
+fn test_oam_incremental() {
+    let tests = [
+        "1-lcd_sync.gb",
+        "2-causes.gb",
+        "3-non_causes.gb",
+        "4-scanline_timing.gb",
+        "5-timing_bug.gb",
+        "6-timing_no_bug.gb",
+        "7-timing_effect.gb",
+        "8-instr_effect.gb",
+    ];
+
+    for test_name in &tests {
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("test_roms/gb-test-roms/oam_bug/rom_singles");
+        path.push(test_name);
+
+        println!("Running test: {}", test_name);
+        let rom = fs::read(&path).expect(&format!("Failed to read {}", test_name));
+        let cartridge = Cartridge::new(&rom).expect(&format!("Failed to load cartridge {}", test_name));
+        run_blargg_test(cartridge);
+        println!("✓ {} passed", test_name);
+    }
+}
+
+#[test]
 fn test_special() {
     let cartridge = Cartridge::new(&BlarggTest::Special.get_rom()).unwrap();
     run_blargg_test(cartridge);
