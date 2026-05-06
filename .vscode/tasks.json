@@ -78,5 +78,16 @@
             },
             "problemMatcher": "$rustc"
         },
+        {
+            "label": "run Blargg Test OAM BUG",
+            "type": "shell",
+            "command": "cargo run --release -- run-as-fast-as-possible ${workspaceFolder}/test_roms/blargg_test_roms/oam/1-lcd_sync.gb",
+            "options": {
+                "env": {
+                    "RUST_BACKTRACE": "1"
+                }
+            },
+            "problemMatcher": "$rustc"
+        },
     ]
 }

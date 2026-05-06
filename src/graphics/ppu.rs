@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     bus::MemoryTarget,
-    game_boy::{GameBoyEvent, TCycles, notate_event},
+    game_boy::{notate_event, GameBoyEvent, TCycles},
     graphics::{
         lcd::Lcd,
         oam::{ObjectAttributeMemory, ObjectAttributes},
@@ -95,7 +95,7 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
 
     pub fn enable(&mut self) {
         self.ppu.reset_for_new_frame();
-        self.ppu.mode_tracking = Default::default();
+        self.ppu.mode_tracking = PpuModeTracker::new_from_lcd_enable();
         self.lcd.set_ppu_mode(Default::default());
     }
 
@@ -284,8 +284,21 @@ impl Default for PpuModeTracker {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[derive(Default)]
+impl PpuModeTracker {
+    // first scanline after LCD enable is 16 T-cycles (4 M-cycles)
+    // shorter than normal — remaining_dots starts at 440 instead of 456.
+    fn new_from_lcd_enable() -> Self {
+        Self {
+            mode: PpuMode::OamScan,
+            remaining_dots_in_line: DOTS_PER_LINE - 4,
+            completed_cycles: 0,
+            pixels_left_to_push: 0,
+            pixels_left_to_ignore: 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum PpuMode {
     HorizontalBlank,
     VerticalBlank,
@@ -314,7 +327,6 @@ impl PpuMode {
         }
     }
 }
-
 
 impl From<PpuMode> for u8 {
     fn from(mode: PpuMode) -> Self {

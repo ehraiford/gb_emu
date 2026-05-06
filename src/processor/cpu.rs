@@ -32,6 +32,9 @@ impl Cpu {
     pub fn interrupts_are_enabled(&self) -> bool {
         self.ime
     }
+    pub fn get_pc(&self) -> u16 {
+        self.pc
+    }
 
     fn get_a(&self) -> u8 {
         (self.af >> 8) as u8

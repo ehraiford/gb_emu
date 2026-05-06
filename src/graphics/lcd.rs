@@ -58,8 +58,13 @@ impl Lcd {
 
     fn set_ly(&mut self, value: u8) {
         self.ly = value;
-        if self.ly == self.ly_compare && self.get_status_flag(LcdStatusFlag::LycEqualsLy) {
-            notate_event(GameBoyEvent::Interrupt(Interrupt::Stat));
+        if self.ly == self.ly_compare {
+            self.status_flags |= 0b100;
+            if self.get_status_flag(LcdStatusFlag::LycIntSelect) {
+                notate_event(GameBoyEvent::Interrupt(Interrupt::Stat));
+            }
+        } else {
+            self.status_flags &= !0b100;
         }
     }
 
@@ -132,11 +137,18 @@ impl Lcd {
         let address = address - Self::START_ADDRESS;
         match address {
             0 => self.set_control_flags(value),
-            1 => self.status_flags = value,
+            1 => self.status_flags = (value & !0b111) | (self.status_flags & 0b111),
             2 => self.scy = value,
             3 => self.scx = value,
             4 => BusAccessFailure::TriedWritingToReadOnlyMemory.into(),
-            5 => self.ly_compare = value,
+            5 => {
+                self.ly_compare = value;
+                if self.ly == self.ly_compare {
+                    self.status_flags |= 0b100;
+                } else {
+                    self.status_flags &= !0b100;
+                }
+            },
             6 => {
                 self.oam_dma_start_address = value;
                 notate_event(GameBoyEvent::StartOamDmaTransfer(value))
@@ -184,7 +196,7 @@ impl Lcd {
     }
 
     fn mode_transition_raises_interrupt(&self, mode: PpuMode) -> bool {
-        if mode == PpuMode::VerticalBlank {
+        if mode == PpuMode::DrawingPixels {
             return false;
         }
 

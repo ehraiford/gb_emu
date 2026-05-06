@@ -84,6 +84,24 @@ fn run_blargg_test(cartridge: Cartridge) -> Result<(), String> {
     Err("Did not pass test within time limit".to_string())
 }
 
+// oam_bug tests write pass/fail to external RAM (0xA000), not serial.
+// 0x80 = still running, 0x00 = passed, other = fail code.
+fn run_oam_bug_test(cartridge: Cartridge) {
+    const MAX_CYCLES: u64 = 0x400_0000;
+    let mut game_boy = GameBoy::new();
+    game_boy.load_cartridge(cartridge);
+
+    for _ in 0..MAX_CYCLES {
+        game_boy.tick();
+        match game_boy.peek_mem(0xA000) {
+            0x80 => continue,
+            0x00 => return,
+            code => panic!("Test failed with code {:#04x}", code),
+        }
+    }
+    panic!("Did not pass test within time limit")
+}
+
 #[test]
 fn test_cpu_instrs() {
     run_blargg_test_group("cpu_instrs");
@@ -118,5 +136,34 @@ fn test_mem_timing2() {
 
 #[test]
 fn test_oam_bug() {
-    run_blargg_test_group("oam_bug");
+    let mut path = get_test_dir_pathbuf();
+    path.push("oam_bug/oam_bug.gb");
+    let cartridge = Cartridge::new(&fs::read(path).unwrap()).unwrap();
+    run_oam_bug_test(cartridge);
+}
+
+#[test]
+fn test_oam_incremental() {
+    let tests = [
+        "1-lcd_sync.gb",
+        "2-causes.gb",
+        "3-non_causes.gb",
+        "4-scanline_timing.gb",
+        "5-timing_bug.gb",
+        "6-timing_no_bug.gb",
+        "7-timing_effect.gb",
+        "8-instr_effect.gb",
+    ];
+
+    for test_name in &tests {
+        let mut path = get_test_dir_pathbuf();
+        path.push("oam_bug/rom_singles");
+        path.push(test_name);
+
+        println!("Running test: {}", test_name);
+        let rom = fs::read(&path).expect(&format!("Failed to read {}", test_name));
+        let cartridge = Cartridge::new(&rom).expect(&format!("Failed to load cartridge {}", test_name));
+        run_oam_bug_test(cartridge);
+        println!("✓ {} passed", test_name);
+    }
 }

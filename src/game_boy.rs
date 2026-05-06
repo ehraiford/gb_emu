@@ -93,11 +93,11 @@ impl GameBoy {
     }
 
     pub fn tick(&mut self) {
-        self.tick_joypad();
+        self.tick_ppu();
         self.tick_cpu();
+        self.tick_joypad();
         self.tick_timer_divider();
         self.tick_oam_dma();
-        self.tick_ppu();
         self.tick_serial();
         self.handle_changes();
     }
@@ -171,6 +171,12 @@ impl GameBoy {
     }
     pub fn get_serial_output(&self) -> Vec<&Bit> {
         self.bus.get_serial_output()
+    }
+    pub fn peek_mem(&self, address: u16) -> u8 {
+        self.bus.peek(address)
+    }
+    pub fn get_pc(&self) -> u16 {
+        self.cpu.get_pc()
     }
 }
 
