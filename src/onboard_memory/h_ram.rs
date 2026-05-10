@@ -6,7 +6,6 @@ use crate::{
 #[derive(Default)]
 pub struct HighRam {
     data: RamBank<0x7F>,
-    cpu_accessible: bool,
 }
 
 impl BusAccessible for HighRam {

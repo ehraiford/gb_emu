@@ -151,14 +151,13 @@ impl Bus {
         let first_byte = self.read(pc);
 
         let unprefixed_instruction = &UNPREFIXED[first_byte as usize];
-        
 
         // log("Next instruction is: {:?}", instruction.op_code);
 
         (match unprefixed_instruction.op_code {
             OpCode::Prefix => {
                 let second_byte = self.read(pc + 1);
-                
+
                 &CBPREFIXED[second_byte as usize]
             },
             _ => unprefixed_instruction,
@@ -205,7 +204,7 @@ impl Bus {
             MemoryTarget::InterruptEnableRegister => self.ie.peek(address),
         }
     }
-    pub fn write(&mut self, address: Address, value: u8)  {
+    pub fn write(&mut self, address: Address, value: u8) {
         let Some(device) = self.get_cpu_accessible_device_from_address(address) else {
             return BusAccessFailure::InaccessibleByCpu.into();
         };
@@ -236,6 +235,10 @@ impl Bus {
 
     pub fn oam_dma_transfer(&mut self, address: Address, value: u8) {
         self.oam.set_from_dma_transfer(address, value);
+    }
+
+    pub fn get_oam_mut(&mut self) -> &mut ObjectAttributeMemory {
+        &mut self.oam
     }
 }
 
@@ -468,6 +471,7 @@ pub enum BusAccessFailure {
     InaccessibleByCpu,
     TriedAccessingUnusableMemory,
     TriedWritingToReadOnlyMemory,
+    TriedReadingWriteOnlyMemory,
     Unimplemented,
 }
 
@@ -500,6 +504,7 @@ impl Display for BusAccessFailure {
             BusAccessFailure::TriedAccessingUnusableMemory => "TriedAccessingUnusableMemory",
             BusAccessFailure::TriedWritingToReadOnlyMemory => "TriedWritingToRom",
             BusAccessFailure::Unimplemented => "NotImplemented",
+            BusAccessFailure::TriedReadingWriteOnlyMemory => "TriedReadingWriteOnlyMemory",
         };
         f.write_str(str)
     }

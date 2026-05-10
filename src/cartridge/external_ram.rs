@@ -24,7 +24,7 @@ impl BusAccessible for ExternalRam {
         self.bankable_ram.read(Self::local(address))
     }
 
-    fn write(&mut self, address: Address, value: u8)  {
+    fn write(&mut self, address: Address, value: u8) {
         self.bankable_ram.write(Self::local(address), value)
     }
 

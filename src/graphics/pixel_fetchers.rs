@@ -63,8 +63,6 @@ impl PixelFetchers {
                 return None;
             }
 
-            
-
             if let Some(object_pixel) = self.object_fetcher.try_get_pixel() {
                 let background_pixel = self.background_fetcher.pop_pixel();
                 Some(Self::arbitrate_pixels(background_pixel, object_pixel, lcd))
@@ -334,8 +332,8 @@ impl BackGroundFifo {
             (window_x / 8, self.window_y / 8, self.window_y % 8)
         } else {
             let scx = lcd.get_scx();
-            let calced_y = lcd.get_ly().wrapping_add(lcd.get_scy()) ;
-            let fetcher_bg_x = scx.wrapping_add(fetcher_x) ;
+            let calced_y = lcd.get_ly().wrapping_add(lcd.get_scy());
+            let fetcher_bg_x = scx.wrapping_add(fetcher_x);
 
             (fetcher_bg_x / 8, calced_y >> 3, calced_y & 7)
         }
@@ -430,7 +428,6 @@ impl BackGroundFifo {
         self.window_y = 0;
     }
 }
-
 
 #[derive(Debug)]
 enum BackGroundFifoMode {

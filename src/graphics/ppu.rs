@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     bus::MemoryTarget,
-    game_boy::{notate_event, GameBoyEvent, TCycles},
+    game_boy::{GameBoyEvent, TCycles, notate_event},
     graphics::{
         lcd::Lcd,
         oam::{ObjectAttributeMemory, ObjectAttributes},
@@ -498,7 +498,7 @@ impl Screen {
         }
     }
 
-    fn turn_off_screen(&mut self) {
+    fn _turn_off_screen(&mut self) {
         for _ in self.current_pixel_index..SCREEN_SIZE as u16 {
             self.frame_being_drawn
                 .set_pixel(ColoredPixel::screen_off(), self.current_pixel_index);

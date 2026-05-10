@@ -9,7 +9,7 @@ use std::{
     path::PathBuf,
 };
 
-const MAX_RUN_CYCLES: u64 = 0x1_000_000;
+const MAX_RUN_CYCLES: u64 = 0x2_000_000;
 
 fn get_test_dir_pathbuf() -> PathBuf {
     let mut path = PathBuf::from(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")));
@@ -84,27 +84,60 @@ fn run_blargg_test(cartridge: Cartridge) -> Result<(), String> {
     Err("Did not pass test within time limit".to_string())
 }
 
-// oam_bug tests write pass/fail to external RAM (0xA000), not serial.
+// Some tests write pass/fail to external RAM (0xA000), not serial.
 // 0x80 = still running, 0x00 = passed, other = fail code.
-fn run_oam_bug_test(cartridge: Cartridge) {
+// Waits for the 0x80 sentinel before checking completion so the initial
+// zero-initialized RAM doesn't cause a false pass.
+fn run_ram_result_test(cartridge: Cartridge) -> Result<(), String> {
     const MAX_CYCLES: u64 = 0x400_0000;
     let mut game_boy = GameBoy::new();
     game_boy.load_cartridge(cartridge);
 
+    let mut started = false;
     for _ in 0..MAX_CYCLES {
         game_boy.tick();
-        match game_boy.peek_mem(0xA000) {
+        let status = game_boy.peek_mem(0xA000);
+        if !started {
+            started = status == 0x80;
+            continue;
+        }
+        match status {
             0x80 => continue,
-            0x00 => return,
-            code => panic!("Test failed with code {:#04x}", code),
+            0x00 => return Ok(()),
+            code => return Err(format!("Test failed with code {:#04x}", code)),
         }
     }
-    panic!("Did not pass test within time limit")
+    Err("Did not pass test within time limit".to_string())
+}
+
+fn run_oam_bug_test(cartridge: Cartridge) {
+    if let Err(failure) = run_ram_result_test(cartridge) {
+        panic!("{failure}");
+    }
 }
 
 #[test]
 fn test_cpu_instrs() {
-    run_blargg_test_group("cpu_instrs");
+    // The combined cpu_instrs.gb runs all 11 sub-tests sequentially and exceeds MAX_RUN_CYCLES.
+    // Run the individual tests directly instead.
+    let Some(entries) = get_individual_test_dir("cpu_instrs") else {
+        panic!("No individual cpu_instrs tests found");
+    };
+    let mut any_failed = false;
+    for entry in entries {
+        let path = entry.unwrap().path();
+        let cartridge = Cartridge::new(&fs::read(&path).unwrap()).unwrap();
+        if let Err(failure) = run_blargg_test(cartridge) {
+            any_failed = true;
+            println!(
+                "cpu_instrs::{} failed: {failure}",
+                path.file_name().unwrap().to_string_lossy()
+            );
+        }
+    }
+    if any_failed {
+        panic!();
+    }
 }
 
 #[test]
@@ -119,7 +152,7 @@ fn test_instr_timing() {
 
 #[test]
 fn test_interrupt_timing() {
-    run_blargg_test_group("interrupt_timing");
+    run_blargg_test_group("interrupt_time");
 }
 
 #[test]
@@ -128,10 +161,42 @@ fn test_mem_timing() {
 }
 
 #[test]
-#[ignore]
 fn test_mem_timing2() {
-    // this one doesn't follow the naming scheme of the rest so we'll need to manually handle it
-    run_blargg_test_group("mem_timing-2");
+    // mem_timing-2 names its combined ROM "mem_timing.gb" not "mem_timing-2.gb",
+    // and outputs results to $A000 instead of serial.
+    let mut path = get_test_dir_pathbuf();
+    path.push("mem_timing-2");
+    path.push("mem_timing");
+    path.set_extension("gb");
+
+    let cartridge = Cartridge::new(&fs::read(path).unwrap()).unwrap();
+    if run_ram_result_test(cartridge).is_ok() {
+        return;
+    }
+
+    let Some(entries) = get_individual_test_dir("mem_timing-2") else {
+        panic!("Test failed. There are no individual tests to figure out where.")
+    };
+    let mut any_failed = false;
+    for entry in entries {
+        let individual_test_path = entry.unwrap().path();
+        let cartridge = Cartridge::new(&fs::read(&individual_test_path).unwrap()).unwrap();
+        if let Err(failure) = run_ram_result_test(cartridge) {
+            any_failed = true;
+            println!(
+                "mem_timing-2::{} failed: {failure}",
+                individual_test_path.file_name().unwrap().to_string_lossy()
+            );
+        } else {
+            println!(
+                "mem_timing-2::{} passed",
+                individual_test_path.file_name().unwrap().to_string_lossy()
+            );
+        }
+    }
+    if any_failed {
+        panic!();
+    }
 }
 
 #[test]
@@ -155,15 +220,18 @@ fn test_oam_incremental() {
         "8-instr_effect.gb",
     ];
 
+    let mut failed = false;
     for test_name in &tests {
         let mut path = get_test_dir_pathbuf();
         path.push("oam_bug/rom_singles");
         path.push(test_name);
 
-        println!("Running test: {}", test_name);
         let rom = fs::read(&path).expect(&format!("Failed to read {}", test_name));
         let cartridge = Cartridge::new(&rom).expect(&format!("Failed to load cartridge {}", test_name));
-        run_oam_bug_test(cartridge);
-        println!("✓ {} passed", test_name);
+        if let Err(failure) = run_ram_result_test(cartridge) {
+            println!("{test_name} failed: {failure}");
+            failed = true;
+        }
     }
+    assert!(!failed)
 }

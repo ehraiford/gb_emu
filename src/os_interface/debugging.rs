@@ -16,7 +16,7 @@ pub struct DebugSender {
 }
 
 pub struct DebugReceiver {
-    pub logging: Option<()>,
+    pub _logging: Option<()>,
     pub tile_view_receiver: Option<TileViewer>,
 }
 

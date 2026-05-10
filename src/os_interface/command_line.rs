@@ -91,7 +91,7 @@ impl DebugFeatures {
         };
 
         let sender = DebugSender { logging, tile_view_sender };
-        let receiver = DebugReceiver { logging, tile_view_receiver };
+        let receiver = DebugReceiver { _logging: logging, tile_view_receiver };
 
         (sender, receiver)
     }

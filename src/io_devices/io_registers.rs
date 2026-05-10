@@ -1,7 +1,6 @@
-
 use crate::{
     bus::{Address, BusAccessFailure, BusAccessible, MemoryTarget},
-    game_boy::{notate_event, GameBoyEvent},
+    game_boy::{GameBoyEvent, notate_event},
     graphics::{lcd::Lcd, oam::PriorityMode},
     io_devices::{
         audio::Audio,
@@ -60,7 +59,6 @@ impl BusAccessible for IoRegisters {
             IoSection::TimerAndDivider => self.timer_divider.read(address),
             IoSection::Interrupts => self.interrupt_flag_register.read(),
             IoSection::Audio => self.audio.read(address),
-            IoSection::WavePattern => todo!(),
             IoSection::Lcd => self.lcd_registers.read(address),
             IoSection::Keys => BusAccessFailure::Unimplemented.into(),
             IoSection::VramBankSelect => todo!(),
@@ -84,7 +82,6 @@ impl BusAccessible for IoRegisters {
             IoSection::TimerAndDivider => self.timer_divider.write(address, value),
             IoSection::Interrupts => self.interrupt_flag_register.write(value),
             IoSection::Audio => self.audio.write(address, value),
-            IoSection::WavePattern => BusAccessFailure::Unimplemented.into(),
             IoSection::Lcd => self.lcd_registers.write(address, value),
             IoSection::Keys => BusAccessFailure::Unimplemented.into(),
             IoSection::VramBankSelect => BusAccessFailure::Unimplemented.into(),
@@ -109,7 +106,6 @@ impl BusAccessible for IoRegisters {
             IoSection::TimerAndDivider => self.timer_divider.read(address),
             IoSection::Interrupts => self.interrupt_flag_register.read(),
             IoSection::Audio => self.audio.read(address),
-            IoSection::WavePattern => todo!(),
             IoSection::Lcd => self.lcd_registers.peek(address),
             IoSection::Keys => todo!(),
             IoSection::VramBankSelect => todo!(),
@@ -128,8 +124,7 @@ const IO_MAP: &[(IoSection, (Address, Address))] = &[
     (IoSection::SerialTransfer, (0xFF01, 0xFF03)),
     (IoSection::TimerAndDivider, (0xFF04, 0xFF08)),
     (IoSection::Interrupts, (0xFF0F, 0xFF10)),
-    (IoSection::Audio, (0xFF10, 0xFF27)),
-    (IoSection::WavePattern, (0xFF30, 0xFF40)),
+    (IoSection::Audio, (0xFF10, 0xFF40)),
     (IoSection::Lcd, (0xFF40, 0xFF4C)),
     (IoSection::Keys, (0xFF4C, 0xFF4E)),
     (IoSection::VramBankSelect, (0xFF4F, 0xFF50)),
@@ -149,7 +144,6 @@ pub enum IoSection {
     TimerAndDivider,
     Interrupts,
     Audio,
-    WavePattern,
     Lcd,
     Keys,
     VramBankSelect,
@@ -162,15 +156,10 @@ pub enum IoSection {
 }
 
 impl IoSection {
-    /// Gets the range (global) for a IO Register section.
-    const fn get_range(&self) -> (Address, Address) {
-        IO_MAP[*self as usize].1
-    }
-
     fn from_address(address: Address) -> Option<Self> {
         let mut i = 0;
         while i < IO_MAP.len() {
-            if IO_MAP[i].1 .0 <= address && IO_MAP[i].1 .1 > address {
+            if IO_MAP[i].1.0 <= address && IO_MAP[i].1.1 > address {
                 return Some(IO_MAP[i].0);
             }
             i += 1;

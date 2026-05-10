@@ -54,4 +54,3 @@ impl OamDma {
         notate_event(GameBoyEvent::EndOamDmaTransfer);
     }
 }
-

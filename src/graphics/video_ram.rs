@@ -120,8 +120,7 @@ impl BusAccessible for VideoRam {
 
             ram_bank.set_byte(byte_index, value)
         } else {
-            self.tile_maps
-                .set_byte(address - Self::TILE_MAP_START_ADDR, value)
+            self.tile_maps.set_byte(address - Self::TILE_MAP_START_ADDR, value)
         }
     }
 
@@ -206,8 +205,7 @@ impl Tile {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-#[derive(Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct RawPixel {
     pub color_number: u8,
 }
@@ -227,7 +225,6 @@ impl RawPixel {
         })
     }
 }
-
 
 #[derive(Clone, Copy, Debug)]
 pub struct ColoredPixel {
@@ -269,8 +266,7 @@ impl Default for ColoredPixel {
     }
 }
 
-#[derive(Clone, Copy)]
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 struct TileMap {
     tile_map: [[u8; 32]; 32],
 }
@@ -291,7 +287,6 @@ impl TileMap {
         self.tile_map.as_flattened()
     }
 }
-
 
 #[derive(Default, Clone, Copy)]
 struct TileMaps {

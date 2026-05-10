@@ -57,9 +57,9 @@
             "problemMatcher": "$rustc"
         },
         {
-            "label": "run Blargg Test Interrupt Instrs",
+            "label": "run Blargg Test Interrupt Timings",
             "type": "shell",
-            "command": "cargo run --release -- run-as-fast-as-possible ${workspaceFolder}/test_roms/blargg_test_roms/02-interrupts.gb",
+            "command": "cargo run --release -- run-as-fast-as-possible ${workspaceFolder}/test_roms/gb-test-roms/interrupt_time/interrupt_time.gb",
             "options": {
                 "env": {
                     "RUST_BACKTRACE": "1"
@@ -81,7 +81,7 @@
         {
             "label": "run Blargg Test OAM BUG",
             "type": "shell",
-            "command": "cargo run --release -- run-as-fast-as-possible ${workspaceFolder}/test_roms/blargg_test_roms/oam/1-lcd_sync.gb",
+            "command": "cargo run --release -- run-as-fast-as-possible ${workspaceFolder}/test_roms/gb-test-roms/oam_bug/oam_bug.gb",
             "options": {
                 "env": {
                     "RUST_BACKTRACE": "1"
