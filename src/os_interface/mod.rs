@@ -9,7 +9,7 @@ pub mod profiling;
 pub mod window;
 
 pub fn get_os_interface_variables() -> (SenderFrameHandle, ReceiverFrameHandle, ButtonInput) {
-    let (sender, receiver) = TripleBuffer::new();
+    let (sender, receiver) = TripleBuffer::create();
 
     (sender, receiver, new_button_input())
 }

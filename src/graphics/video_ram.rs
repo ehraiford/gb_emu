@@ -247,7 +247,7 @@ impl ColoredPixel {
         Self { color: palette >> (color_number * 2) & 0b11 }
     }
 
-    pub fn to_minifb_u32(&self) -> u32 {
+    pub fn to_minifb_u32(self) -> u32 {
         let shade = match self.color {
             0 => 0xFF,
             1 => 0xAA,

@@ -1,12 +1,11 @@
+#[cfg(not(feature = "headless"))]
+use crate::io_devices::joypad_input::ButtonInput;
 use crate::{
     bus::{Address, BusAccessFailure, BusAccessible, MemoryTarget},
     game_boy::{GameBoyEvent, notate_event},
     graphics::{lcd::Lcd, oam::PriorityMode},
     io_devices::{
-        audio::Audio,
-        interrupts::InterruptFlagRegister,
-        joypad_input::{ButtonInput, JoyPadInput},
-        serial::Serial,
+        audio::Audio, interrupts::InterruptFlagRegister, joypad_input::JoyPadInput, serial::Serial,
         timer_divider::TimerDivider,
     },
 };
@@ -18,6 +17,13 @@ pub struct IoRegisters {
     pub timer_divider: TimerDivider,
     pub joypad: JoyPadInput,
     pub serial: Serial,
+}
+
+#[cfg(feature = "headless")]
+impl Default for IoRegisters {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl IoRegisters {

@@ -1,3 +1,4 @@
+#[cfg(not(feature = "headless"))]
 use std::sync::Arc;
 
 use crate::{
@@ -10,8 +11,9 @@ use crate::{
         video_ram::{ColoredPixel, VideoRam},
     },
     io_devices::interrupts::Interrupt,
-    os_interface::window::{SenderFrameHandle, TripleBuffer},
 };
+#[cfg(not(feature = "headless"))]
+use crate::os_interface::window::{SenderFrameHandle, TripleBuffer};
 
 pub const SCREEN_WIDTH: u8 = 160;
 pub const SCREEN_HEIGHT: u8 = 144;

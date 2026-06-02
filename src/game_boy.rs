@@ -39,6 +39,13 @@ pub struct GameBoy {
     cpu: Cpu,
 }
 
+#[cfg(feature = "headless")]
+impl Default for GameBoy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GameBoy {
     #[cfg(not(feature = "headless"))]
     pub fn new(frame_handle: SenderFrameHandle, button_input: ButtonInput) -> Self {

@@ -128,8 +128,8 @@ impl OsWindow {
 
     fn poll_input(&self) -> u8 {
         let mut input = 0x00;
-        for i in 0..8 {
-            if !self.main_window.is_key_down(KEY_MAPPING[i]) {
+        for (i, key) in KEY_MAPPING.iter().enumerate() {
+            if !self.main_window.is_key_down(*key) {
                 input |= 0b1 << i
             }
         }
@@ -172,7 +172,7 @@ impl ReceiverFrameHandle {
 
         true
     }
-    pub fn get_frame(&self) -> &Box<[u32; SCREEN_SIZE]> {
+    pub fn get_frame(&self) -> &[u32; SCREEN_SIZE] {
         &self.pixel_buffer
     }
     fn check_for_new_frame(&mut self) -> bool {
@@ -186,7 +186,7 @@ pub struct TripleBuffer {
 }
 
 impl TripleBuffer {
-    pub fn new() -> (SenderFrameHandle, ReceiverFrameHandle) {
+    pub fn create() -> (SenderFrameHandle, ReceiverFrameHandle) {
         let shared_buffer = Arc::new(TripleBuffer {
             pending_frame: Mutex::new(Frame::default()),
             has_new_frame: AtomicBool::new(false),

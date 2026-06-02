@@ -6,8 +6,12 @@ use crate::{
     cartridge::cartridge::Cartridge,
     game_boy::{GameBoy, MCycles},
     graphics::video_ram::TileMapImage,
+    os_interface::command_line::CommandLineCommand,
+};
+#[cfg(not(feature = "headless"))]
+use crate::{
     io_devices::joypad_input::ButtonInput,
-    os_interface::{command_line::CommandLineCommand, debugging::DebugSender, window::SenderFrameHandle},
+    os_interface::{debugging::DebugSender, window::SenderFrameHandle},
 };
 use spin_sleep::SpinSleeper;
 

@@ -1,7 +1,4 @@
-use std::{
-    sync::{Arc, Mutex},
-    u32,
-};
+use std::sync::{Arc, Mutex};
 
 use minifb::Window;
 

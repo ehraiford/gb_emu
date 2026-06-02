@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+#[cfg(not(feature = "headless"))]
+use crate::io_devices::joypad_input::ButtonInput;
 use crate::{
     cartridge::cartridge::{Cartridge, CartridgeDevice},
     graphics::{
@@ -12,7 +14,6 @@ use crate::{
     io_devices::{
         interrupts::{Interrupt, InterruptEnableRegister},
         io_registers::IoRegisters,
-        joypad_input::ButtonInput,
     },
     onboard_memory::{
         bootrom::BootRom,

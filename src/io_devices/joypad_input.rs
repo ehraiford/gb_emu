@@ -1,5 +1,6 @@
 use std::sync::{Arc, atomic::AtomicU8};
 
+#[cfg(not(feature = "headless"))]
 use crate::{
     game_boy::{GameBoyEvent, notate_event},
     io_devices::interrupts::Interrupt,
@@ -36,6 +37,13 @@ impl JoyPadInput {
 
     fn new_button_pressed(prev_nibble: u8, new_nibble: u8) -> bool {
         prev_nibble & !new_nibble != 0
+    }
+}
+
+#[cfg(feature = "headless")]
+impl Default for JoyPadInput {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -113,9 +121,9 @@ pub fn new_button_input() -> ButtonInput {
 
 fn _print_input(value: u8) {
     let input = ["Right", "Left", "Up", "Down", "A", "B", "Select", "Start"];
-    for i in 0..8 {
+    for (i, name) in input.iter().enumerate() {
         if (value >> i) & 0b1 == 0 {
-            println!("{} is set", input[i])
+            println!("{} is set", name)
         }
     }
 }

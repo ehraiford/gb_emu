@@ -1,13 +1,16 @@
+#![allow(dead_code)]
+#![allow(clippy::module_inception)]
+
+#[cfg(not(feature = "headless"))]
 use std::sync::{Arc, Mutex, atomic::AtomicU8};
 
 use crate::{
     emulator::{Emulator, EmulatorCommand},
     helpers::disassemble_rom,
-    os_interface::{
-        command_line::{CommandLineArguments, CommandLineCommand},
-        get_os_interface_variables,
-    },
+    os_interface::command_line::{CommandLineArguments, CommandLineCommand},
 };
+#[cfg(not(feature = "headless"))]
+use crate::os_interface::get_os_interface_variables;
 use clap::Parser;
 
 mod bus;

@@ -109,6 +109,6 @@ fn parse_int(string: &str) -> Result<u64, String> {
     } else if let Some(binary) = string.strip_prefix("0b") {
         u64::from_str_radix(binary, 2).map_err(|_| format!("'{string}' is not a valid number"))
     } else {
-        u64::from_str_radix(&string, 10).map_err(|_| format!("'{string}' is not a valid number"))
+        string.parse::<u64>().map_err(|_| format!("'{string}' is not a valid number"))
     }
 }

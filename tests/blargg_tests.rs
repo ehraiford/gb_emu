@@ -151,6 +151,7 @@ fn test_instr_timing() {
 }
 
 #[test]
+#[ignore = "CGB test relying on double speed mode"]
 fn test_interrupt_timing() {
     run_blargg_test_group("interrupt_time");
 }

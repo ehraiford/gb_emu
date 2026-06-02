@@ -348,7 +348,7 @@ impl BackGroundFifo {
         }
 
         match self.mode {
-            BackGroundFifoMode::GetTile { .. } => {
+            BackGroundFifoMode::Tile { .. } => {
                 let access_method = lcd.get_background_window_tiles_address_mode();
 
                 let fetcher_x = self.tiles_fetched * 8;
@@ -359,16 +359,16 @@ impl BackGroundFifo {
 
                 self.tiles_fetched = self.tiles_fetched.wrapping_add(1);
 
-                self.mode = BackGroundFifoMode::GetTileDataLow {
+                self.mode = BackGroundFifoMode::TileDataLow {
                     sleep_cycle: true,
                     access_method,
                     tile_number,
                     byte_number: in_sprite_row << 1,
                 }
             },
-            BackGroundFifoMode::GetTileDataLow { sleep_cycle: _, access_method, tile_number, byte_number } => {
+            BackGroundFifoMode::TileDataLow { sleep_cycle: _, access_method, tile_number, byte_number } => {
                 let low_byte = v_ram.get_tile_byte(access_method, tile_number, byte_number);
-                self.mode = BackGroundFifoMode::GetTileDataHigh {
+                self.mode = BackGroundFifoMode::TileDataHigh {
                     sleep_cycle: true,
                     access_method,
                     tile_number,
@@ -376,7 +376,7 @@ impl BackGroundFifo {
                     low_byte,
                 }
             },
-            BackGroundFifoMode::GetTileDataHigh {
+            BackGroundFifoMode::TileDataHigh {
                 sleep_cycle: _,
                 access_method,
                 tile_number,
@@ -396,7 +396,7 @@ impl BackGroundFifo {
         for pixel in RawPixel::from_bytes(low_byte, high_byte) {
             self.queue.push(pixel.into());
         }
-        self.mode = BackGroundFifoMode::GetTile { sleep_cycle: true };
+        self.mode = BackGroundFifoMode::Tile { sleep_cycle: true };
     }
 
     fn try_pop_pixel(&mut self) -> Option<FifoBackgroundPixel> {
@@ -419,7 +419,7 @@ impl BackGroundFifo {
             self.window_displayed_this_line = false;
         }
         self.queue.clear_queue();
-        self.mode = BackGroundFifoMode::GetTile { sleep_cycle: true };
+        self.mode = BackGroundFifoMode::Tile { sleep_cycle: true };
         self.pixels_popped = 0;
         self.tiles_fetched = 0;
     }
@@ -431,16 +431,16 @@ impl BackGroundFifo {
 
 #[derive(Debug)]
 enum BackGroundFifoMode {
-    GetTile {
+    Tile {
         sleep_cycle: bool,
     },
-    GetTileDataLow {
+    TileDataLow {
         sleep_cycle: bool,
         access_method: AccessMethod,
         tile_number: u8,
         byte_number: u8,
     },
-    GetTileDataHigh {
+    TileDataHigh {
         sleep_cycle: bool,
         access_method: AccessMethod,
         tile_number: u8,
@@ -451,24 +451,23 @@ enum BackGroundFifoMode {
 
 impl Default for BackGroundFifoMode {
     fn default() -> Self {
-        Self::GetTile { sleep_cycle: true }
+        Self::Tile { sleep_cycle: true }
     }
 }
 
 impl BackGroundFifoMode {
     fn should_sleep(&self) -> bool {
         match self {
-            BackGroundFifoMode::GetTile { sleep_cycle }
-            | BackGroundFifoMode::GetTileDataLow { sleep_cycle, .. }
-            | BackGroundFifoMode::GetTileDataHigh { sleep_cycle, .. } => *sleep_cycle,
-            _ => false,
+            BackGroundFifoMode::Tile { sleep_cycle }
+            | BackGroundFifoMode::TileDataLow { sleep_cycle, .. }
+            | BackGroundFifoMode::TileDataHigh { sleep_cycle, .. } => *sleep_cycle,
         }
     }
     fn sleep(&mut self) {
         match self {
-            BackGroundFifoMode::GetTile { sleep_cycle }
-            | BackGroundFifoMode::GetTileDataLow { sleep_cycle, .. }
-            | BackGroundFifoMode::GetTileDataHigh { sleep_cycle, .. } => *sleep_cycle = false,
+            BackGroundFifoMode::Tile { sleep_cycle }
+            | BackGroundFifoMode::TileDataLow { sleep_cycle, .. }
+            | BackGroundFifoMode::TileDataHigh { sleep_cycle, .. } => *sleep_cycle = false,
         }
     }
 }

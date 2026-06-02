@@ -241,8 +241,8 @@ impl Cpu {
             Operand::DEPointer => self.get_register_as_pointer(SixteenBitRegister::DE),
             Operand::FF00OffsetByC => OperandValue::Pointer(PointerOperand::Calculated(0xFF00 + (self.bc & 0x00FF))),
             Operand::HLPointer => self.get_register_as_pointer(SixteenBitRegister::HL),
-            Operand::HLDPointer => OperandValue::Pointer(PointerOperand::HLD(self.hl)),
-            Operand::HLIPointer => OperandValue::Pointer(PointerOperand::HLI(self.hl)),
+            Operand::HLDPointer => OperandValue::Pointer(PointerOperand::Hld(self.hl)),
+            Operand::HLIPointer => OperandValue::Pointer(PointerOperand::Hli(self.hl)),
             Operand::Carry => OperandValue::Condition(self.check_condition(&Condition::Carry)),
             Operand::NotCarry => OperandValue::Condition(self.check_condition(&Condition::NotCarry)),
             Operand::NotZero => OperandValue::Condition(self.check_condition(&Condition::NotZero)),
@@ -1059,8 +1059,8 @@ enum PointerOperand {
     CalculatedLsb(u8),
     CalculatedMsb(u8),
     Calculated(u16),
-    HLI(u16), // Special case so that we increment HL after using it
-    HLD(u16), // Special case so that we decrement HL after using it
+    Hli(u16), // Special case so that we increment HL after using it
+    Hld(u16), // Special case so that we decrement HL after using it
 }
 
 impl PointerOperand {
@@ -1489,11 +1489,11 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         if let OperandValue::Pointer(pointer) = self.cpu.instruction_state_machine.get_operand(operand_num) {
             match pointer {
                 PointerOperand::Calculated(address) => self.bus.read(address),
-                PointerOperand::HLI(address) => {
+                PointerOperand::Hli(address) => {
                     self.cpu.hl = self.cpu.hl.wrapping_add(1);
                     self.bus.read(address)
                 },
-                PointerOperand::HLD(address) => {
+                PointerOperand::Hld(address) => {
                     self.cpu.hl = self.cpu.hl.wrapping_sub(1);
                     self.bus.read(address)
                 },
@@ -1508,11 +1508,11 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         if let OperandValue::Pointer(pointer) = self.cpu.instruction_state_machine.get_operand(operand_num) {
             match pointer {
                 PointerOperand::Calculated(address) => self.bus.write(address, value),
-                PointerOperand::HLI(address) => {
+                PointerOperand::Hli(address) => {
                     self.bus.write(address, value);
                     self.cpu.hl = self.cpu.hl.wrapping_add(1);
                 },
-                PointerOperand::HLD(address) => {
+                PointerOperand::Hld(address) => {
                     self.bus.write(address, value);
                     self.cpu.hl = self.cpu.hl.wrapping_sub(1);
                 },
