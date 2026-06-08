@@ -1,6 +1,6 @@
 use crate::{
     bus::Bus,
-    game_boy::{GameBoyEvent, notate_event},
+    game_boy::{EventQueue, GameBoyEvent},
     io_devices::interrupts::Interrupt,
     processor::{
         instruction_tables::{CBPREFIXED, UNPREFIXED},
@@ -24,8 +24,8 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn tick(&mut self, bus: &mut Bus) {
-        let mut cpu_operation_context = CpuOperationContext::new(self, bus);
+    pub fn tick(&mut self, bus: &mut Bus, events: &mut EventQueue) {
+        let mut cpu_operation_context = CpuOperationContext::new(self, bus, events);
         cpu_operation_context.tick();
     }
 
@@ -128,64 +128,82 @@ impl Cpu {
     ///     2. Writing results back to registers when appropriate
     ///     3. Updating flag values
     /// Basically, anything not expressed through the other micro ops is done here.
-    fn perform_instruction_logic(&mut self, operands: CalcedOperands) {
-        match self.instruction_state_machine.instruction.op_code {
-            OpCode::Adc => self.add_with_carry(operands.get_u8s().unwrap()),
-            OpCode::Add => self.add(operands),
-            OpCode::And => self.and(operands.get_u8s().unwrap()),
-            OpCode::Bit => self.bit(operands.get_u8s().unwrap()),
-            OpCode::Call => self.call(operands.get_cond()),
-            OpCode::Ccf => self.complement_carry_flag(),
-            OpCode::Cp => self.compare(operands.get_u8s().unwrap()),
-            OpCode::Cpl => self.complement(),
-            OpCode::Di => self.disable_interrupts(),
-            OpCode::Ei => self.enable_interrupts(),
-            OpCode::Daa => self.decimal_adjust_accumulator(),
-            OpCode::Dec => self.decrement(operands),
-            OpCode::Halt => self.halt(operands.get_cond().unwrap()),
-            OpCode::Jp => self.jump(operands),
-            OpCode::Inc => self.increment(operands),
-            OpCode::Jr => self.jump_relative(operands),
-            OpCode::Ld => self.load(operands),
-            OpCode::Ldh => self.load_high(operands.get_u8s().unwrap()),
-            OpCode::Or => self.or(operands.get_u8s().unwrap()),
-            OpCode::Pop => self.pop(operands.get_u16().unwrap()),
-            OpCode::Res => self.clear_bit(operands.get_u8s().unwrap()),
-            OpCode::Ret => self.ret(operands.get_cond()),
-            OpCode::Reti => self.reti(),
-            OpCode::Rl => self.rotate_left_through_carry(operands.get_u8().unwrap()),
-            OpCode::Rla => self.rotate_left_through_carry_a(),
-            OpCode::Rlc => self.rotate_left_into_carry(operands.get_u8().unwrap()),
-            OpCode::Rlca => self.rotate_left_into_carry_a(),
-            OpCode::Rr => self.rotate_right_through_carry(operands.get_u8().unwrap()),
-            OpCode::Rra => self.rotate_right_through_carry_a(),
-            OpCode::Rrc => self.rotate_right_into_carry(operands.get_u8().unwrap()),
-            OpCode::Rrca => self.rotate_right_into_carry_a(),
-            OpCode::Sbc => self.subtract_with_carry(operands.get_u8s().unwrap()),
-            OpCode::Scf => self.set_carry_flag(),
-            OpCode::Set => self.set_bit(operands.get_u8s().unwrap()),
-            OpCode::Sla => self.shift_left_arithmetically(operands.get_u8().unwrap()),
-            OpCode::Sra => self.shift_right_arithmetically(operands.get_u8().unwrap()),
-            OpCode::Srl => self.shift_right_logically(operands.get_u8().unwrap()),
-            OpCode::Stop => self.stop(),
-            OpCode::Sub => self.subtract(operands.get_u8s().unwrap()),
-            OpCode::Swap => self.swap(operands.get_u8().unwrap()),
-            OpCode::Xor => self.xor(operands.get_u8s().unwrap()),
+    fn perform_instruction_logic(&mut self, operands: CalcedOperands, events: &mut EventQueue) {
+        use CalcedOperands as Ops;
+        use OpCode::*;
 
-            // all of the logic for the following instructions happen automatically in other steps
-            OpCode::Nop | OpCode::Rst | OpCode::Push | OpCode::Prefix => (),
+        // Matching the opcode together with the operand shape lets each arm destructure the
+        // operands it needs directly, instead of narrowing a wide enum with `.unwrap()` at every
+        // call site. The step table guarantees the shape, so a mismatch is an internal bug and is
+        // funneled to the single `unreachable!` below rather than 20-odd silent unwraps.
+        match (self.instruction_state_machine.instruction.op_code, operands) {
+            // ALU / bit ops on two 8-bit operands
+            (Adc, Ops::TwoU8(a, b)) => self.add_with_carry((a, b)),
+            (And, Ops::TwoU8(a, b)) => self.and((a, b)),
+            (Bit, Ops::TwoU8(a, b)) => self.bit((a, b)),
+            (Cp, Ops::TwoU8(a, b)) => self.compare((a, b)),
+            (Ldh, Ops::TwoU8(a, b)) => self.load_high((a, b)),
+            (Or, Ops::TwoU8(a, b)) => self.or((a, b)),
+            (Res, Ops::TwoU8(a, b)) => self.clear_bit((a, b)),
+            (Sbc, Ops::TwoU8(a, b)) => self.subtract_with_carry((a, b)),
+            (Set, Ops::TwoU8(a, b)) => self.set_bit((a, b)),
+            (Sub, Ops::TwoU8(a, b)) => self.subtract((a, b)),
+            (Xor, Ops::TwoU8(a, b)) => self.xor((a, b)),
 
-            OpCode::Illegal => notate_event(GameBoyEvent::TriedRunningIllegalInstruction),
+            // rotate / shift ops on a single 8-bit operand
+            (Rl, Ops::OneU8(v)) => self.rotate_left_through_carry(v),
+            (Rlc, Ops::OneU8(v)) => self.rotate_left_into_carry(v),
+            (Rr, Ops::OneU8(v)) => self.rotate_right_through_carry(v),
+            (Rrc, Ops::OneU8(v)) => self.rotate_right_into_carry(v),
+            (Sla, Ops::OneU8(v)) => self.shift_left_arithmetically(v),
+            (Sra, Ops::OneU8(v)) => self.shift_right_arithmetically(v),
+            (Srl, Ops::OneU8(v)) => self.shift_right_logically(v),
+            (Swap, Ops::OneU8(v)) => self.swap(v),
+
+            (Pop, Ops::OneU16(v)) => self.pop(v),
+            (Halt, Ops::Cond(pending_interrupts)) => self.halt(pending_interrupts, events),
+
+            // handlers that consume the whole operand bundle and match on it internally
+            (Add, ops) => self.add(ops),
+            (Dec, ops) => self.decrement(ops),
+            (Inc, ops) => self.increment(ops),
+            (Jp, ops) => self.jump(ops),
+            (Jr, ops) => self.jump_relative(ops),
+            (Ld, ops) => self.load(ops),
+            // `get_cond` already returns an Option (None for the unconditional forms), so no unwrap
+            (Call, ops) => self.call(ops.get_cond()),
+            (Ret, ops) => self.ret(ops.get_cond()),
+
+            // flag/control ops that ignore their (absent) operands
+            (Ccf, _) => self.complement_carry_flag(),
+            (Cpl, _) => self.complement(),
+            (Daa, _) => self.decimal_adjust_accumulator(),
+            (Di, _) => self.disable_interrupts(),
+            (Ei, _) => self.enable_interrupts(),
+            (Reti, _) => self.reti(),
+            (Rla, _) => self.rotate_left_through_carry_a(),
+            (Rlca, _) => self.rotate_left_into_carry_a(),
+            (Rra, _) => self.rotate_right_through_carry_a(),
+            (Rrca, _) => self.rotate_right_into_carry_a(),
+            (Scf, _) => self.set_carry_flag(),
+            (Stop, _) => self.stop(events),
+
+            // logic for these happens entirely in other micro-ops
+            (Nop | Rst | Push | Prefix, _) => (),
+
+            (Illegal, _) => events.push(GameBoyEvent::TriedRunningIllegalInstruction),
+
+            (op, ops) => unreachable!("step table produced operands {ops:?} that {op:?} cannot consume"),
         }
     }
 
-    fn decode_instruction(&mut self) {
+    fn decode_instruction(&mut self, events: &mut EventQueue) {
         for i in 0..2 {
             if let Some(operand) = self.instruction_state_machine.instruction.operands.get(i as usize) {
                 let operand_value = self.decode_operand(operand);
-                self.set_instruction_operand(operand_value, i);
+                self.set_instruction_operand(operand_value, i, events);
             } else {
-                self.set_instruction_operand(OperandValue::Unused, i);
+                self.set_instruction_operand(OperandValue::Unused, i, events);
             }
         }
     }
@@ -257,23 +275,23 @@ impl Cpu {
 
     /// Sets the value for an operand in the instruction state machine.
     /// If both operands have been calculated, this performs the instruction's "logic", too
-    fn set_instruction_operand(&mut self, value: OperandValue, operand_num: u8) {
+    fn set_instruction_operand(&mut self, value: OperandValue, operand_num: u8, events: &mut EventQueue) {
         self.instruction_state_machine.set_operand(value, operand_num);
         if let Some(operands) = self.instruction_state_machine.get_calced_operands() {
-            self.perform_instruction_logic(operands);
+            self.perform_instruction_logic(operands, events);
         }
     }
 
-    fn set_operand_lsb(&mut self, lsb: u8, operand_num: u8) {
+    fn set_operand_lsb(&mut self, lsb: u8, operand_num: u8, events: &mut EventQueue) {
         self.instruction_state_machine.set_operand_lsb(lsb, operand_num);
         if let Some(operands) = self.instruction_state_machine.get_calced_operands() {
-            self.perform_instruction_logic(operands);
+            self.perform_instruction_logic(operands, events);
         }
     }
-    fn set_operand_msb(&mut self, msb: u8, operand_num: u8) {
+    fn set_operand_msb(&mut self, msb: u8, operand_num: u8, events: &mut EventQueue) {
         self.instruction_state_machine.set_operand_msb(msb, operand_num);
         if let Some(operands) = self.instruction_state_machine.get_calced_operands() {
-            self.perform_instruction_logic(operands);
+            self.perform_instruction_logic(operands, events);
         }
     }
 
@@ -467,13 +485,13 @@ impl Cpu {
         );
     }
 
-    fn halt(&mut self, pending_interrupts: bool) {
+    fn halt(&mut self, pending_interrupts: bool, events: &mut EventQueue) {
         // if IME is disabled but we have pending interrupts, we do the halt bug
         match !self.ime && pending_interrupts && self.ei_delay == 0 {
             true => self.state = CpuState::HaltBug,
             false => self.state = CpuState::Halted,
         };
-        notate_event(GameBoyEvent::ChangeGameBoyMode(crate::game_boy::GameBoyMode::Halted));
+        events.push(GameBoyEvent::ChangeGameBoyMode(crate::game_boy::GameBoyMode::Halted));
     }
 
     fn jump(&mut self, operands: CalcedOperands) {
@@ -699,8 +717,8 @@ impl Cpu {
         self.set_flags(result == 0, false, false, new_carry);
     }
 
-    fn stop(&self) {
-        notate_event(GameBoyEvent::ChangeGameBoyMode(crate::game_boy::GameBoyMode::Stopped));
+    fn stop(&self, events: &mut EventQueue) {
+        events.push(GameBoyEvent::ChangeGameBoyMode(crate::game_boy::GameBoyMode::Stopped));
     }
 
     fn subtract(&mut self, operands: (u8, u8)) {
@@ -858,6 +876,7 @@ impl Default for InstructionStateMachine {
     }
 }
 
+#[derive(Debug)]
 enum CalcedOperands {
     NoOperands,
     OneU8(u8),
@@ -872,29 +891,6 @@ enum CalcedOperands {
 }
 
 impl CalcedOperands {
-    fn get_u8s(self) -> Option<(u8, u8)> {
-        if let CalcedOperands::TwoU8(op0, op1) = self {
-            Some((op0, op1))
-        } else {
-            None
-        }
-    }
-    fn get_u8(self) -> Option<u8> {
-        if let CalcedOperands::OneU8(op0) = self {
-            Some(op0)
-        } else {
-            None
-        }
-    }
-
-    fn get_u16(self) -> Option<u16> {
-        if let CalcedOperands::OneU16(op0) = self {
-            Some(op0)
-        } else {
-            None
-        }
-    }
-
     /// Gets the condition if there is one.
     /// NOTE: This does NOT get the second operand if there is one. Just the condition
     fn get_cond(self) -> Option<bool> {
@@ -1036,7 +1032,7 @@ impl U16Operand {
             U16Operand::Calculated(_) | U16Operand::NotYetCalculated => *self = Self::CalculatedLsb(lsb),
             U16Operand::CalculatedMsb(msb) => *self = Self::Calculated(((*msb as u16) << 8) | lsb as u16),
             U16Operand::CalculatedLsb(_) => {
-                unreachable!("")
+                unreachable!("LSB already set before MSB")
             },
         }
     }
@@ -1116,67 +1112,15 @@ enum InterruptStep {
     SetPCToInterrupt,
 }
 
-pub struct CpuOperationContext<'a, 'b> {
+pub struct CpuOperationContext<'a, 'b, 'c> {
     cpu: &'a mut Cpu,
     bus: &'b mut Bus,
+    events: &'c mut EventQueue,
 }
 
-impl<'a, 'b> CpuOperationContext<'a, 'b> {
-    pub fn new(cpu: &'a mut Cpu, bus: &'b mut Bus) -> Self {
-        Self { cpu, bus }
-    }
-
-    fn _print_detailed_operation(&mut self, instruction: &'static Instruction) {
-        print!("PC: {} => {} ", self.cpu.pc - 1, instruction.op_code);
-        for operand in instruction.operands {
-            match operand {
-                Operand::A => print!("A(0x{:02x}) ", self.cpu.get_a()),
-                Operand::A16 => print!("A16(0x{:04x}) ", self.bus.read_u16(self.cpu.pc)),
-                Operand::A16Pointer => {
-                    let addr = self.bus.read_u16(self.cpu.pc);
-                    print!("(A16)@0x{:04x}(0x{:02x}) ", addr, self.bus.read(addr));
-                },
-                Operand::AF => print!("AF(0x{:04x}) ", self.cpu.af),
-                Operand::B => print!("B(0x{:02x}) ", self.cpu.bc >> 8),
-                Operand::BC => print!("BC(0x{:04x}) ", self.cpu.bc),
-                Operand::BCPointer => print!("(BC)@0x{:04x}(0x{:02x}) ", self.cpu.bc, self.bus.read(self.cpu.bc)),
-                Operand::C => print!("C(0x{:02x}) ", self.cpu.get_c()),
-                Operand::D => print!("D(0x{:02x}) ", self.cpu.de >> 8),
-                Operand::DE => print!("DE(0x{:04x}) ", self.cpu.de),
-                Operand::DEPointer => print!("(DE)@0x{:04x}(0x{:02x}) ", self.cpu.de, self.bus.read(self.cpu.de)),
-                Operand::E => print!("E(0x{:02x}) ", self.cpu.get_e()),
-                Operand::E8 => print!("E8(0x{:02x}) ", self.bus.read(self.cpu.pc) as i8),
-                Operand::FF00OffsetByA8 => {
-                    let offset = self.bus.read(self.cpu.pc);
-                    let addr = 0xFF00 + offset as u16;
-                    print!(
-                        "($FF00+0x{:02x})@0x{:04x}(0x{:02x}) ",
-                        offset,
-                        addr,
-                        self.bus.read(addr)
-                    );
-                },
-                Operand::FF00OffsetByC => {
-                    let addr = 0xFF00 + self.cpu.get_c() as u16;
-                    print!("($FF00+C)@0x{:04x}(0x{:02x}) ", addr, self.bus.read(addr));
-                },
-                Operand::H => print!("H(0x{:02x}) ", self.cpu.hl >> 8),
-                Operand::HL => print!("HL(0x{:04x}) ", self.cpu.hl),
-                Operand::HLDPointer => print!("[HL-](0x{:04x}) ", self.cpu.hl),
-                Operand::HLIPointer => print!("[HL+](0x{:04x}) ", self.cpu.hl),
-                Operand::HLPointer => print!("(HL)@0x{:04x}(0x{:02x}) ", self.cpu.hl, self.bus.read(self.cpu.hl)),
-                Operand::Immediate(val) => print!("Imm(0x{:02x}) ", val),
-                Operand::L => print!("L(0x{:02x}) ", self.cpu.get_l()),
-                Operand::N16 => print!("N16(0x{:04x}) ", self.bus.read_u16(self.cpu.pc)),
-                Operand::N8 => print!("N8(0x{:02x}) ", self.bus.read(self.cpu.pc)),
-                Operand::Carry => print!("Carry({}) ", self.cpu.get_flag(Flag::Carry)),
-                Operand::NotCarry => print!("NotCarry({}) ", !self.cpu.get_flag(Flag::Carry)),
-                Operand::NotZero => print!("NotZero({}) ", !self.cpu.get_flag(Flag::Zero)),
-                Operand::SP => print!("SP(0x{:04x}) ", self.cpu.sp),
-                Operand::Zero => print!("Zero({}) ", self.cpu.get_flag(Flag::Zero)),
-            }
-        }
-        println!()
+impl<'a, 'b, 'c> CpuOperationContext<'a, 'b, 'c> {
+    pub fn new(cpu: &'a mut Cpu, bus: &'b mut Bus, events: &'c mut EventQueue) -> Self {
+        Self { cpu, bus, events }
     }
 
     fn tick(&mut self) {
@@ -1272,10 +1216,10 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
 }
 
 // Methods for Instruction MicroOps
-impl<'a, 'b> CpuOperationContext<'a, 'b> {
+impl<'a, 'b, 'c> CpuOperationContext<'a, 'b, 'c> {
     fn tick_instruction_micro_op(&mut self) {
         match self.cpu.instruction_state_machine.get_op() {
-            MicroOp::Decode => self.cpu.decode_instruction(),
+            MicroOp::Decode => self.cpu.decode_instruction(self.events),
             MicroOp::PopLsb => self.pop_lsb(),
             MicroOp::PopMsb => self.pop_msb(),
             MicroOp::WriteSPLow => self.write_sp_low(),
@@ -1295,7 +1239,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             MicroOp::PushLsbPcToStackOperand0 => self.push_lsb_pc_to_stack(0),
             MicroOp::PushMsbPCToStackOperand1 => self.push_msb_pc_to_stack(),
             MicroOp::PushLsbPcToStackOperand1 => self.push_lsb_pc_to_stack(1),
-            MicroOp::Illegal => notate_event(GameBoyEvent::TriedRunningIllegalInstruction),
+            MicroOp::Illegal => self.events.push(GameBoyEvent::TriedRunningIllegalInstruction),
             MicroOp::ReadSPPlusE8 => self.read_sp_plus_e8(),
             MicroOp::ReadIntoOperand0Lsb => self.read_into_operand_lsb(0),
             MicroOp::ReadIntoOperand1Lsb => self.read_into_operand_lsb(1),
@@ -1324,7 +1268,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
 
         let value = self.cpu.instruction_state_machine.result as u8;
 
-        self.bus.write(address, value);
+        self.bus.write(address, value, self.events);
     }
 
     fn write(&mut self) {
@@ -1336,12 +1280,22 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     }
 
     fn write_sp_low(&mut self) {
-        let sp_low = self.cpu.instruction_state_machine.get_operand(1).try_get_lsb().unwrap();
+        let sp_low = self
+            .cpu
+            .instruction_state_machine
+            .get_operand(1)
+            .try_get_lsb()
+            .expect("WriteSPLow runs only after operand 1 (SP) is a fully-formed u16");
         self.write_memory_operand(0, sp_low);
     }
 
     fn write_sp_high(&mut self) {
-        let sp_high = self.cpu.instruction_state_machine.get_operand(1).try_get_msb().unwrap();
+        let sp_high = self
+            .cpu
+            .instruction_state_machine
+            .get_operand(1)
+            .try_get_msb()
+            .expect("WriteSPHigh runs only after operand 1 (SP) is a fully-formed u16");
 
         // LD [n16] SP is a special case so we have to go outside the regular hierarchy and do things by hand
         let OperandValue::Pointer(PointerOperand::Calculated(address)) =
@@ -1350,37 +1304,47 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
             unreachable!("The only place this is called is when operand 0 matches the above structure")
         };
 
-        self.bus.write(address + 1, sp_high);
+        self.bus.write(address + 1, sp_high, self.events);
     }
 
     fn read_into_operand_lsb(&mut self, operand_num: u8) {
         let lsb = self.read_memory_operand(operand_num);
-        self.cpu.set_operand_lsb(lsb, operand_num);
+        self.cpu.set_operand_lsb(lsb, operand_num, self.events);
     }
     fn read_into_operand_msb(&mut self, operand_num: u8) {
         let msb = self.read_memory_operand(operand_num);
-        self.cpu.set_operand_msb(msb, operand_num);
+        self.cpu.set_operand_msb(msb, operand_num, self.events);
     }
 
     fn read_into_operand(&mut self, operand_num: u8) {
         let value = self.read_memory_operand(operand_num);
         self.cpu
-            .set_instruction_operand(OperandValue::U8(U8Operand::Calculated(value)), operand_num);
+            .set_instruction_operand(OperandValue::U8(U8Operand::Calculated(value)), operand_num, self.events);
     }
 
     fn push_msb(&mut self) {
-        let msb = self.cpu.instruction_state_machine.operand_0.try_get_msb().unwrap();
+        let msb = self
+            .cpu
+            .instruction_state_machine
+            .operand_0
+            .try_get_msb()
+            .expect("PushMsb runs only after operand 0 is a fully-formed u16");
         self.push_to_stack(msb);
     }
     fn push_lsb(&mut self) {
-        let lsb = self.cpu.instruction_state_machine.operand_0.try_get_lsb().unwrap();
+        let lsb = self
+            .cpu
+            .instruction_state_machine
+            .operand_0
+            .try_get_lsb()
+            .expect("PushLsb runs only after operand 0 is a fully-formed u16");
         self.push_to_stack(lsb);
     }
 
     fn read_e8(&mut self, operand_num: u8) {
         let e8 = self.read_memory_operand(operand_num) as i8;
         self.cpu
-            .set_instruction_operand(OperandValue::I8(I8Operand::Calculated(e8)), operand_num);
+            .set_instruction_operand(OperandValue::I8(I8Operand::Calculated(e8)), operand_num, self.events);
     }
 
     fn read_sp_plus_e8(&mut self) {
@@ -1388,7 +1352,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         let sp = self.cpu.sp;
         let result = sp.wrapping_add_signed(e8 as i16);
         self.cpu
-            .set_instruction_operand(OperandValue::U16(U16Operand::Calculated(result)), 1);
+            .set_instruction_operand(OperandValue::U16(U16Operand::Calculated(result)), 1, self.events);
         self.cpu.set_flags(
             false,
             false,
@@ -1401,17 +1365,17 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         let pending_interrupt = self.bus.try_get_interrupt().is_some();
         self.cpu.instruction_state_machine.set_operand(OperandValue::Unused, 1);
         self.cpu
-            .set_instruction_operand(OperandValue::Condition(pending_interrupt), 0);
+            .set_instruction_operand(OperandValue::Condition(pending_interrupt), 0, self.events);
     }
 
     fn pop_lsb(&mut self) {
         let popped_value = self.pop_from_stack();
-        self.cpu.set_operand_lsb(popped_value, 0);
+        self.cpu.set_operand_lsb(popped_value, 0, self.events);
     }
 
     fn pop_msb(&mut self) {
         let popped_value = self.pop_from_stack();
-        self.cpu.set_operand_msb(popped_value, 0);
+        self.cpu.set_operand_msb(popped_value, 0, self.events);
     }
 
     /// Pushes the PC's upper byte to the stack
@@ -1478,7 +1442,7 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
         let sp = self.cpu.sp.wrapping_sub(1);
         self.cpu.sp = sp;
 
-        self.bus.write(sp, value)
+        self.bus.write(sp, value, self.events)
     }
 
     fn read_memory_operand(&mut self, operand_num: u8) -> u8 {
@@ -1507,13 +1471,13 @@ impl<'a, 'b> CpuOperationContext<'a, 'b> {
     fn write_memory_operand(&mut self, operand_num: u8, value: u8) {
         if let OperandValue::Pointer(pointer) = self.cpu.instruction_state_machine.get_operand(operand_num) {
             match pointer {
-                PointerOperand::Calculated(address) => self.bus.write(address, value),
+                PointerOperand::Calculated(address) => self.bus.write(address, value, self.events),
                 PointerOperand::Hli(address) => {
-                    self.bus.write(address, value);
+                    self.bus.write(address, value, self.events);
                     self.cpu.hl = self.cpu.hl.wrapping_add(1);
                 },
                 PointerOperand::Hld(address) => {
-                    self.bus.write(address, value);
+                    self.bus.write(address, value, self.events);
                     self.cpu.hl = self.cpu.hl.wrapping_sub(1);
                 },
                 _ => unreachable!("There is no operation that will have the state machine call this and fail"),

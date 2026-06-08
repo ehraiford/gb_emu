@@ -5,17 +5,15 @@ use crate::processor::instructions::m_cycle_accuracy::{MicroOp, get_step_table_e
 pub struct Instruction {
     pub op_code: OpCode,
     pub operands: &'static [Operand],
-    pub cycles: u8,
     pub bytes: u16,
     pub steps: &'static [MicroOp],
 }
 
 impl Instruction {
-    pub const fn new(op_code: OpCode, operands: &'static [Operand], cycles: u8, bytes: u16) -> Self {
+    pub const fn new(op_code: OpCode, operands: &'static [Operand], bytes: u16) -> Self {
         Self {
             op_code,
             operands,
-            cycles,
             bytes,
             steps: get_step_table_entry(op_code, operands),
         }
@@ -569,26 +567,74 @@ pub mod m_cycle_accuracy {
 
     #[cfg(test)]
     mod test {
-        use crate::processor::{
-            instruction_tables::{CBPREFIXED, UNPREFIXED},
-            instructions::{OpCode, m_cycle_accuracy::get_step_table_entry},
-        };
+        use crate::processor::instruction_tables::{CBPREFIXED, UNPREFIXED};
 
+        /// A `steps` length is the instruction's M-cycle count, so these spot-check the step table
+        /// against known-correct hardware timings (the taken path for conditional branches). The
+        /// values come from the opcode reference, independent of how the steps are decomposed, so
+        /// a mistake in either lands here. The blargg `instr_timing` ROM is the exhaustive backup.
         #[test]
         fn test_step_table_instr_lengths() {
-            for i in (0..256).rev() {
-                let instruction = &UNPREFIXED[i];
-                if instruction.op_code == OpCode::Illegal || instruction.op_code == OpCode::Prefix {
-                    continue;
-                }
-                // println!("Checking {}", instruction);
-                let table_entry = get_step_table_entry(instruction.op_code, instruction.operands);
-                assert_eq!(instruction.cycles, table_entry.len() as u8)
+            // (unprefixed opcode, expected M-cycles)
+            let unprefixed: &[(usize, usize)] = &[
+                (0x00, 1), // NOP
+                (0x01, 3), // LD BC,n16
+                (0x02, 2), // LD (BC),A
+                (0x03, 2), // INC BC
+                (0x04, 1), // INC B
+                (0x06, 2), // LD B,n8
+                (0x08, 5), // LD (a16),SP
+                (0x09, 2), // ADD HL,BC
+                (0x0A, 2), // LD A,(BC)
+                (0x18, 3), // JR e8
+                (0x20, 3), // JR NZ,e8 (taken)
+                (0x34, 3), // INC (HL)
+                (0x36, 3), // LD (HL),n8
+                (0x76, 1), // HALT
+                (0x86, 2), // ADD A,(HL)
+                (0xC0, 5), // RET NZ (taken)
+                (0xC1, 3), // POP BC
+                (0xC2, 4), // JP NZ,a16 (taken)
+                (0xC3, 4), // JP a16
+                (0xC4, 6), // CALL NZ,a16 (taken)
+                (0xC5, 4), // PUSH BC
+                (0xC7, 4), // RST 00h
+                (0xC9, 4), // RET
+                (0xCD, 6), // CALL a16
+                (0xD9, 4), // RETI
+                (0xE0, 3), // LDH (a8),A
+                (0xE2, 2), // LDH (C),A
+                (0xE8, 4), // ADD SP,e8
+                (0xEA, 4), // LD (a16),A
+                (0xF8, 3), // LD HL,SP+e8
+                (0xF9, 2), // LD SP,HL
+            ];
+            for &(op, expected) in unprefixed {
+                assert_eq!(
+                    UNPREFIXED[op].steps.len(),
+                    expected,
+                    "unprefixed {op:#04x} ({}) has wrong M-cycle count",
+                    &UNPREFIXED[op]
+                );
             }
-            for i in (0..256).rev() {
-                let instruction = &CBPREFIXED[i];
-                let table_entry = get_step_table_entry(instruction.op_code, instruction.operands);
-                assert_eq!(instruction.cycles - 1, table_entry.len() as u8)
+
+            // CB-prefixed: `steps` excludes the shared prefix fetch, so totals are one larger on
+            // hardware. (CB reg op = 2 total, BIT n,(HL) = 3, RES/SET/rotate (HL) = 4.)
+            let cb_prefixed: &[(usize, usize)] = &[
+                (0x00, 1), // RLC B
+                (0x06, 3), // RLC (HL)
+                (0x40, 1), // BIT 0,B
+                (0x46, 2), // BIT 0,(HL)
+                (0x86, 3), // RES 0,(HL)
+                (0xC6, 3), // SET 0,(HL)
+            ];
+            for &(op, expected) in cb_prefixed {
+                assert_eq!(
+                    CBPREFIXED[op].steps.len(),
+                    expected,
+                    "CB {op:#04x} ({}) has wrong post-prefix M-cycle count",
+                    &CBPREFIXED[op]
+                );
             }
         }
     }
