@@ -1,6 +1,6 @@
 use crate::{
     bus::Address,
-    game_boy::{GameBoyEvent, notate_event},
+    game_boy::{EventQueue, GameBoyEvent},
     io_devices::interrupts::Interrupt,
 };
 
@@ -14,11 +14,11 @@ pub struct TimerDivider {
 impl TimerDivider {
     const START_ADDRESS: Address = 0xFF04;
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self, events: &mut EventQueue) {
         self.tick_divider();
 
         if self.is_active() {
-            self.tick_timer();
+            self.tick_timer(events);
         }
     }
 
@@ -32,9 +32,9 @@ impl TimerDivider {
         }
     }
 
-    fn tick_timer(&mut self) {
+    fn tick_timer(&mut self, events: &mut EventQueue) {
         if self.decrement_m_cycles_to_increment_timer() {
-            self.increment_timer()
+            self.increment_timer(events)
         }
     }
 
@@ -82,21 +82,21 @@ impl TimerDivider {
         }
     }
 
-    fn increment_timer(&mut self) {
+    fn increment_timer(&mut self, events: &mut EventQueue) {
         let timer = self.get_register(TimerDividerRegister::Counter);
         if let Some(new_val) = timer.checked_add(1) {
             self.set_register(TimerDividerRegister::Counter, new_val);
         } else {
-            self.timer_overflow();
+            self.timer_overflow(events);
         }
     }
 
-    fn timer_overflow(&mut self) {
+    fn timer_overflow(&mut self, events: &mut EventQueue) {
         self.set_register(
             TimerDividerRegister::Counter,
             self.get_register(TimerDividerRegister::Modulo),
         );
-        notate_event(GameBoyEvent::Interrupt(Interrupt::Timer));
+        events.push(GameBoyEvent::Interrupt(Interrupt::Timer));
     }
 
     fn is_active(&self) -> bool {

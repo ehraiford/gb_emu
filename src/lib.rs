@@ -4,13 +4,13 @@
 #[cfg(not(feature = "headless"))]
 use std::sync::{Arc, Mutex, atomic::AtomicU8};
 
+#[cfg(not(feature = "headless"))]
+use crate::os_interface::get_os_interface_variables;
 use crate::{
     emulator::{Emulator, EmulatorCommand},
     helpers::disassemble_rom,
     os_interface::command_line::{CommandLineArguments, CommandLineCommand},
 };
-#[cfg(not(feature = "headless"))]
-use crate::os_interface::get_os_interface_variables;
 use clap::Parser;
 
 mod bus;
@@ -34,7 +34,7 @@ pub fn run_program() {
         command => EmulatorCommand::from(command.clone()),
     };
 
-    let rom_data: Vec<u8> = std::fs::read(command_line_args.get_rom_path()).unwrap();
+    let rom_data: Vec<u8> = std::fs::read(command_line_args.get_rom_path()).expect("Must provide path to ROM");
 
     run_emulator(&rom_data, emulator_command, command_line_args);
 }

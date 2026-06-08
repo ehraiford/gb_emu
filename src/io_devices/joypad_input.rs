@@ -1,10 +1,8 @@
 use std::sync::{Arc, atomic::AtomicU8};
 
+use crate::game_boy::EventQueue;
 #[cfg(not(feature = "headless"))]
-use crate::{
-    game_boy::{GameBoyEvent, notate_event},
-    io_devices::interrupts::Interrupt,
-};
+use crate::{game_boy::GameBoyEvent, io_devices::interrupts::Interrupt};
 
 pub struct JoyPadInput {
     selected_input: SelectedInput,
@@ -52,7 +50,7 @@ impl JoyPadInput {
     pub fn new() -> Self {
         Self { selected_input: Default::default(), currently_pressed: 0xFF }
     }
-    pub fn tick(&mut self) {}
+    pub fn tick(&mut self, _events: &mut EventQueue) {}
 }
 #[cfg(not(feature = "headless"))]
 impl JoyPadInput {
@@ -72,12 +70,12 @@ impl JoyPadInput {
         self.currently_pressed = self.button_input.load(std::sync::atomic::Ordering::Acquire);
         self.currently_pressed != old_value
     }
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self, events: &mut EventQueue) {
         let prev_nibble = self.get_input_nibble();
         if self.ingest_input() {
             let new_nibble = self.get_input_nibble();
             if Self::new_button_pressed(prev_nibble, new_nibble) {
-                notate_event(GameBoyEvent::Interrupt(Interrupt::Joypad));
+                events.push(GameBoyEvent::Interrupt(Interrupt::Joypad));
             }
         }
     }
@@ -119,11 +117,3 @@ pub fn new_button_input() -> ButtonInput {
     Arc::new(AtomicU8::new(JoyPadInput::DEFAULT_INPUT_VALUE))
 }
 
-fn _print_input(value: u8) {
-    let input = ["Right", "Left", "Up", "Down", "A", "B", "Select", "Start"];
-    for (i, name) in input.iter().enumerate() {
-        if (value >> i) & 0b1 == 0 {
-            println!("{} is set", name)
-        }
-    }
-}

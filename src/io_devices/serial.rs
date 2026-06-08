@@ -1,6 +1,6 @@
 use crate::{
     bus::Address,
-    game_boy::{GameBoyEvent, notate_event},
+    game_boy::{EventQueue, GameBoyEvent},
     helpers::{Bit, RingBuffer},
     io_devices::interrupts::Interrupt,
 };
@@ -15,6 +15,7 @@ pub struct Serial {
 
     m_cycles_until_transfer: u8,
     output_buffer: RingBuffer<Bit, OUTPUT_BUFFER_LENGTH>,
+    bits_output: u64, // monotonic count of bits ever shifted out; lets observers cheaply detect new output
     bits_left_in_transfer: u8, // This doubles as the TRANSFER ENABLE Flag
 }
 
@@ -27,30 +28,31 @@ impl Serial {
         address - Self::START_ADDRESS
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self, events: &mut EventQueue) {
         if !self.get_flag(ControlFlag::TransferEnable) || !self.is_master() {
             return;
         }
         if !self.decrement_m_cycles_until_transfer() {
             return;
         }
-        self.do_transfer();
+        self.do_transfer(events);
     }
 
-    fn do_transfer(&mut self) {
+    fn do_transfer(&mut self, events: &mut EventQueue) {
         self.transfer_out();
         self.transfer_in();
 
         self.bits_left_in_transfer -= 1;
 
         if self.bits_left_in_transfer == 0 {
-            notate_event(GameBoyEvent::Interrupt(Interrupt::Serial));
+            events.push(GameBoyEvent::Interrupt(Interrupt::Serial));
         }
     }
 
     fn transfer_out(&mut self) {
         let outgoing_bit: Bit = Bit::from((self.data & 0x80) != 0); // get the leftmost bit
         self.output_buffer.push(outgoing_bit);
+        self.bits_output += 1;
         self.data <<= 1;
     }
 
@@ -139,6 +141,12 @@ impl Serial {
     pub fn get_serial_output(&self) -> Vec<&Bit> {
         self.output_buffer.as_vec()
     }
+
+    /// Monotonic count of bits ever shifted out. Cheap to poll, so observers (e.g. the test
+    /// harness) can skip rebuilding the output string on ticks where nothing new was emitted.
+    pub fn output_bit_count(&self) -> u64 {
+        self.bits_output
+    }
 }
 
 pub fn turn_output_to_string(mut bits: Vec<&Bit>) -> String {
@@ -160,6 +168,7 @@ impl Default for Serial {
 
             m_cycles_until_transfer: Self::M_CYCLES_IN_A_TICK,
             output_buffer: Default::default(),
+            bits_output: 0,
             bits_left_in_transfer: 0,
         }
     }
@@ -203,8 +212,9 @@ mod test {
     const ENABLE_TRANSFER: u8 = 0x81; // SC values to enable transfer and set as master
 
     fn send_out_bit(serial: &mut Serial) {
+        let mut events = EventQueue::new();
         for _ in 0..Serial::M_CYCLES_IN_A_TICK {
-            serial.tick();
+            serial.tick(&mut events);
         }
     }
 

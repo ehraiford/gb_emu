@@ -1,6 +1,6 @@
 use crate::{
     bus::{Address, Bus, MemoryTarget},
-    game_boy::{GameBoyEvent, notate_event},
+    game_boy::{EventQueue, GameBoyEvent},
 };
 
 #[derive(Default)]
@@ -28,7 +28,7 @@ impl OamDma {
         self.currently_transferring = true;
     }
 
-    pub fn tick(&mut self, bus: &mut Bus) {
+    pub fn tick(&mut self, bus: &mut Bus, events: &mut EventQueue) {
         if !self.is_transferring() {
             return;
         }
@@ -42,15 +42,15 @@ impl OamDma {
         self.source_address += 1;
 
         if self.remaining_bytes == 0 {
-            self.end_transfer();
+            self.end_transfer(events);
         }
     }
 
     fn is_transferring(&self) -> bool {
         self.currently_transferring
     }
-    fn end_transfer(&mut self) {
+    fn end_transfer(&mut self, events: &mut EventQueue) {
         self.currently_transferring = false;
-        notate_event(GameBoyEvent::EndOamDmaTransfer);
+        events.push(GameBoyEvent::EndOamDmaTransfer);
     }
 }

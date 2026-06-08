@@ -4,6 +4,7 @@ use std::fmt::Display;
 use crate::io_devices::joypad_input::ButtonInput;
 use crate::{
     cartridge::cartridge::{Cartridge, CartridgeDevice},
+    game_boy::EventQueue,
     graphics::{
         lcd::Lcd,
         oam::{ObjectAttributeMemory, PriorityMode},
@@ -58,14 +59,14 @@ impl Bus {
         (&mut self.v_ram, &mut self.oam, &mut self.io_registers.lcd_registers)
     }
 
-    pub fn tick_timer_divider(&mut self) {
-        self.io_registers.timer_divider.tick();
+    pub fn tick_timer_divider(&mut self, events: &mut EventQueue) {
+        self.io_registers.timer_divider.tick(events);
     }
-    pub fn tick_joypad(&mut self) {
-        self.io_registers.joypad.tick();
+    pub fn tick_joypad(&mut self, events: &mut EventQueue) {
+        self.io_registers.joypad.tick(events);
     }
-    pub fn tick_serial(&mut self) {
-        self.io_registers.serial.tick();
+    pub fn tick_serial(&mut self, events: &mut EventQueue) {
+        self.io_registers.serial.tick(events);
     }
     pub fn reset_divider_register(&mut self) {
         self.io_registers.timer_divider.reset_divider_register();
@@ -82,6 +83,9 @@ impl Bus {
     }
     pub fn get_serial_output(&self) -> Vec<&Bit> {
         self.io_registers.serial.get_serial_output()
+    }
+    pub fn serial_output_bit_count(&self) -> u64 {
+        self.io_registers.serial.output_bit_count()
     }
 }
 
@@ -140,14 +144,6 @@ impl Bus {
 
         concat_2_bytes(big_byte, little_byte)
     }
-    pub fn write_u16(&mut self, address: Address, value: Address) {
-        let little_byte = (value & 0xFF) as u8;
-        let big_byte = (value >> 8) as u8;
-
-        self.write(address, little_byte);
-
-        self.write(address + 1, big_byte);
-    }
     pub fn read_next_instruction(&mut self, pc: Address) -> &'static Instruction {
         let first_byte = self.read(pc);
 
@@ -205,7 +201,7 @@ impl Bus {
             MemoryTarget::InterruptEnableRegister => self.ie.peek(address),
         }
     }
-    pub fn write(&mut self, address: Address, value: u8) {
+    pub fn write(&mut self, address: Address, value: u8, events: &mut EventQueue) {
         let Some(device) = self.get_cpu_accessible_device_from_address(address) else {
             return BusAccessFailure::InaccessibleByCpu.into();
         };
@@ -217,10 +213,10 @@ impl Bus {
             MemoryTarget::ExternalRam => self.cartridge.write(address, CartridgeDevice::ExternalRam, value),
             MemoryTarget::WorkRam00 => self.w_ram_00.write(address, value),
             MemoryTarget::BankableWorkRam => self.bankable_w_ram.write(address, value),
-            MemoryTarget::EchoRam => self.write(address - 0x2000, value),
+            MemoryTarget::EchoRam => self.write(address - 0x2000, value, events),
             MemoryTarget::ObjectAttributeMemory => self.oam.write(address, value),
             MemoryTarget::Unusable => BusAccessFailure::TriedAccessingUnusableMemory.into(),
-            MemoryTarget::IoRegisters => self.io_registers.write(address, value),
+            MemoryTarget::IoRegisters => self.io_registers.write(address, value, events),
             MemoryTarget::HighRam => self.h_ram.write(address, value),
             MemoryTarget::InterruptEnableRegister => self.ie.write(address, value),
         }
@@ -230,8 +226,8 @@ impl Bus {
         self.oam.set_priority_mode(mode)
     }
 
-    pub fn reset_ly(&mut self) {
-        self.io_registers.lcd_registers.reset_ly();
+    pub fn reset_ly(&mut self, events: &mut EventQueue) {
+        self.io_registers.lcd_registers.reset_ly(events);
     }
 
     pub fn oam_dma_transfer(&mut self, address: Address, value: u8) {
@@ -320,8 +316,8 @@ impl MemoryMap {
             MemoryMapEvent::UpdatePpuMode(ppu_tick_mode) => {
                 let inaccessible = ppu_tick_mode.get_cpu_inaccessible_video_targets();
                 let accessible = ppu_tick_mode.get_cpu_accessible_video_targets();
-                self.set_devices_ppu_inaccessible(&inaccessible, true);
-                self.set_devices_ppu_inaccessible(&accessible, false);
+                self.set_devices_ppu_inaccessible(inaccessible, true);
+                self.set_devices_ppu_inaccessible(accessible, false);
             },
             MemoryMapEvent::StartOamDataTransfer => self.set_devices_dma_inaccessible(
                 &[
