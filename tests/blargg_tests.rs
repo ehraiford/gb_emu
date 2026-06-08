@@ -66,19 +66,25 @@ fn run_blargg_test_group(path_name: &'static str) {
 fn run_blargg_test(cartridge: Cartridge) -> Result<(), String> {
     let mut game_boy = GameBoy::new();
     game_boy.load_cartridge(cartridge);
-    let mut prev_output = turn_output_to_string(game_boy.get_serial_output());
+
+    // Rebuilding the serial string allocates; only do it on ticks that actually emitted a new bit
+    // (one bit per 128 M-cycles) rather than on every tick.
+    let mut last_bit_count = game_boy.serial_output_bit_count();
 
     for _ in 0..MAX_RUN_CYCLES {
         game_boy.tick();
 
-        let new_output = turn_output_to_string(game_boy.get_serial_output());
-        if new_output != prev_output {
-            if new_output.ends_with("Passed") {
-                return Ok(());
-            } else if new_output.ends_with("Failed") {
-                return Err("Failed Test".to_string());
-            }
-            prev_output = new_output;
+        let bit_count = game_boy.serial_output_bit_count();
+        if bit_count == last_bit_count {
+            continue;
+        }
+        last_bit_count = bit_count;
+
+        let output = turn_output_to_string(game_boy.get_serial_output());
+        if output.ends_with("Passed") {
+            return Ok(());
+        } else if output.ends_with("Failed") {
+            return Err("Failed Test".to_string());
         }
     }
     Err("Did not pass test within time limit".to_string())
