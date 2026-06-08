@@ -1,5 +1,4 @@
 use crate::{
-    game_boy::TCycles,
     graphics::{
         lcd::Lcd,
         oam::{ObjectAttributes, PaletteChoice},
@@ -15,13 +14,19 @@ pub struct PixelFetchers {
     background_fetcher: BackGroundFifo,
     mode: FetchersMode,
     pixels_displayed: u8,
+    window_started_this_line: bool,
+    window_penalty_remaining: u8,
 }
 
 impl PixelFetchers {
+    const WINDOW_START_PENALTY_DOTS: u8 = 6;
+
     pub fn reset_for_new_scanline(&mut self) {
         self.object_fetcher.reset_for_new_scanline();
         self.background_fetcher.reset_for_new_scanline();
         self.pixels_displayed = 0;
+        self.window_started_this_line = false;
+        self.window_penalty_remaining = 0;
     }
 
     pub fn take_scanned_objects(&mut self, objects_on_this_line: ObjectsOnThisLine) {
@@ -33,6 +38,23 @@ impl PixelFetchers {
     }
 
     pub fn tick(&mut self, lcd: &Lcd, v_ram: &VideoRam) -> Option<ColoredPixel> {
+        // Detect the window turning on for this scanline and charge the one-time penalty.
+        // `pixels_displayed` is the X coordinate of the next pixel to leave the fetcher, so
+        // the window becomes active the first dot that coordinate falls inside the window.
+        if self.mode == FetchersMode::NormalExecution
+            && !self.window_started_this_line
+            && lcd.window_enabled()
+            && lcd.coordinate_in_window(self.pixels_displayed)
+        {
+            self.window_started_this_line = true;
+            self.window_penalty_remaining = Self::WINDOW_START_PENALTY_DOTS;
+        }
+
+        if self.window_penalty_remaining > 0 {
+            self.window_penalty_remaining -= 1;
+            return None;
+        }
+
         let pixel = match self.mode {
             FetchersMode::NormalExecution => self.tick_normal_execution(lcd, v_ram),
             FetchersMode::HandlingObjectsDisabled { remaining_penalty } => {
@@ -118,10 +140,9 @@ impl PixelFetchers {
         }
     }
 
-    pub fn handle_objects_disabled(&mut self, instruction_length: TCycles) {
+    pub fn handle_objects_disabled(&mut self) {
         if self.mode == FetchersMode::FetchingObject {
-            let remaining_penalty =
-                1 + instruction_length.0 as u8 + self.object_fetcher.mode.get_remaining_dots_in_loop() as u8;
+            let remaining_penalty = 1 + self.object_fetcher.mode.get_remaining_dots_in_loop() as u8;
             self.mode = FetchersMode::HandlingObjectsDisabled { remaining_penalty }
         }
     }
@@ -186,7 +207,6 @@ struct ObjectFifo {
     queue: StackAllocQueue<FifoObjectPixel, 16>,
     objects_on_this_line: ObjectsOnThisLine,
     mode: ObjectFifoMode,
-    tiles_considered_for_penalty: Vec<()>,
 }
 
 impl ObjectFifo {
@@ -198,10 +218,6 @@ impl ObjectFifo {
 
     pub fn take_scanned_objects(&mut self, objects_on_this_line: ObjectsOnThisLine) {
         self.objects_on_this_line = objects_on_this_line
-    }
-
-    fn determine_object_penalty(&self, _leftmost_pixel_x_coord: u8) -> Dots {
-        todo!()
     }
 
     fn check_coordinates(&mut self, fetcher_x: u8, lcd: &Lcd) -> Option<ObjectAttributes> {
@@ -285,7 +301,13 @@ enum ObjectFifoMode {
 
 impl ObjectFifoMode {
     fn get_remaining_dots_in_loop(&self) -> Dots {
-        todo!()
+        match self {
+            ObjectFifoMode::Inactive => 0,
+            // low action + high sleep + high action (+ the pending low sleep, if any)
+            ObjectFifoMode::GetDataLow { sleep_cycle, .. } => 3 + *sleep_cycle as Dots,
+            // high action (+ the pending high sleep, if any)
+            ObjectFifoMode::GetDataHigh { sleep_cycle, .. } => 1 + *sleep_cycle as Dots,
+        }
     }
     fn should_sleep(&self) -> bool {
         match self {

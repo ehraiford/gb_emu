@@ -1,6 +1,6 @@
 use crate::{
     bus::{Address, BusAccessFailure},
-    game_boy::{GameBoyEvent, notate_event},
+    game_boy::{EventQueue, GameBoyEvent},
     graphics::{
         oam::PaletteChoice,
         ppu::PpuMode,
@@ -16,6 +16,9 @@ pub struct Lcd {
     ly: u8,
     ly_compare: u8,
     status_flags: u8,
+
+    stat_line: bool,
+    ly_reads_as_zero: bool,
 
     scy: u8,
     scx: u8,
@@ -56,26 +59,69 @@ impl Lcd {
         self.ly
     }
 
-    fn set_ly(&mut self, value: u8) {
+    fn set_ly(&mut self, value: u8, events: &mut EventQueue) {
         self.ly = value;
-        if self.ly == self.ly_compare {
+        // any genuine line change leaves the line-153 "reads as 0" window
+        self.ly_reads_as_zero = false;
+        self.refresh_lyc_coincidence();
+        self.update_stat_line(events);
+    }
+
+    fn effective_ly(&self) -> u8 {
+        if self.ly_reads_as_zero { 0 } else { self.ly }
+    }
+
+    pub fn mark_ly_reads_as_zero(&mut self, events: &mut EventQueue) {
+        if !self.ly_reads_as_zero {
+            self.ly_reads_as_zero = true;
+            self.refresh_lyc_coincidence();
+            self.update_stat_line(events);
+        }
+    }
+
+fn refresh_lyc_coincidence(&mut self) {
+        if self.effective_ly() == self.ly_compare {
             self.status_flags |= 0b100;
-            if self.get_status_flag(LcdStatusFlag::LycIntSelect) {
-                notate_event(GameBoyEvent::Interrupt(Interrupt::Stat));
-            }
         } else {
             self.status_flags &= !0b100;
         }
     }
 
-    pub fn increment_ly(&mut self) -> u8 {
+    fn current_mode_number(&self) -> u8 {
+        self.status_flags & 0b11
+    }
+
+    fn compute_stat_line(&self) -> bool {
+        let lyc =
+            self.get_status_flag(LcdStatusFlag::LycEqualsLy) && self.get_status_flag(LcdStatusFlag::LycIntSelect);
+        let mode_int = match self.current_mode_number() {
+            0 => self.get_status_flag(LcdStatusFlag::Mode0IntSelect),
+            1 => {
+                self.get_status_flag(LcdStatusFlag::Mode1IntSelect)
+                    || self.get_status_flag(LcdStatusFlag::Mode2IntSelect)
+            },
+            2 => self.get_status_flag(LcdStatusFlag::Mode2IntSelect),
+            _ => false,
+        };
+        lyc || mode_int
+    }
+
+    fn update_stat_line(&mut self, events: &mut EventQueue) {
+        let new_line = self.compute_stat_line();
+        if new_line && !self.stat_line {
+            events.push(GameBoyEvent::Interrupt(Interrupt::Stat));
+        }
+        self.stat_line = new_line;
+    }
+
+    pub fn increment_ly(&mut self, events: &mut EventQueue) -> u8 {
         let new_value = (self.ly + 1) % (Self::MAX_LY + 1);
-        self.set_ly(new_value);
+        self.set_ly(new_value, events);
         self.get_ly()
     }
 
-    pub fn reset_ly(&mut self) {
-        self.set_ly(0)
+    pub fn reset_ly(&mut self, events: &mut EventQueue) {
+        self.set_ly(0, events)
     }
 
     pub fn get_scx(&self) -> u8 {
@@ -130,35 +176,38 @@ impl Lcd {
     }
 
     pub fn read(&mut self, address: Address) -> u8 {
+        // LCD registers have no read side-effects, so read and peek are identical.
         self.peek(address)
     }
 
-    pub fn write(&mut self, address: Address, value: u8) {
+    pub fn write(&mut self, address: Address, value: u8, events: &mut EventQueue) {
         let address = address - Self::START_ADDRESS;
         match address {
-            0 => self.set_control_flags(value),
-            1 => self.status_flags = (value & !0b111) | (self.status_flags & 0b111),
+            0 => self.set_control_flags(value, events),
+            1 => {
+                // bits 0-2 (mode + coincidence) are read-only; only the select bits are writable
+                self.status_flags = (value & !0b111) | (self.status_flags & 0b111);
+                // newly enabling a select bit while its condition already holds raises the line
+                self.update_stat_line(events);
+            },
             2 => self.scy = value,
             3 => self.scx = value,
             4 => BusAccessFailure::TriedWritingToReadOnlyMemory.into(),
             5 => {
                 self.ly_compare = value;
-                if self.ly == self.ly_compare {
-                    self.status_flags |= 0b100;
-                } else {
-                    self.status_flags &= !0b100;
-                }
+                self.refresh_lyc_coincidence();
+                self.update_stat_line(events);
             },
             6 => {
                 self.oam_dma_start_address = value;
-                notate_event(GameBoyEvent::StartOamDmaTransfer(value))
+                events.push(GameBoyEvent::StartOamDmaTransfer(value))
             },
             7 => self.bgp = value,
             8 => self.obp0 = value,
             9 => self.obp1 = value,
             0xA => self.wy = value,
             0xB => self.wx = value,
-            _ => unreachable!("Nothing should be able to reach to this"),
+            _ => unreachable!("LCD local address {address:#x} out of mapped range"),
         };
     }
 
@@ -169,7 +218,7 @@ impl Lcd {
             1 => self.status_flags,
             2 => self.scy,
             3 => self.scx,
-            4 => self.ly,
+            4 => self.effective_ly(),
             5 => self.ly_compare,
             6 => self.oam_dma_start_address,
             7 => self.bgp,
@@ -177,16 +226,16 @@ impl Lcd {
             9 => self.obp1,
             0xA => self.wy,
             0xB => self.wx,
-            _ => unreachable!("Nothing should be able to reach to this"),
+            _ => unreachable!("LCD local address {address:#x} out of mapped range"),
         }
     }
 
     fn get_control_flag(&self, flag: LcdControlFlag) -> bool {
         (self.control_flags >> flag.get_index()) & 0b1 == 1
     }
-    fn set_control_flags(&mut self, value: u8) {
-        LcdControlFlag::check_for_change_in_lcd_ppu_state(self.control_flags, value);
-        LcdControlFlag::check_for_change_in_object_enable(self.control_flags, value);
+    fn set_control_flags(&mut self, value: u8, events: &mut EventQueue) {
+        LcdControlFlag::check_for_change_in_lcd_ppu_state(self.control_flags, value, events);
+        LcdControlFlag::check_for_change_in_object_enable(self.control_flags, value, events);
         self.control_flags = value;
     }
 
@@ -195,25 +244,10 @@ impl Lcd {
         (self.status_flags >> shift) & mask == 1
     }
 
-    fn mode_transition_raises_interrupt(&self, mode: PpuMode) -> bool {
-        if mode == PpuMode::DrawingPixels {
-            return false;
-        }
-
-        let mode_number = u8::from(mode);
-        let flag_index = mode_number + 3;
-        let isolated_flag = (self.status_flags >> flag_index) & 0b1;
-
-        isolated_flag == 1
-    }
-
-    pub fn set_ppu_mode(&mut self, mode: PpuMode) {
-        if self.mode_transition_raises_interrupt(mode) {
-            notate_event(GameBoyEvent::Interrupt(Interrupt::Stat));
-        }
-
+    pub fn set_ppu_mode(&mut self, mode: PpuMode, events: &mut EventQueue) {
         let status = self.status_flags & !0b11;
         self.status_flags = status | u8::from(mode);
+        self.update_stat_line(events);
     }
 
     pub fn object_on_scanline(&self, object_y_position: u8) -> bool {
@@ -249,22 +283,22 @@ impl LcdControlFlag {
         }
     }
 
-    fn check_for_change_in_lcd_ppu_state(old_register_value: u8, new_register_value: u8) {
+    fn check_for_change_in_lcd_ppu_state(old_register_value: u8, new_register_value: u8, events: &mut EventQueue) {
         let enable_index = LcdControlFlag::LcdPpuEnable.get_index();
         let new_enable_val = new_register_value >> enable_index;
         let old_enable_val = old_register_value >> enable_index;
         if new_enable_val ^ old_enable_val == 1 {
-            notate_event(GameBoyEvent::ChangeLcdPpuEnabled(new_enable_val == 1))
+            events.push(GameBoyEvent::ChangeLcdPpuEnabled(new_enable_val == 1))
         }
     }
 
-    fn check_for_change_in_object_enable(old_register_value: u8, new_register_value: u8) {
+    fn check_for_change_in_object_enable(old_register_value: u8, new_register_value: u8, events: &mut EventQueue) {
         let enable_index = LcdControlFlag::ObjEnable.get_index();
         let new_enable_val = (new_register_value >> enable_index) & 0b1;
         if new_enable_val == 0 {
             let old_enable_val = old_register_value >> (enable_index & 0b1);
             if old_enable_val == 1 {
-                notate_event(GameBoyEvent::ObjectsDisabled);
+                events.push(GameBoyEvent::ObjectsDisabled);
             }
         }
     }

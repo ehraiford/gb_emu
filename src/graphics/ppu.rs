@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::{
     bus::MemoryTarget,
-    game_boy::{GameBoyEvent, TCycles, notate_event},
+    game_boy::{EventQueue, GameBoyEvent, TCycles},
     graphics::{
         lcd::Lcd,
         oam::{ObjectAttributeMemory, ObjectAttributes},
@@ -48,11 +48,17 @@ impl Ppu {
         }
     }
 
-    pub fn tick(&mut self, v_ram: &mut VideoRam, oam: &mut ObjectAttributeMemory, lcd: &mut Lcd) {
+    pub fn tick(
+        &mut self,
+        v_ram: &mut VideoRam,
+        oam: &mut ObjectAttributeMemory,
+        lcd: &mut Lcd,
+        events: &mut EventQueue,
+    ) {
         if !lcd.is_ppu_enabled() {
             return;
         }
-        let mut context = PpuOperationContext::new(self, v_ram, oam, lcd);
+        let mut context = PpuOperationContext::new(self, v_ram, oam, lcd, events);
         for _ in 0..4 {
             context.tick()
         }
@@ -73,38 +79,40 @@ impl Ppu {
         self.screen.submit_frame();
     }
 
-    pub fn handle_objects_disabled(&mut self, instruction_t_cycles: TCycles) {
-        self.pixel_fetchers.handle_objects_disabled(instruction_t_cycles);
+    pub fn handle_objects_disabled(&mut self) {
+        self.pixel_fetchers.handle_objects_disabled();
     }
 }
 
-pub struct PpuOperationContext<'a, 'b, 'c, 'd> {
+pub struct PpuOperationContext<'a, 'b, 'c, 'd, 'e> {
     ppu: &'a mut Ppu,
     v_ram: &'b mut VideoRam,
     oam: &'c mut ObjectAttributeMemory,
     lcd: &'d mut Lcd,
+    events: &'e mut EventQueue,
 }
 
-impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
+impl<'a, 'b, 'c, 'd, 'e> PpuOperationContext<'a, 'b, 'c, 'd, 'e> {
     pub fn new(
         ppu: &'a mut Ppu,
         v_ram: &'b mut VideoRam,
         oam: &'c mut ObjectAttributeMemory,
         lcd: &'d mut Lcd,
+        events: &'e mut EventQueue,
     ) -> Self {
-        Self { ppu, v_ram, oam, lcd }
+        Self { ppu, v_ram, oam, lcd, events }
     }
 
     pub fn enable(&mut self) {
         self.ppu.reset_for_new_frame();
         self.ppu.mode_tracking = PpuModeTracker::new_from_lcd_enable();
-        self.lcd.set_ppu_mode(Default::default());
+        self.lcd.set_ppu_mode(Default::default(), self.events);
     }
 
     pub fn disable(&mut self) {
         self.ppu.reset_for_new_frame();
         self.ppu.mode_tracking.start_horizontal_blank();
-        self.lcd.set_ppu_mode(PpuMode::HorizontalBlank);
+        self.lcd.set_ppu_mode(PpuMode::HorizontalBlank, self.events);
     }
 
     fn tick_oam_scan(&mut self) {
@@ -137,7 +145,7 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
         let (increment_ly, new_mode) = self
             .ppu
             .mode_tracking
-            .process_tick(self.lcd.get_ly(), self.lcd.get_scx())
+            .process_tick(self.lcd.get_ly(), self.lcd.get_scx(), self.events)
             .destructure();
 
         if increment_ly {
@@ -145,18 +153,27 @@ impl<'a, 'b, 'c, 'd> PpuOperationContext<'a, 'b, 'c, 'd> {
         }
 
         if let Some(mode) = new_mode {
-            notate_event(GameBoyEvent::ChangeBusAccessForPpuMode(mode));
-            self.lcd.set_ppu_mode(mode);
+            self.events.push(GameBoyEvent::ChangeBusAccessForPpuMode(mode));
+            self.lcd.set_ppu_mode(mode, self.events);
             if mode == PpuMode::DrawingPixels {
                 self.ppu
                     .pixel_fetchers
                     .take_scanned_objects(self.ppu.oam_scanner.objects_on_this_line);
             }
         }
+
+        self.apply_ly_153_quirk();
+    }
+
+    fn apply_ly_153_quirk(&mut self) {
+        const QUIRK_ONSET_DOTS: Dots = 4; // LY reads 153 for one M-cycle, then 0
+        if self.lcd.get_ly() == Lcd::MAX_LY && self.ppu.mode_tracking.dot_in_line() >= QUIRK_ONSET_DOTS {
+            self.lcd.mark_ly_reads_as_zero(self.events);
+        }
     }
 
     fn go_to_next_line(&mut self) {
-        match self.lcd.increment_ly() == 0 {
+        match self.lcd.increment_ly(self.events) == 0 {
             true => self.ppu.reset_for_new_frame(),
             false => self.ppu.reset_for_new_scanline(),
         }
@@ -183,13 +200,13 @@ struct PpuModeTracker {
 }
 
 impl PpuModeTracker {
-    fn process_tick_horizontal_blank(&mut self, ly: u8) -> PpuTickOutcome {
+    fn process_tick_horizontal_blank(&mut self, ly: u8, events: &mut EventQueue) -> PpuTickOutcome {
         if self.remaining_dots_in_line == 0 {
             self.remaining_dots_in_line = DOTS_PER_LINE;
             if ly < SCREEN_HEIGHT - 1 {
                 self.start_oam_scan()
             } else {
-                notate_event(GameBoyEvent::Interrupt(Interrupt::VBlank));
+                events.push(GameBoyEvent::Interrupt(Interrupt::VBlank));
                 self.start_vertical_blank()
             }
         } else {
@@ -223,27 +240,23 @@ impl PpuModeTracker {
 
     fn process_tick_drawing_pixels(&mut self) -> PpuTickOutcome {
         if self.remaining_dots_in_line == 0 {
-            panic!();
+            panic!("DrawingPixels exhausted all dots in the line without transitioning to HBlank");
         }
         if self.pixels_left_to_push == 0 {
-            // self._print_cycles_taken_for_drawing_pixels();
             self.start_horizontal_blank()
         } else {
             PpuTickOutcome { increment_ly: false, new_mode: None }
         }
     }
 
-    fn _print_cycles_taken_for_drawing_pixels(&self) {
-        println!(
-            "Drawing Pixels Length: {} Cycles",
-            DOTS_PER_LINE - self.remaining_dots_in_line - 80
-        )
+    fn dot_in_line(&self) -> Dots {
+        DOTS_PER_LINE - self.remaining_dots_in_line
     }
 
-    fn process_tick(&mut self, ly: u8, scx: u8) -> PpuTickOutcome {
+    fn process_tick(&mut self, ly: u8, scx: u8, events: &mut EventQueue) -> PpuTickOutcome {
         self.remaining_dots_in_line -= 1;
         match self.mode {
-            PpuMode::HorizontalBlank => self.process_tick_horizontal_blank(ly),
+            PpuMode::HorizontalBlank => self.process_tick_horizontal_blank(ly, events),
             PpuMode::VerticalBlank => self.process_tick_vertical_blank(ly),
             PpuMode::OamScan => self.process_tick_oam_scan(scx),
             PpuMode::DrawingPixels => self.process_tick_drawing_pixels(),
@@ -310,22 +323,20 @@ pub enum PpuMode {
 }
 
 impl PpuMode {
-    pub fn get_cpu_accessible_video_targets(&self) -> Vec<MemoryTarget> {
+    pub fn get_cpu_accessible_video_targets(&self) -> &'static [MemoryTarget] {
         match self {
             PpuMode::HorizontalBlank | PpuMode::VerticalBlank => {
-                vec![MemoryTarget::VideoRam, MemoryTarget::ObjectAttributeMemory]
+                &[MemoryTarget::VideoRam, MemoryTarget::ObjectAttributeMemory]
             },
-            PpuMode::OamScan => vec![MemoryTarget::VideoRam],
-            PpuMode::DrawingPixels => vec![],
+            PpuMode::OamScan => &[MemoryTarget::VideoRam],
+            PpuMode::DrawingPixels => &[],
         }
     }
-    pub fn get_cpu_inaccessible_video_targets(&self) -> Vec<MemoryTarget> {
+    pub fn get_cpu_inaccessible_video_targets(&self) -> &'static [MemoryTarget] {
         match self {
-            PpuMode::HorizontalBlank | PpuMode::VerticalBlank => vec![],
-            PpuMode::OamScan => vec![MemoryTarget::ObjectAttributeMemory],
-            PpuMode::DrawingPixels => {
-                vec![MemoryTarget::VideoRam, MemoryTarget::ObjectAttributeMemory]
-            },
+            PpuMode::HorizontalBlank | PpuMode::VerticalBlank => &[],
+            PpuMode::OamScan => &[MemoryTarget::ObjectAttributeMemory],
+            PpuMode::DrawingPixels => &[MemoryTarget::VideoRam, MemoryTarget::ObjectAttributeMemory],
         }
     }
 }
@@ -500,14 +511,6 @@ impl Screen {
         }
     }
 
-    fn _turn_off_screen(&mut self) {
-        for _ in self.current_pixel_index..SCREEN_SIZE as u16 {
-            self.frame_being_drawn
-                .set_pixel(ColoredPixel::screen_off(), self.current_pixel_index);
-        }
-        self.current_pixel_index = 0;
-        self.submit_frame();
-    }
 }
 
 pub struct Frame {
