@@ -15,21 +15,8 @@ use crate::{
     processor::cpu::Cpu,
 };
 
-use std::cell::RefCell;
-
-thread_local! {
-    static GAMEBOY_EVENTS: RefCell<Vec<GameBoyEvent>> = const { RefCell::new(Vec::new()) };
-}
-
-pub fn notate_event(event: GameBoyEvent) {
-    GAMEBOY_EVENTS.with(|events| {
-        events.borrow_mut().push(event);
-    });
-}
-
-fn drain_events() -> Vec<GameBoyEvent> {
-    GAMEBOY_EVENTS.with(|events| events.take())
-}
+/// Events that happen in a tick and need to be processed by the top level system
+pub type EventQueue = Vec<GameBoyEvent>;
 
 pub struct GameBoy {
     state: GameBoyState,
@@ -37,6 +24,7 @@ pub struct GameBoy {
     bus: Bus,
     oam_dma: OamDma,
     cpu: Cpu,
+    events: EventQueue,
 }
 
 #[cfg(feature = "headless")]
@@ -55,6 +43,7 @@ impl GameBoy {
             cpu: Default::default(),
             bus: Bus::new(button_input),
             oam_dma: Default::default(),
+            events: EventQueue::new(),
         }
     }
 
@@ -66,6 +55,7 @@ impl GameBoy {
             bus: Bus::new(),
             oam_dma: Default::default(),
             cpu: Cpu::default(),
+            events: EventQueue::new(),
         }
     }
 
@@ -74,29 +64,29 @@ impl GameBoy {
     }
 
     fn tick_oam_dma(&mut self) {
-        self.oam_dma.tick(&mut self.bus);
+        self.oam_dma.tick(&mut self.bus, &mut self.events);
     }
 
     fn tick_ppu(&mut self) {
         let (v_ram, oam, lcd_regs) = self.bus.get_ppu_context_mem();
 
-        self.ppu.tick(v_ram, oam, lcd_regs)
+        self.ppu.tick(v_ram, oam, lcd_regs, &mut self.events)
     }
 
     fn tick_timer_divider(&mut self) {
-        self.bus.tick_timer_divider();
+        self.bus.tick_timer_divider(&mut self.events);
     }
 
     fn tick_joypad(&mut self) {
-        self.bus.tick_joypad();
+        self.bus.tick_joypad(&mut self.events);
     }
 
     fn tick_serial(&mut self) {
-        self.bus.tick_serial();
+        self.bus.tick_serial(&mut self.events);
     }
 
     fn tick_cpu(&mut self) {
-        self.cpu.tick(&mut self.bus)
+        self.cpu.tick(&mut self.bus, &mut self.events)
     }
 
     pub fn tick(&mut self) {
@@ -110,7 +100,8 @@ impl GameBoy {
     }
 
     fn handle_changes(&mut self) {
-        for change in drain_events() {
+        let pending = std::mem::take(&mut self.events);
+        for change in pending {
             self.handle_change(change)
         }
     }
@@ -135,18 +126,13 @@ impl GameBoy {
     }
 
     fn handle_objects_disabled(&mut self) {
-        // DisabledObjects events should only ever be generated when the CPU writes to 0xFF40
-        // which means `cpu_lockstep_catchup` should still be the full length in TCycles of the affecting instruction
-        // So we can use that to delay mode 3 of the PPU.
-        // I don't love this shortcut because it's not resistant to reorganization
-        // but it's better than adding another assignment in the hot loop.
-        self.ppu.handle_objects_disabled(self.state.cpu_lockstep_catchup.into())
+        self.ppu.handle_objects_disabled()
     }
 
     fn handle_change_lcd_ppu_enabled(&mut self, enabled: bool) {
-        self.bus.reset_ly();
+        self.bus.reset_ly(&mut self.events);
         let (v_ram, oam, lcd) = self.bus.get_ppu_context_mem();
-        let mut ppu_context = PpuOperationContext::new(&mut self.ppu, v_ram, oam, lcd);
+        let mut ppu_context = PpuOperationContext::new(&mut self.ppu, v_ram, oam, lcd, &mut self.events);
         if enabled {
             ppu_context.enable();
         } else {
@@ -179,6 +165,9 @@ impl GameBoy {
     pub fn get_serial_output(&self) -> Vec<&Bit> {
         self.bus.get_serial_output()
     }
+    pub fn serial_output_bit_count(&self) -> u64 {
+        self.bus.serial_output_bit_count()
+    }
     pub fn peek_mem(&self, address: u16) -> u8 {
         self.bus.peek(address)
     }
@@ -189,14 +178,13 @@ impl GameBoy {
 
 struct GameBoyState {
     mode: GameBoyMode,
-    cpu_lockstep_catchup: MCycles,
 }
 
 impl GameBoyState {}
 
 impl Default for GameBoyState {
     fn default() -> Self {
-        Self { cpu_lockstep_catchup: MCycles(0), mode: Default::default() }
+        Self { mode: Default::default() }
     }
 }
 
@@ -248,7 +236,7 @@ pub enum GameBoyEvent {
     ChangeGameBoyMode(GameBoyMode),
     ChangeLcdPpuEnabled(bool),
     ObjectsDisabled,
-    ChangeObjectPriorityMode(crate::graphics::oam::PriorityMode),
+    ChangeObjectPriorityMode(crate::graphics::oam::PriorityMode), // CGB: OBJ priority mode (0xFF6C)
     StartOamDmaTransfer(u8),
     ChangeBusAccessForPpuMode(PpuMode),
     EndOamDmaTransfer,
