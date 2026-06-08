@@ -1,4 +1,4 @@
-use crate::bus::{Address, BusAccessFailure};
+use crate::{bus::{Address, BusAccessFailure}, game_boy::EventQueue};
 
 #[derive(Default)]
 pub struct Audio {
@@ -8,9 +8,43 @@ pub struct Audio {
     channel_2: Channel1Or2,
     channel_3: Channel3,
     channel_4: Channel4,
+    sound_panning: u8,
+    t_cycle_counter: u16,
+    step_number: u8,
 }
 
 impl Audio {
+    const T_CYCLES_IN_TICK: u16 = 8192;
+
+    pub fn tick(&mut self, events: &mut EventQueue) {
+        if !self.is_enabled {
+            return;
+        }
+
+        self.t_cycle_counter += 1;
+
+        if self.t_cycle_counter == Audio::T_CYCLES_IN_TICK {
+            
+            match self.step_number {
+                0 | 2 | 4 | 6 => {
+
+                    if self.step_number == 2 || self.step_number == 6 {
+                        // TODO: tick CH1 frequency sweep
+                    }
+                },
+                7 => {
+
+                },
+                1 | 3 | 5 => (),
+                _ => unreachable!("There are only 8 steps"),
+            }
+
+            self.step_number += 1;
+            self.step_number &= 0b111;
+        }
+
+    }
+
     pub fn read(&self, address: Address) -> u8 {
         let Ok(register) = Registers::try_from(address) else {
             return BusAccessFailure::NothingMappedToAddress.into();
@@ -33,7 +67,7 @@ impl Audio {
             Registers::Channel3OutputLevel => self.channel_3.read_output_level(),
             Registers::Channel3PeriodLow => self.channel_3.read_period_low(),
             Registers::Channel3PeriodHighAndControl => self.channel_3.read_period_high_and_control(),
-            Registers::WavePatternRam { offset: _offset } => BusAccessFailure::Unimplemented.into(),
+            Registers::WavePatternRam { offset } => self.channel_3.read_wave_ram(offset),
             Registers::Channel4LengthTimer => self.channel_4.read_length_timer(),
             Registers::Channel4VolumeAndEnvelope => self.channel_4.volume_and_envelope.read(),
             Registers::Channel4FrequencyAndRandomness => self.channel_4.frequency_and_randomness.read(),
@@ -45,7 +79,7 @@ impl Audio {
             return;
         };
         match register {
-            Registers::AudioMasterControl => self.is_enabled = value & 0b10000000 != 0,
+            Registers::AudioMasterControl => self.write_audio_master_control(value),
             Registers::SoundPanning => self.write_sound_panning(value),
             Registers::MasterVolumeAndVinPanning => self.master_volume_and_vin_panning.write(value),
             Registers::Channel1Sweep => self.channel_1.sweep.write(value),
@@ -62,11 +96,19 @@ impl Audio {
             Registers::Channel3OutputLevel => self.channel_3.write_output_level(value),
             Registers::Channel3PeriodLow => self.channel_3.write_period_low(value),
             Registers::Channel3PeriodHighAndControl => self.channel_3.write_period_high_and_control(value),
-            Registers::WavePatternRam { offset: _offset } => (),
+            Registers::WavePatternRam { offset } => self.channel_3.write_wave_ram(value, offset),
             Registers::Channel4LengthTimer => self.channel_4.write_length_timer(value),
             Registers::Channel4VolumeAndEnvelope => self.channel_4.volume_and_envelope.write(value),
             Registers::Channel4FrequencyAndRandomness => self.channel_4.frequency_and_randomness.write(value),
             Registers::Channel4Control => self.channel_4.write_period_high_and_control(value),
+        }
+    }
+
+    fn write_audio_master_control(&mut self, value: u8) {
+        self.is_enabled = value & 0b10000000 != 0;
+
+        if !self.is_enabled {
+            self.clear_registers();
         }
     }
 
@@ -82,33 +124,16 @@ impl Audio {
     }
 
     fn write_sound_panning(&mut self, value: u8) {
-        if value & 0b1 == 1 {
-            self.channel_1.pan(Pan::Right)
-        }
-        if (value >> 1) & 0b1 == 1 {
-            self.channel_2.pan(Pan::Right)
-        }
-        if (value >> 2) & 0b1 == 1 {
-            self.channel_3.pan(Pan::Right)
-        }
-        if (value >> 3) & 0b1 == 1 {
-            self.channel_4.pan(Pan::Right)
-        }
-        if (value >> 4) & 0b1 == 1 {
-            self.channel_1.pan(Pan::Left)
-        }
-        if (value >> 5) & 0b1 == 1 {
-            self.channel_2.pan(Pan::Left)
-        }
-        if (value >> 6) & 0b1 == 1 {
-            self.channel_3.pan(Pan::Left)
-        }
-        if (value >> 7) & 0b1 == 1 {
-            self.channel_4.pan(Pan::Left)
-        }
+       self.sound_panning = value;
+    }
+
+    fn clear_registers(&mut self) {
+        self.t_cycle_counter = 0;
+        todo!()
     }
 }
 
+#[derive(PartialEq, Debug)]
 enum Registers {
     AudioMasterControl,
     SoundPanning,
@@ -133,6 +158,8 @@ enum Registers {
     Channel4FrequencyAndRandomness,
     Channel4Control,
 }
+
+const IMPLD_REGISTERS: &[Registers] = &[Registers::AudioMasterControl, Registers::Channel1LengthTimerAndDutyCycle, Registers::SoundPanning];
 
 impl TryFrom<Address> for Registers {
     type Error = String;
@@ -196,7 +223,7 @@ impl MasterVolumeAndVinPanning {
 /// Instead of having a second structure, we're just reusing this one and never mapping access to sweep
 #[derive(Default)]
 struct Channel1Or2 {
-    
+    is_on: bool,
     sweep: Channel1Sweep, 
     length_timer_and_duty_cycle: Channel1Or2LengthTimerAndDutyCycle,
     volume_and_envelope: VolumeAndEnvelope,
@@ -204,12 +231,19 @@ struct Channel1Or2 {
     length_enabled: bool,
 }
 
-impl Channel1Or2 {
-}
+impl Channel1Or2 {}
 
 impl Channel for Channel1Or2 {
-    fn trigger(&mut self) {
+    fn tick_length_counter(&mut self, events: &mut EventQueue) {
+        todo!()
+    }
         
+    fn volume_envelope(&mut self) {
+        todo!()
+    }
+
+    fn trigger(&mut self) {
+        self.is_on = true
     }
 
     fn access_period(&mut self) -> Option<&mut u16> {
@@ -223,6 +257,11 @@ impl Channel for Channel1Or2 {
     fn get_length_enable(&self) -> bool {
         self.length_enabled
     }
+    
+    fn is_on(&self) -> bool {
+        self.is_on
+    }
+   
 }
 
 #[derive(Default)]
@@ -285,14 +324,21 @@ impl VolumeAndEnvelope {
 }
 #[derive(Default)]
 struct Channel3 {
+    is_on: bool,
     dac_enable: bool,
     length_timer: u8,
     output_level: OutputLevel,
     period: u16,
     length_enabled: bool,
+    wave_ram: [u8;16],
 }
 
 impl Channel3 {
+    fn write_wave_ram(&mut self, value: u8, offset: u8) {
+        debug_assert!(offset < 16);
+        self.wave_ram[offset as usize] = value;
+
+    }
     fn write_dac_enable(&mut self, value: u8) {
         self.dac_enable = value & 0b10000000 != 0;
     }
@@ -311,12 +357,25 @@ impl Channel3 {
     fn read_output_level(&self) -> u8 {
         u8::from(&self.output_level) << 5
     }
+    fn read_wave_ram(&self, offset: u8) -> u8 {
+        if self.is_on() {
+            0xFF
+        } else {
+            self.wave_ram[offset as usize]
+        }
+    }
 
 }
 
 impl Channel for Channel3 {
+    fn tick_length_counter(&mut self, events: &mut EventQueue) {      
+        todo!()
+    }
+    fn volume_envelope(&mut self) {
+        todo!()
+    }
     fn trigger(&mut self) {
-        
+        self.is_on = true;
     }
 
     fn access_period(&mut self) -> Option<&mut u16> {
@@ -330,9 +389,14 @@ impl Channel for Channel3 {
     fn get_length_enable(&self) -> bool {
         self.length_enabled
     }
+    
+    fn is_on(&self) -> bool {
+       self.is_on
+    }
 }
 #[derive(Default)]
 struct Channel4 {
+    is_on: bool,
     length_enabled: bool,
     length_timer: u8,
     volume_and_envelope: VolumeAndEnvelope,
@@ -349,8 +413,15 @@ impl Channel4 {
 }
 
 impl Channel for Channel4 {
+   fn tick_length_counter(&mut self, events: &mut EventQueue) {
+       
+        todo!()
+    }
+    fn volume_envelope(&mut self) {
+        todo!()
+    }
     fn trigger(&mut self) {
-        
+        self.is_on = true;   
     }
 
     fn access_period(&mut self) -> Option<&mut u16> {
@@ -364,6 +435,12 @@ impl Channel for Channel4 {
     fn get_length_enable(&self) -> bool {
         self.length_enabled
     }
+    
+    fn is_on(&self) -> bool {
+        self.is_on
+    }
+    
+
 }
 
 #[derive(Default)]
@@ -387,13 +464,13 @@ impl FrequencyAndRandomness {
 }
 
 trait Channel {
-    fn is_on(&self) -> bool {
-        false
-    }
+    fn is_on(&self) -> bool;
     fn pan(&mut self, _pan: Pan) {
-        
+        todo!()
     }
-
+    
+    fn tick_length_counter(&mut self, events: &mut EventQueue);
+    fn volume_envelope(&mut self);
     fn trigger(&mut self);
     fn access_period(&mut self) -> Option<&mut u16>;
     fn update_length_enabled(&mut self, value: bool);
