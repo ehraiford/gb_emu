@@ -1,9 +1,9 @@
 #[cfg(not(feature = "headless"))]
 use crate::io_devices::joypad_input::ButtonInput;
 use crate::{
-    bus::{Address, BusAccessFailure, BusAccessible, MemoryTarget},
-    game_boy::{GameBoyEvent, notate_event},
-    graphics::{lcd::Lcd, oam::PriorityMode},
+    bus::{Address, BusAccessFailure},
+    game_boy::{EventQueue, GameBoyEvent},
+    graphics::lcd::Lcd,
     io_devices::{
         audio::Audio, interrupts::InterruptFlagRegister, joypad_input::JoyPadInput, serial::Serial,
         timer_divider::TimerDivider,
@@ -51,10 +51,8 @@ impl IoRegisters {
     }
 }
 
-impl BusAccessible for IoRegisters {
-    const MM_DEVICE: MemoryTarget = MemoryTarget::IoRegisters;
-
-    fn read(&mut self, address: Address) -> u8 {
+impl IoRegisters {
+    pub fn read(&mut self, address: Address) -> u8 {
         let Some(section) = IoSection::from_address(address) else {
             return BusAccessFailure::NothingMappedToAddress.into();
         };
@@ -66,18 +64,18 @@ impl BusAccessible for IoRegisters {
             IoSection::Interrupts => self.interrupt_flag_register.read(),
             IoSection::Audio => self.audio.read(address),
             IoSection::Lcd => self.lcd_registers.read(address),
-            IoSection::Keys => BusAccessFailure::Unimplemented.into(),
-            IoSection::VramBankSelect => todo!(),
+            IoSection::Keys => BusAccessFailure::Unimplemented.into(),           // CGB: KEY1 speed switch
+            IoSection::VramBankSelect => BusAccessFailure::Unimplemented.into(),  // CGB: VRAM bank select
             IoSection::BootRomMappingControl => BusAccessFailure::TriedAccessingUnusableMemory.into(),
-            IoSection::Ir => todo!(),
-            IoSection::BgObjPalettes => todo!(),
-            IoSection::ObjectPriorityMode => todo!(),
-            IoSection::WramBankSelect => todo!(),
-            IoSection::VramDma => todo!(),
+            IoSection::Ir => BusAccessFailure::Unimplemented.into(),              // CGB: infrared port
+            IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(),   // CGB: extended color palettes
+            IoSection::ObjectPriorityMode => BusAccessFailure::Unimplemented.into(), // CGB: OBJ priority mode
+            IoSection::WramBankSelect => BusAccessFailure::Unimplemented.into(),  // CGB: WRAM bank select
+            IoSection::VramDma => BusAccessFailure::Unimplemented.into(),         // CGB: HDMA/GDMA
         }
     }
 
-    fn write(&mut self, address: Address, value: u8) {
+    pub fn write(&mut self, address: Address, value: u8, events: &mut EventQueue) {
         let Some(section) = IoSection::from_address(address) else {
             return BusAccessFailure::NothingMappedToAddress.into();
         };
@@ -88,21 +86,19 @@ impl BusAccessible for IoRegisters {
             IoSection::TimerAndDivider => self.timer_divider.write(address, value),
             IoSection::Interrupts => self.interrupt_flag_register.write(value),
             IoSection::Audio => self.audio.write(address, value),
-            IoSection::Lcd => self.lcd_registers.write(address, value),
-            IoSection::Keys => BusAccessFailure::Unimplemented.into(),
-            IoSection::VramBankSelect => BusAccessFailure::Unimplemented.into(),
-            IoSection::BootRomMappingControl => notate_event(GameBoyEvent::UnmapBootRom),
-            IoSection::Ir => BusAccessFailure::Unimplemented.into(),
-            IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(),
-            IoSection::ObjectPriorityMode => {
-                notate_event(GameBoyEvent::ChangeObjectPriorityMode(PriorityMode::from(value)))
-            },
-            IoSection::WramBankSelect => BusAccessFailure::Unimplemented.into(),
-            IoSection::VramDma => BusAccessFailure::Unimplemented.into(),
+            IoSection::Lcd => self.lcd_registers.write(address, value, events),
+            IoSection::Keys => BusAccessFailure::Unimplemented.into(),           // CGB: KEY1 speed switch
+            IoSection::VramBankSelect => BusAccessFailure::Unimplemented.into(), // CGB: VRAM bank select
+            IoSection::BootRomMappingControl => events.push(GameBoyEvent::UnmapBootRom),
+            IoSection::Ir => BusAccessFailure::Unimplemented.into(),             // CGB: infrared port
+            IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(),  // CGB: extended color palettes
+            IoSection::ObjectPriorityMode => BusAccessFailure::Unimplemented.into(), // CGB: OBJ priority mode
+            IoSection::WramBankSelect => BusAccessFailure::Unimplemented.into(), // CGB: WRAM bank select
+            IoSection::VramDma => BusAccessFailure::Unimplemented.into(),        // CGB: HDMA/GDMA
         }
     }
 
-    fn peek(&self, address: Address) -> u8 {
+    pub fn peek(&self, address: Address) -> u8 {
         let Some(section) = IoSection::from_address(address) else {
             return BusAccessFailure::NothingMappedToAddress.into();
         };
@@ -113,14 +109,14 @@ impl BusAccessible for IoRegisters {
             IoSection::Interrupts => self.interrupt_flag_register.read(),
             IoSection::Audio => self.audio.read(address),
             IoSection::Lcd => self.lcd_registers.peek(address),
-            IoSection::Keys => todo!(),
-            IoSection::VramBankSelect => todo!(),
+            IoSection::Keys => BusAccessFailure::Unimplemented.into(),           // CGB: KEY1 speed switch
+            IoSection::VramBankSelect => BusAccessFailure::Unimplemented.into(), // CGB: VRAM bank select
             IoSection::BootRomMappingControl => u8::from(BusAccessFailure::TriedAccessingUnusableMemory),
-            IoSection::Ir => todo!(),
-            IoSection::BgObjPalettes => todo!(),
-            IoSection::ObjectPriorityMode => todo!(),
-            IoSection::WramBankSelect => todo!(),
-            IoSection::VramDma => todo!(),
+            IoSection::Ir => BusAccessFailure::Unimplemented.into(),             // CGB: infrared port
+            IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(),  // CGB: extended color palettes
+            IoSection::ObjectPriorityMode => BusAccessFailure::Unimplemented.into(), // CGB: OBJ priority mode
+            IoSection::WramBankSelect => BusAccessFailure::Unimplemented.into(), // CGB: WRAM bank select
+            IoSection::VramDma => BusAccessFailure::Unimplemented.into(),        // CGB: HDMA/GDMA
         }
     }
 }

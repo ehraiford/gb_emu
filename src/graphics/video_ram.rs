@@ -17,6 +17,7 @@ impl VideoRam {
             tile_maps: Default::default(),
         }
     }
+    // CGB: two VRAM banks; swap via VramBankSelect (0xFF4F)
     pub fn _new_cgb() -> Self {
         Self {
             ram_banks: vec![Default::default(); 2],

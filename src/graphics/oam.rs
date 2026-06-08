@@ -180,11 +180,12 @@ impl ObjectFlag {
     }
 }
 
+// CGB: OBJ priority mode. DMG always uses GameBoy (OAM order). GameBoyColor variant is for CGB coordinate-order mode.
 #[derive(Debug)]
 #[repr(u8)]
 pub enum PriorityMode {
     GameBoy = 0,
-    GameBoyColor,
+    GameBoyColor, // CGB
 }
 
 impl From<u8> for PriorityMode {
