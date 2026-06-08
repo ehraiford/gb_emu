@@ -17,10 +17,7 @@ pub fn get_bitfield(mut byte: u8, left: u8, right: u8) -> u8 {
     byte
 }
 
-/// Maybe we'll make this into an actual log some day but for now, we'll just print it out.
-pub fn log(_args: fmt::Arguments) {
-    // println!("Log Message: {_args}",)
-}
+pub fn log(_args: fmt::Arguments) {}
 
 pub fn disassemble_rom(rom_path: &PathBuf, output_path: &PathBuf) {
     let assembly = get_disassembly(&fs::read(rom_path).unwrap());
