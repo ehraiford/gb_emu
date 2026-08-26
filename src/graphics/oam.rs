@@ -28,6 +28,58 @@ impl ObjectAttributeMemory {
     pub fn get_object_attributes(&self, object_number: u8) -> ObjectAttributes {
         self.objects[object_number as usize]
     }
+
+    fn get_row(&self, index: usize) -> [u16; 4] {
+        let obj1: [u16; 2] = self.objects[index * 2].into();
+        let obj2: [u16; 2] = self.objects[index * 2 + 1].into();
+
+        [obj1[0], obj1[1], obj2[0], obj2[1]]
+    }
+
+    fn set_row(&mut self, index: usize, data: [u16; 4]) {
+        self.objects[index * 2] = [data[0], data[1]].into();
+        self.objects[index * 2 + 1] = [data[2], data[3]].into();
+    }
+
+    pub fn oam_corruption(&mut self, mut kind: CorruptionKind, row_index: usize) {
+        if kind == CorruptionKind::ReadDuringIncreaseDecrease {
+            // read during increase/decrease is complicated enough that we'll give it a dedicated function
+            self.oam_corruption_read_during_increase_decrease(row_index);
+            kind = CorruptionKind::Read; // read corruption always follows the extra logic
+        }
+        let Some(prev_index) = row_index.checked_sub(1) else {
+            // corruption doesn't occur in the first row
+            return;
+        };
+        let curr_row = self.get_row(row_index);
+        let prev_row = self.get_row(prev_index);
+
+        let algorithm = kind.get_first_word_algorithm();
+
+        let mut corruption = prev_row; // last three words come from the previous row
+        corruption[0] = algorithm(curr_row[0], prev_row[0], prev_row[2], 0);
+
+        self.set_row(row_index, corruption);
+    }
+
+    fn oam_corruption_read_during_increase_decrease(&mut self, row_index: usize) {
+        if row_index < 4 || row_index == 19 {
+            return; // this extra corruption doesn't occur in the 1st 4 rows or last row 
+        }
+
+        let curr_row = self.get_row(row_index);
+        let prev_row = self.get_row(row_index - 1);
+        let two_rows_prior = self.get_row(row_index - 2);
+
+        let algorithm = CorruptionKind::ReadDuringIncreaseDecrease.get_first_word_algorithm();
+
+        let mut corruption = prev_row; // last three words come from the previous row
+        corruption[0] = algorithm(two_rows_prior[0], prev_row[0], curr_row[0], prev_row[2]);
+
+        self.set_row(row_index, corruption);
+        self.set_row(row_index - 1, corruption);
+        self.set_row(row_index - 2, corruption);
+    }
 }
 
 impl BusAccessible for ObjectAttributeMemory {
@@ -157,6 +209,25 @@ impl ObjectAttributes {
     }
 }
 
+impl From<[u16; 2]> for ObjectAttributes {
+    fn from(value: [u16; 2]) -> Self {
+        Self {
+            y_position: value[0] as u8,
+            x_position: (value[0] >> 8) as u8,
+            tile_index: value[1] as u8,
+            flags: (value[1] >> 8) as u8,
+        }
+    }
+}
+impl From<ObjectAttributes> for [u16; 2] {
+    fn from(value: ObjectAttributes) -> Self {
+        [
+            ((value.x_position as u16) << 8) | (value.y_position as u16),
+            ((value.flags as u16) << 8) | (value.tile_index as u16),
+        ]
+    }
+}
+
 pub enum ObjectFlag {
     Priority,
     YFlip,
@@ -202,4 +273,21 @@ pub enum PaletteChoice {
     #[default]
     OBP0,
     OBP1,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum CorruptionKind {
+    Read,
+    Write,
+    ReadDuringIncreaseDecrease,
+}
+
+impl CorruptionKind {
+    const fn get_first_word_algorithm(&self) -> fn(u16, u16, u16, u16) -> u16 {
+        match self {
+            CorruptionKind::Read => |a, b, c, _| b | (a & c),
+            CorruptionKind::Write => |a, b, c, _| ((a ^ c) & (b ^ c)) ^ c,
+            CorruptionKind::ReadDuringIncreaseDecrease => |a, b, c, d| (b & (a | c | d)) | (a & c & d),
+        }
+    }
 }

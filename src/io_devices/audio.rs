@@ -24,7 +24,8 @@ impl Audio {
         self.t_cycle_counter += 1;
 
         if self.t_cycle_counter == Audio::T_CYCLES_IN_TICK {
-            
+            self.t_cycle_counter = 0;
+
             match self.step_number {
                 0 | 2 | 4 | 6 => {
 
@@ -128,8 +129,20 @@ impl Audio {
     }
 
     fn clear_registers(&mut self) {
+        // Powering the APU off zeroes NR10-NR51. Wave RAM is the exception:
+        // it survives a power cycle on real hardware, so save and restore it.
+        let wave_ram = self.channel_3.wave_ram;
+
+        self.master_volume_and_vin_panning = Default::default();
+        self.channel_1 = Default::default();
+        self.channel_2 = Default::default();
+        self.channel_3 = Default::default();
+        self.channel_4 = Default::default();
+        self.sound_panning = 0;
         self.t_cycle_counter = 0;
-        todo!()
+        self.step_number = 0;
+
+        self.channel_3.wave_ram = wave_ram;
     }
 }
 

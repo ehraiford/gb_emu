@@ -1,6 +1,7 @@
 use crate::{
     bus::Bus,
     game_boy::{EventQueue, GameBoyEvent},
+    graphics::oam::CorruptionKind,
     io_devices::interrupts::Interrupt,
     processor::{
         instruction_tables::{CBPREFIXED, UNPREFIXED},
@@ -24,8 +25,8 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn tick(&mut self, bus: &mut Bus, events: &mut EventQueue) {
-        let mut cpu_operation_context = CpuOperationContext::new(self, bus, events);
+    pub fn tick(&mut self, bus: &mut Bus, oam_row: Option<usize>, events: &mut EventQueue) {
+        let mut cpu_operation_context = CpuOperationContext::new(self, bus, oam_row, events);
         cpu_operation_context.tick();
     }
 
@@ -132,10 +133,6 @@ impl Cpu {
         use CalcedOperands as Ops;
         use OpCode::*;
 
-        // Matching the opcode together with the operand shape lets each arm destructure the
-        // operands it needs directly, instead of narrowing a wide enum with `.unwrap()` at every
-        // call site. The step table guarantees the shape, so a mismatch is an internal bug and is
-        // funneled to the single `unreachable!` below rather than 20-odd silent unwraps.
         match (self.instruction_state_machine.instruction.op_code, operands) {
             // ALU / bit ops on two 8-bit operands
             (Adc, Ops::TwoU8(a, b)) => self.add_with_carry((a, b)),
@@ -162,6 +159,10 @@ impl Cpu {
 
             (Pop, Ops::OneU16(v)) => self.pop(v),
             (Halt, Ops::Cond(pending_interrupts)) => self.halt(pending_interrupts, events),
+
+            // 16-bit inc/dec run on the IDU during the instruction's second M-cycle rather than
+            // at decode, so `MicroOp::IduWait` performs them. Must precede the bundle arms below.
+            (Inc, Ops::OneU16(_)) | (Dec, Ops::OneU16(_)) => (),
 
             // handlers that consume the whole operand bundle and match on it internally
             (Add, ops) => self.add(ops),
@@ -466,13 +467,8 @@ impl Cpu {
     fn decrement(&mut self, operands: CalcedOperands) {
         match operands {
             CalcedOperands::OneU8(operand) => self.decrement_8_bit(operand),
-            CalcedOperands::OneU16(operand) => self.decrement_16_bit(operand),
-            _ => unreachable!("No other case will get here"),
+            _ => unreachable!("The 16-bit form runs on the IDU; no other case will get here"),
         }
-    }
-    fn decrement_16_bit(&mut self, operand: u16) {
-        let result = operand.wrapping_sub(1);
-        self.set_instruction_result(result, 0);
     }
     fn decrement_8_bit(&mut self, operand: u8) {
         let result = operand.wrapping_sub(1);
@@ -509,13 +505,8 @@ impl Cpu {
     fn increment(&mut self, operands: CalcedOperands) {
         match operands {
             CalcedOperands::OneU8(operand) => self.increment_8_bit(operand),
-            CalcedOperands::OneU16(operand) => self.increment_16_bit(operand),
-            _ => unreachable!("No other case will get here"),
+            _ => unreachable!("The 16-bit form runs on the IDU; no other case will get here"),
         }
-    }
-    fn increment_16_bit(&mut self, operand: u16) {
-        let result = operand.wrapping_add(1);
-        self.set_instruction_result(result, 0);
     }
     fn increment_8_bit(&mut self, operand: u8) {
         let result = operand.wrapping_add(1);
@@ -1116,11 +1107,12 @@ pub struct CpuOperationContext<'a, 'b, 'c> {
     cpu: &'a mut Cpu,
     bus: &'b mut Bus,
     events: &'c mut EventQueue,
+    oam_row: Option<usize>, // just for OAM corruption
 }
 
 impl<'a, 'b, 'c> CpuOperationContext<'a, 'b, 'c> {
-    pub fn new(cpu: &'a mut Cpu, bus: &'b mut Bus, events: &'c mut EventQueue) -> Self {
-        Self { cpu, bus, events }
+    pub fn new(cpu: &'a mut Cpu, bus: &'b mut Bus, oam_row: Option<usize>, events: &'c mut EventQueue) -> Self {
+        Self { cpu, bus, events, oam_row }
     }
 
     fn tick(&mut self) {
@@ -1172,16 +1164,18 @@ impl<'a, 'b, 'c> CpuOperationContext<'a, 'b, 'c> {
                 self.cpu.state = CpuState::InterruptHandler(interrupt, InterruptStep::SecondWait);
             },
             InterruptStep::SecondWait => {
+                // This is dispatch's IduWait: the implied `dec sp` ahead of the two stack writes.
+                self.cpu.sp = self.idu(self.cpu.sp, IduOp::Dec, CorruptionKind::Write);
                 self.cpu.state = CpuState::InterruptHandler(interrupt, InterruptStep::PushMsbPCToStack);
             },
             InterruptStep::PushMsbPCToStack => {
                 let msb = (self.cpu.pc >> 8) as u8;
-                self.push_to_stack(msb);
+                self.push_msb_to_stack(msb);
                 self.cpu.state = CpuState::InterruptHandler(interrupt, InterruptStep::PushLsbPCToStack);
             },
             InterruptStep::PushLsbPCToStack => {
                 let lsb = self.cpu.pc as u8;
-                self.push_to_stack(lsb);
+                self.push_lsb_to_stack(lsb);
                 self.cpu.state = CpuState::InterruptHandler(interrupt, InterruptStep::SetPCToInterrupt);
             },
             InterruptStep::SetPCToInterrupt => {
@@ -1213,6 +1207,34 @@ impl<'a, 'b, 'c> CpuOperationContext<'a, 'b, 'c> {
             _ => unreachable!("Is never more than 2"),
         }
     }
+
+    /// The 16-bit increment/decrement unit. It sits on the address bus rather than the data bus,
+    /// so driving an OAM-range value through it while the PPU is scanning OAM corrupts the row the
+    /// PPU has latched. Every ±1 on an address register routes through here so that the corruption
+    /// can't be forgotten at a call site.
+    fn idu(&mut self, address: u16, op: IduOp, kind: CorruptionKind) -> u16 {
+        self.oam_corruption_bug(address, kind);
+
+        match op {
+            IduOp::Inc => address.wrapping_add(1),
+            IduOp::Dec => address.wrapping_sub(1),
+        }
+    }
+
+    fn oam_corruption_bug(&mut self, address: u16, kind: CorruptionKind) -> bool {
+        if !(0xFE00..0xFF00).contains(&address) {
+            return false;
+        };
+
+        let Some(row) = self.oam_row else { return false };
+        let (_, oam, lcd) = self.bus.get_ppu_context_mem();
+
+        if !lcd.is_ppu_enabled() {
+            return false;
+        };
+        oam.oam_corruption(kind, row);
+        true
+    }
 }
 
 // Methods for Instruction MicroOps
@@ -1232,6 +1254,7 @@ impl<'a, 'b, 'c> CpuOperationContext<'a, 'b, 'c> {
             MicroOp::ReadIntoOperand0Msb => self.read_into_operand_msb(0),
             MicroOp::Write => self.write(),
             MicroOp::Wait => (),
+            MicroOp::IduWait => self.tick_idu_wait(),
             MicroOp::CbPrefix => return self.cb_prefix(),
             MicroOp::PopStackIntoLsbPc => self.pop_stack_into_lsb_pc(),
             MicroOp::PopStackIntoMsbPc => self.pop_stack_into_msb_pc(),
@@ -1277,6 +1300,33 @@ impl<'a, 'b, 'c> CpuOperationContext<'a, 'b, 'c> {
         };
 
         self.write_memory_operand(0, value);
+    }
+
+    /// The internal cycle where the IDU drives a 16-bit register onto the address bus. For
+    /// `inc`/`dec rr` that's the increment itself; for the push family it's the implied `dec sp`
+    /// that precedes the stack writes.
+    fn tick_idu_wait(&mut self) {
+        let op_code = self.cpu.instruction_state_machine.instruction.op_code;
+        let operand = self.cpu.instruction_state_machine.get_operand(0);
+
+        match op_code {
+            OpCode::Inc | OpCode::Dec => {
+                let OperandValue::U16(U16Operand::Calculated(address)) = operand else {
+                    unreachable!("IduWait is only reachable from the 16-bit inc/dec rows")
+                };
+                let op = match op_code {
+                    OpCode::Inc => IduOp::Inc,
+                    _ => IduOp::Dec,
+                };
+
+                let result = self.idu(address, op, CorruptionKind::Write);
+                self.cpu.set_instruction_result(result, 0);
+            },
+            OpCode::Push | OpCode::Call | OpCode::Rst => {
+                self.cpu.sp = self.idu(self.cpu.sp, IduOp::Dec, CorruptionKind::Write);
+            },
+            _ => unreachable!("IduWait appears on no other rows in the step table"),
+        }
     }
 
     fn write_sp_low(&mut self) {
@@ -1329,7 +1379,7 @@ impl<'a, 'b, 'c> CpuOperationContext<'a, 'b, 'c> {
             .operand_0
             .try_get_msb()
             .expect("PushMsb runs only after operand 0 is a fully-formed u16");
-        self.push_to_stack(msb);
+        self.push_msb_to_stack(msb);
     }
     fn push_lsb(&mut self) {
         let lsb = self
@@ -1338,7 +1388,7 @@ impl<'a, 'b, 'c> CpuOperationContext<'a, 'b, 'c> {
             .operand_0
             .try_get_lsb()
             .expect("PushLsb runs only after operand 0 is a fully-formed u16");
-        self.push_to_stack(lsb);
+        self.push_lsb_to_stack(lsb);
     }
 
     fn read_e8(&mut self, operand_num: u8) {
@@ -1380,7 +1430,7 @@ impl<'a, 'b, 'c> CpuOperationContext<'a, 'b, 'c> {
 
     /// Pushes the PC's upper byte to the stack
     fn push_msb_pc_to_stack(&mut self) {
-        self.push_to_stack((self.cpu.pc >> 8) as u8);
+        self.push_msb_to_stack((self.cpu.pc >> 8) as u8);
     }
 
     fn push_lsb_pc_to_stack(&mut self, operand_num: u8) {
@@ -1390,7 +1440,7 @@ impl<'a, 'b, 'c> CpuOperationContext<'a, 'b, 'c> {
             _ => unreachable!("There are only three places this is called and it can only be the above values"),
         };
 
-        self.push_to_stack(self.cpu.pc as u8);
+        self.push_lsb_to_stack(self.cpu.pc as u8);
 
         self.cpu.pc = new_pc;
     }
@@ -1434,15 +1484,24 @@ impl<'a, 'b, 'c> CpuOperationContext<'a, 'b, 'c> {
     fn pop_from_stack(&mut self) -> u8 {
         let sp = self.cpu.sp;
         let result = self.bus.read(sp);
-        self.cpu.sp = sp.wrapping_add(1);
+        self.cpu.sp = self.idu(sp, IduOp::Inc, CorruptionKind::ReadDuringIncreaseDecrease);
         result
     }
 
-    fn push_to_stack(&mut self, value: u8) {
-        let sp = self.cpu.sp.wrapping_sub(1);
-        self.cpu.sp = sp;
+    /// The first of a push's two stack writes. Writes at the current SP, then runs the IDU to
+    /// position SP for the second write. The instruction's internal cycle (`MicroOp::IduWait`)
+    /// has already performed the first decrement, so callers must be on a row that has one.
+    fn push_msb_to_stack(&mut self, value: u8) {
+        self.bus.write(self.cpu.sp, value, self.events);
+        self.cpu.sp = self.idu(self.cpu.sp, IduOp::Dec, CorruptionKind::Write);
+    }
 
-        self.bus.write(sp, value, self.events)
+    /// The second of a push's two stack writes. SP is already at its resting value, so there is no
+    /// increment or decrement to perform. The address still reaches the bus through SP, though, so
+    /// it corrupts like the other two cycles do -- `8-instr_effect` fails if this cycle is exempt.
+    fn push_lsb_to_stack(&mut self, value: u8) {
+        self.oam_corruption_bug(self.cpu.sp, CorruptionKind::Write);
+        self.bus.write(self.cpu.sp, value, self.events)
     }
 
     fn read_memory_operand(&mut self, operand_num: u8) -> u8 {
@@ -1454,11 +1513,11 @@ impl<'a, 'b, 'c> CpuOperationContext<'a, 'b, 'c> {
             match pointer {
                 PointerOperand::Calculated(address) => self.bus.read(address),
                 PointerOperand::Hli(address) => {
-                    self.cpu.hl = self.cpu.hl.wrapping_add(1);
+                    self.cpu.hl = self.idu(address, IduOp::Inc, CorruptionKind::ReadDuringIncreaseDecrease);
                     self.bus.read(address)
                 },
                 PointerOperand::Hld(address) => {
-                    self.cpu.hl = self.cpu.hl.wrapping_sub(1);
+                    self.cpu.hl = self.idu(address, IduOp::Dec, CorruptionKind::ReadDuringIncreaseDecrease);
                     self.bus.read(address)
                 },
                 _ => self.read_at_pc_and_incr(),
@@ -1474,11 +1533,11 @@ impl<'a, 'b, 'c> CpuOperationContext<'a, 'b, 'c> {
                 PointerOperand::Calculated(address) => self.bus.write(address, value, self.events),
                 PointerOperand::Hli(address) => {
                     self.bus.write(address, value, self.events);
-                    self.cpu.hl = self.cpu.hl.wrapping_add(1);
+                    self.cpu.hl = self.idu(address, IduOp::Inc, CorruptionKind::Write);
                 },
                 PointerOperand::Hld(address) => {
                     self.bus.write(address, value, self.events);
-                    self.cpu.hl = self.cpu.hl.wrapping_sub(1);
+                    self.cpu.hl = self.idu(address, IduOp::Dec, CorruptionKind::Write);
                 },
                 _ => unreachable!("There is no operation that will have the state machine call this and fail"),
             }
@@ -1486,6 +1545,12 @@ impl<'a, 'b, 'c> CpuOperationContext<'a, 'b, 'c> {
             unreachable!("There is no operation that will have the state machine call this and fail")
         }
     }
+}
+
+/// The two operations the increment/decrement unit can perform.
+enum IduOp {
+    Inc,
+    Dec,
 }
 
 pub enum Flag {

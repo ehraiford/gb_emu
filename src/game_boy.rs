@@ -86,7 +86,7 @@ impl GameBoy {
     }
 
     fn tick_cpu(&mut self) {
-        self.cpu.tick(&mut self.bus, &mut self.events)
+        self.cpu.tick(&mut self.bus, self.ppu.get_oam_scan_row(),  &mut self.events)
     }
 
     pub fn tick(&mut self) {

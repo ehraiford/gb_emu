@@ -64,6 +64,18 @@ impl Ppu {
         }
     }
 
+    /// Used for OAM corruption bug. 
+    /// There are 80 dots for Mode 2 to go across 20 rows, so row number is scanned dots / 4.
+    /// Counted from the scan's own progress rather than the position in the line, because the
+    /// first line after an LCD enable starts the scan 4 dots in and would otherwise read high.
+    pub fn get_oam_scan_row(&self) -> Option<usize> {
+        if self.mode_tracking.mode == PpuMode::OamScan {
+            Some((self.mode_tracking.completed_cycles / 4) as usize)
+        } else {
+            None
+        }
+    }
+
     fn get_mode(&self) -> &PpuMode {
         &self.mode_tracking.mode
     }
@@ -300,8 +312,9 @@ impl Default for PpuModeTracker {
 }
 
 impl PpuModeTracker {
-    // first scanline after LCD enable is 16 T-cycles (4 M-cycles)
-    // shorter than normal — remaining_dots starts at 440 instead of 456.
+    // The first scanline after an LCD enable is 4 dots (1 M-cycle) shorter than normal, so
+    // remaining_dots starts at 452 instead of 456. Widening this to 16 dots regresses
+    // 1-lcd_sync, 4-scanline_timing, 5-timing_bug, 6-timing_no_bug and 8-instr_effect.
     fn new_from_lcd_enable() -> Self {
         Self {
             mode: PpuMode::OamScan,
