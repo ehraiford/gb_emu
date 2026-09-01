@@ -16,6 +16,7 @@ pub struct PixelFetchers {
     pixels_displayed: u8,
     window_started_this_line: bool,
     window_penalty_remaining: u8,
+    pixels_to_discard: Option<u8>,
 }
 
 impl PixelFetchers {
@@ -27,6 +28,7 @@ impl PixelFetchers {
         self.pixels_displayed = 0;
         self.window_started_this_line = false;
         self.window_penalty_remaining = 0;
+        self.pixels_to_discard = None;
     }
 
     pub fn take_scanned_objects(&mut self, objects_on_this_line: ObjectsOnThisLine) {
@@ -37,10 +39,29 @@ impl PixelFetchers {
         self.background_fetcher.reset_window_y();
     }
 
+    /// Handles fine scrolling.
+    /// Returns whether or not we are discarding a pixel and should exit tick early.
+    fn handle_fine_scrolling(&mut self, lcd: &Lcd, v_ram: &VideoRam) -> bool {
+        // Sampled once, on the first dot of mode 3. Re-reading SCX every dot would reset the
+        // countdown and mode 3 would never push a pixel.
+        let to_discard = self.pixels_to_discard.get_or_insert_with(|| lcd.get_scx() % 8);
+        if *to_discard == 0 {
+            return false;
+        }
+
+        self.background_fetcher.tick_fetching(lcd, v_ram);
+        if self.background_fetcher.queue.length() > 0 {
+            *to_discard -= 1;
+            self.background_fetcher.pop_pixel();
+        }
+        true
+    }
+
     pub fn tick(&mut self, lcd: &Lcd, v_ram: &VideoRam) -> Option<ColoredPixel> {
-        // Detect the window turning on for this scanline and charge the one-time penalty.
-        // `pixels_displayed` is the X coordinate of the next pixel to leave the fetcher, so
-        // the window becomes active the first dot that coordinate falls inside the window.
+        if self.handle_fine_scrolling(lcd, v_ram) {
+            return None;
+        }
+
         if self.mode == FetchersMode::NormalExecution
             && !self.window_started_this_line
             && lcd.window_enabled()

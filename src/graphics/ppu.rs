@@ -1,6 +1,8 @@
 #[cfg(not(feature = "headless"))]
 use std::sync::Arc;
 
+#[cfg(not(feature = "headless"))]
+use crate::os_interface::window::{SenderFrameHandle, TripleBuffer};
 use crate::{
     bus::MemoryTarget,
     game_boy::{EventQueue, GameBoyEvent, TCycles},
@@ -12,8 +14,6 @@ use crate::{
     },
     io_devices::interrupts::Interrupt,
 };
-#[cfg(not(feature = "headless"))]
-use crate::os_interface::window::{SenderFrameHandle, TripleBuffer};
 
 pub const SCREEN_WIDTH: u8 = 160;
 pub const SCREEN_HEIGHT: u8 = 144;
@@ -64,7 +64,7 @@ impl Ppu {
         }
     }
 
-    /// Used for OAM corruption bug. 
+    /// Used for OAM corruption bug.
     /// There are 80 dots for Mode 2 to go across 20 rows, so row number is scanned dots / 4.
     /// Counted from the scan's own progress rather than the position in the line, because the
     /// first line after an LCD enable starts the scan 4 dots in and would otherwise read high.
@@ -133,12 +133,8 @@ impl<'a, 'b, 'c, 'd, 'e> PpuOperationContext<'a, 'b, 'c, 'd, 'e> {
 
     fn tick_drawing_pixels(&mut self) {
         if let Some(pixel) = self.ppu.pixel_fetchers.tick(self.lcd, self.v_ram) {
-            if self.ppu.mode_tracking.pixels_left_to_ignore > 0 {
-                self.ppu.mode_tracking.pixels_left_to_ignore -= 1;
-            } else {
-                self.ppu.screen.draw_pixel(pixel);
-                self.ppu.mode_tracking.pixels_left_to_push -= 1;
-            }
+            self.ppu.screen.draw_pixel(pixel);
+            self.ppu.mode_tracking.pixels_left_to_push -= 1;
         }
     }
 
@@ -157,7 +153,7 @@ impl<'a, 'b, 'c, 'd, 'e> PpuOperationContext<'a, 'b, 'c, 'd, 'e> {
         let (increment_ly, new_mode) = self
             .ppu
             .mode_tracking
-            .process_tick(self.lcd.get_ly(), self.lcd.get_scx(), self.events)
+            .process_tick(self.lcd.get_ly(), self.events)
             .destructure();
 
         if increment_ly {
@@ -208,7 +204,6 @@ struct PpuModeTracker {
     remaining_dots_in_line: Dots,
     completed_cycles: u16,
     pixels_left_to_push: u8,
-    pixels_left_to_ignore: u8,
 }
 
 impl PpuModeTracker {
@@ -240,11 +235,11 @@ impl PpuModeTracker {
         }
     }
 
-    fn process_tick_oam_scan(&mut self, scx: u8) -> PpuTickOutcome {
+    fn process_tick_oam_scan(&mut self) -> PpuTickOutcome {
         self.completed_cycles += 1;
 
         if self.completed_cycles == 80 {
-            self.start_drawing_pixels(scx)
+            self.start_drawing_pixels()
         } else {
             PpuTickOutcome { increment_ly: false, new_mode: None }
         }
@@ -265,12 +260,12 @@ impl PpuModeTracker {
         DOTS_PER_LINE - self.remaining_dots_in_line
     }
 
-    fn process_tick(&mut self, ly: u8, scx: u8, events: &mut EventQueue) -> PpuTickOutcome {
+    fn process_tick(&mut self, ly: u8, events: &mut EventQueue) -> PpuTickOutcome {
         self.remaining_dots_in_line -= 1;
         match self.mode {
             PpuMode::HorizontalBlank => self.process_tick_horizontal_blank(ly, events),
             PpuMode::VerticalBlank => self.process_tick_vertical_blank(ly),
-            PpuMode::OamScan => self.process_tick_oam_scan(scx),
+            PpuMode::OamScan => self.process_tick_oam_scan(),
             PpuMode::DrawingPixels => self.process_tick_drawing_pixels(),
         }
     }
@@ -280,9 +275,8 @@ impl PpuModeTracker {
         self.completed_cycles = 0;
         PpuTickOutcome { increment_ly: true, new_mode: Some(PpuMode::OamScan) }
     }
-    fn start_drawing_pixels(&mut self, scx: u8) -> PpuTickOutcome {
+    fn start_drawing_pixels(&mut self) -> PpuTickOutcome {
         self.mode = PpuMode::DrawingPixels;
-        self.pixels_left_to_ignore = scx % 8;
         self.pixels_left_to_push = 160;
         PpuTickOutcome { increment_ly: false, new_mode: Some(PpuMode::DrawingPixels) }
     }
@@ -306,7 +300,6 @@ impl Default for PpuModeTracker {
             remaining_dots_in_line: DOTS_PER_LINE,
             completed_cycles: 0,
             pixels_left_to_push: 0,
-            pixels_left_to_ignore: 0,
         }
     }
 }
@@ -321,7 +314,6 @@ impl PpuModeTracker {
             remaining_dots_in_line: DOTS_PER_LINE - 4,
             completed_cycles: 0,
             pixels_left_to_push: 0,
-            pixels_left_to_ignore: 0,
         }
     }
 }
@@ -480,14 +472,7 @@ impl Screen {
     pub fn new() -> Self {
         Self { current_pixel_index: 0, frame_being_drawn: Frame::default() }
     }
-    fn draw_pixel(&mut self, pixel: ColoredPixel) {
-        self.frame_being_drawn.set_pixel(pixel, self.current_pixel_index);
-        self.current_pixel_index += 1;
-
-        if self.current_pixel_index == SCREEN_SIZE as u16 {
-            self.current_pixel_index = 0;
-        }
-    }
+    fn draw_pixel(&mut self, _: ColoredPixel) {}
 
     fn turn_off_screen(&mut self) {
         self.current_pixel_index = 0;
@@ -523,7 +508,6 @@ impl Screen {
                 .store(true, std::sync::atomic::Ordering::Relaxed);
         }
     }
-
 }
 
 pub struct Frame {
@@ -537,7 +521,7 @@ impl Frame {
 
     pub fn send_to_pixel_buffer(&self, pixel_buffer: &mut Box<[u32; SCREEN_SIZE]>) {
         for (source, destination) in self.frame.iter().zip(pixel_buffer.iter_mut()) {
-            *destination = source.to_minifb_u32();
+            *destination = source.to_packed_rgb();
         }
     }
 }
