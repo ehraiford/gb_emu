@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::{
-    cartridge::cartridge::Cartridge,
+    cartridge::cartridge::{Cartridge, CartridgeError},
     game_boy::{GameBoy, MCycles},
     graphics::video_ram::TileMapImage,
     os_interface::command_line::CommandLineCommand,
@@ -29,9 +29,10 @@ impl Emulator {
     const M_CYCLES_IN_FRAME: MCycles = MCycles(17_556);
     const FRAME_DURATION: Duration = Duration::from_nanos(16_742_706);
 
-    pub fn load_rom(&mut self, rom_data: &[u8]) {
-        let cartridge = Cartridge::new(rom_data).unwrap();
+    pub fn load_rom(&mut self, rom_data: &[u8]) -> Result<(), CartridgeError> {
+        let cartridge = Cartridge::new(rom_data)?;
         self.gameboy.load_cartridge(cartridge);
+        Ok(())
     }
 
     fn run_for_num_cycles(&mut self, cycles: u64) {

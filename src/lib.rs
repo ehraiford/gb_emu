@@ -42,7 +42,7 @@ pub fn run_program() {
 #[cfg(feature = "headless")]
 fn run_emulator(rom_data: &[u8], emulator_command: EmulatorCommand, _: CommandLineArguments) {
     let mut emulator = Emulator::new();
-    emulator.load_rom(rom_data);
+    emulator.load_rom(rom_data).unwrap_or_else(|error| panic!("Could not load ROM: {error}"));
     emulator.run_command(emulator_command);
 }
 
@@ -52,7 +52,7 @@ fn run_emulator(rom_data: &[u8], emulator_command: EmulatorCommand, command_line
     let (ppu_handle, window_frame_handle, button_input) = get_os_interface_variables();
 
     let mut emulator: Emulator = Emulator::new(ppu_handle, Arc::<AtomicU8>::clone(&button_input), debug_sender);
-    emulator.load_rom(rom_data);
+    emulator.load_rom(rom_data).unwrap_or_else(|error| panic!("Could not load ROM: {error}"));
 
     let shared_command = Arc::new(Mutex::new(EmulatorCommand::Wait));
     emulator.start_emulator_thread(shared_command.clone());

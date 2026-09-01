@@ -167,8 +167,8 @@ impl Bus {
         };
         match device {
             MemoryTarget::BootRom => self.boot_rom.read(address),
-            MemoryTarget::RomBank00 => self.cartridge.read(address, CartridgeDevice::RomBank00),
-            MemoryTarget::BankableRom => self.cartridge.read(address, CartridgeDevice::BankableRom),
+            MemoryTarget::RomBank00 => self.cartridge.read(address, CartridgeDevice::LowerRomBank),
+            MemoryTarget::BankableRom => self.cartridge.read(address, CartridgeDevice::UpperRomBank),
             MemoryTarget::VideoRam => self.v_ram.read(address),
             MemoryTarget::ExternalRam => self.cartridge.read(address, CartridgeDevice::ExternalRam),
             MemoryTarget::WorkRam00 => self.w_ram_00.read(address),
@@ -187,8 +187,8 @@ impl Bus {
         let device = self.get_device_from_address(address);
         match device {
             MemoryTarget::BootRom => self.boot_rom.read(address),
-            MemoryTarget::RomBank00 => self.cartridge.peek(address, CartridgeDevice::RomBank00),
-            MemoryTarget::BankableRom => self.cartridge.peek(address, CartridgeDevice::BankableRom),
+            MemoryTarget::RomBank00 => self.cartridge.peek(address, CartridgeDevice::LowerRomBank),
+            MemoryTarget::BankableRom => self.cartridge.peek(address, CartridgeDevice::UpperRomBank),
             MemoryTarget::VideoRam => self.v_ram.peek(address),
             MemoryTarget::ExternalRam => self.cartridge.peek(address, CartridgeDevice::ExternalRam),
             MemoryTarget::WorkRam00 => self.w_ram_00.peek(address),
@@ -207,10 +207,10 @@ impl Bus {
         };
         match device {
             MemoryTarget::BootRom => self.boot_rom.write(address, value),
-            MemoryTarget::RomBank00 => self.cartridge.write(address, CartridgeDevice::RomBank00, value),
-            MemoryTarget::BankableRom => self.cartridge.write(address, CartridgeDevice::BankableRom, value),
+            MemoryTarget::RomBank00 => self.cartridge.write(address, value, CartridgeDevice::LowerRomBank),
+            MemoryTarget::BankableRom => self.cartridge.write(address, value, CartridgeDevice::UpperRomBank),
             MemoryTarget::VideoRam => self.v_ram.write(address, value),
-            MemoryTarget::ExternalRam => self.cartridge.write(address, CartridgeDevice::ExternalRam, value),
+            MemoryTarget::ExternalRam => self.cartridge.write(address, value, CartridgeDevice::ExternalRam),
             MemoryTarget::WorkRam00 => self.w_ram_00.write(address, value),
             MemoryTarget::BankableWorkRam => self.bankable_w_ram.write(address, value),
             MemoryTarget::EchoRam => self.write(address - 0x2000, value, events),
