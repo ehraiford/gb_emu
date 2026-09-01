@@ -33,6 +33,19 @@ impl Cpu {
     pub fn interrupts_are_enabled(&self) -> bool {
         self.ime
     }
+    /// B, C, D, E, H, L. For debuggers and test harnesses that inspect register state at a
+    /// breakpoint, such as the Mooneye suite's `LD B,B` result convention.
+    pub fn debug_registers(&self) -> [u8; 6] {
+        [
+            (self.bc >> 8) as u8,
+            self.bc as u8,
+            (self.de >> 8) as u8,
+            self.de as u8,
+            (self.hl >> 8) as u8,
+            self.hl as u8,
+        ]
+    }
+
     pub fn get_pc(&self) -> u16 {
         self.pc
     }

@@ -86,7 +86,8 @@ impl GameBoy {
     }
 
     fn tick_cpu(&mut self) {
-        self.cpu.tick(&mut self.bus, self.ppu.get_oam_scan_row(),  &mut self.events)
+        self.cpu
+            .tick(&mut self.bus, self.ppu.get_oam_scan_row(), &mut self.events)
     }
 
     pub fn tick(&mut self) {
@@ -171,6 +172,15 @@ impl GameBoy {
     pub fn peek_mem(&self, address: u16) -> u8 {
         self.bus.peek(address)
     }
+
+    /// Writes straight to the bus, bypassing the CPU. For debuggers and test harnesses.
+    pub fn write_mem_debug(&mut self, address: u16, value: u8) {
+        self.bus.write(address, value, &mut EventQueue::default());
+    }
+    pub fn debug_registers(&self) -> [u8; 6] {
+        self.cpu.debug_registers()
+    }
+
     pub fn get_pc(&self) -> u16 {
         self.cpu.get_pc()
     }
