@@ -1,47 +1,49 @@
 {
     "version": "2.0.0",
+    "inputs": [
+        {
+            "id": "romPath",
+            "type": "promptString",
+            "description": "ROM to run (relative to the repo root, or an absolute path)",
+            "default": "test_roms/Tetris.gb"
+        },
+        {
+            "id": "romDir",
+            "type": "promptString",
+            "description": "Directory to list ROMs from (non-recursive)",
+            "default": "test_roms"
+        }
+    ],
     "tasks": [
         {
-            "label": "run debug Dr. Mario",
+            "label": "run a ROM",
+            "detail": "Lists the ROMs directly inside a directory and prompts for one to run.",
             "type": "shell",
-            "command": "cargo run --  run --tile-map-viewer ${workspaceFolder}/test_roms/'Dr. Mario.gb'",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File '${workspaceFolder}/scripts/run-rom.ps1' -RomDir '${input:romDir}'",
             "options": {
                 "env": {
                     "RUST_BACKTRACE": "1"
                 }
             },
+            "presentation": {
+                "panel": "dedicated",
+                "focus": true
+            },
             "problemMatcher": "$rustc"
         },
         {
-            "label": "run Dr. Mario",
+            "label": "run a ROM (debug build)",
+            "detail": "As 'run a ROM', but an unoptimised build so panics carry line numbers and overflow checks stay on.",
             "type": "shell",
-            "command": "cargo run --release --  run --tile-map-viewer ${workspaceFolder}/test_roms/'Dr. Mario.gb'",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File '${workspaceFolder}/scripts/run-rom.ps1' -RomDir '${input:romDir}' -DebugBuild",
             "options": {
                 "env": {
                     "RUST_BACKTRACE": "1"
                 }
             },
-            "problemMatcher": "$rustc"
-        },
-        {
-            "label": "run Tetris",
-            "type": "shell",
-            "command": "cargo run --release -- run --tile-map-viewer ${workspaceFolder}/test_roms/Tetris.gb",
-            "options": {
-                "env": {
-                    "RUST_BACKTRACE": "1"
-                }
-            },
-            "problemMatcher": "$rustc"
-        },
-        {
-            "label": "run Mario Land",
-            "type": "shell",
-            "command": "cargo run --release -- run --tile-map-viewer '${workspaceFolder}/test_roms/Super Mario Land.gb'",
-            "options": {
-                "env": {
-                    "RUST_BACKTRACE": "1"
-                }
+            "presentation": {
+                "panel": "dedicated",
+                "focus": true
             },
             "problemMatcher": "$rustc"
         },
@@ -57,37 +59,28 @@
             "problemMatcher": "$rustc"
         },
         {
-            "label": "run Blargg Test Interrupt Timings",
+            "label": "build (profiling)",
+            "detail": "Release build with debug symbols, for profilers. Output in target/profiling/.",
             "type": "shell",
-            "command": "cargo run --release -- run-as-fast-as-possible ${workspaceFolder}/test_roms/gb-test-roms/interrupt_time/interrupt_time.gb",
-            "options": {
-                "env": {
-                    "RUST_BACKTRACE": "1"
-                }
-            },
+            "command": "cargo build --profile profiling",
             "problemMatcher": "$rustc"
         },
         {
-            "label": "run Blargg Test OP A HL",
+            "label": "profile a ROM with samply",
+            "detail": "Prompts for a ROM, runs the windowed emulator under samply with the frame limiter off, so the emulator thread dominates the profile rather than spin_sleep. Close the emulator window to end the recording; samply then serves the profile at http://127.0.0.1:3000 until you Ctrl+C it.",
             "type": "shell",
-            "command": "cargo run --release -- run-as-fast-as-possible ${workspaceFolder}/test_roms/'blargg_test_roms/11-op a,(hl).gb'",
+            "command": "samply record '${workspaceFolder}/target/profiling/gb_emu.exe' run-as-fast-as-possible '${input:romPath}'",
+            "dependsOn": "build (profiling)",
             "options": {
                 "env": {
                     "RUST_BACKTRACE": "1"
                 }
             },
-            "problemMatcher": "$rustc"
-        },
-        {
-            "label": "run Blargg Test OAM BUG",
-            "type": "shell",
-            "command": "cargo run --release -- run-as-fast-as-possible ${workspaceFolder}/test_roms/gb-test-roms/oam_bug/oam_bug.gb",
-            "options": {
-                "env": {
-                    "RUST_BACKTRACE": "1"
-                }
+            "presentation": {
+                "panel": "dedicated",
+                "focus": true
             },
             "problemMatcher": "$rustc"
-        },
+        }
     ]
 }
