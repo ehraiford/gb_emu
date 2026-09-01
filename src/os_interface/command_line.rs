@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::os_interface::debugging::{DebugReceiver, DebugSender, TileViewer};
+use crate::os_interface::debugging::{DebugReceiver, DebugSender};
 
 #[derive(Parser)]
 #[command(about = "Another GameBoy Emulator")]
@@ -82,13 +82,11 @@ impl DebugFeatures {
     pub fn get_debugging_handles(&self) -> (DebugSender, DebugReceiver) {
         let logging = self.log_instructions.then_some(());
 
-        let (tile_view_receiver, tile_view_sender) = match self.tile_map_viewer {
-            true => {
-                let (receiver, sender) = TileViewer::new();
-                (Some(receiver), Some(sender))
-            },
-            false => (None, None),
-        };
+        // TODO: The tile map viewer still needs porting from minifb to SDL2.
+        if self.tile_map_viewer {
+            eprintln!("--tile-map-viewer is temporarily disabled pending the SDL2 port");
+        }
+        let (tile_view_receiver, tile_view_sender) = (None, None);
 
         let sender = DebugSender { logging, tile_view_sender };
         let receiver = DebugReceiver { _logging: logging, tile_view_receiver };

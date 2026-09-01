@@ -1,0 +1,8 @@
+# CMake 4.x removed compatibility with `cmake_minimum_required` below 3.5, and the
+# SDL2 sources vendored by sdl2-sys still declare 3.0.0. This override lets the
+# `bundled-sdl` feature configure. Inert on builds that link a system SDL2.
+[env]
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"
+
+[alias]
+rund = "run --features bundled-sdl"

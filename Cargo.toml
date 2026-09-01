@@ -4,10 +4,15 @@ version = "0.2.0"
 edition = "2024"
 
 [dependencies]
-pixels = "0.15"
-minifb = "0.28.0"
-clap = { version = "4.5.57", features = ["derive"] }
+clap = { version = "4.6.6", features = ["derive"] }
 spin_sleep = "1.3.3"
+
+[target.'cfg(windows)'.dependencies]
+sdl2 = { version = "0.38", features = ["bundled", "static-link"] }
+
+[target.'cfg(not(windows))'.dependencies]
+sdl2 = "0.38"
+
 
 [features]
 headless = []
@@ -15,3 +20,13 @@ headless = []
 [[test]]
 name = "blargg_tests"
 required-features = ["headless"]
+
+[[test]]
+name = "mooneye_tests"
+required-features = ["headless"]
+
+# Release build that keeps debug info, so profilers can resolve symbols.
+# Build with `cargo build --profile profiling`; output lands in target/profiling/.
+[profile.profiling]
+inherits = "release"
+debug = true

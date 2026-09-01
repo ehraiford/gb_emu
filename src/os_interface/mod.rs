@@ -5,6 +5,8 @@ use crate::{
 
 pub mod command_line;
 pub mod debugging;
+pub mod controller;
+pub mod input;
 pub mod profiling;
 pub mod window;
 

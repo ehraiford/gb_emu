@@ -1,64 +1,69 @@
-use minifb::{Key, Window, WindowOptions};
+use sdl2::{
+    EventPump, Sdl,
+    event::Event,
+    keyboard::Scancode,
+    pixels::PixelFormatEnum,
+    render::{Texture, WindowCanvas},
+};
 use spin_sleep::SpinSleeper;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::emulator::EmulatorCommand;
 use crate::graphics::ppu::{Frame, SCREEN_HEIGHT, SCREEN_SIZE, SCREEN_WIDTH};
 use crate::io_devices::joypad_input::ButtonInput;
-use crate::os_interface::debugging::{DebugReceiver, TileViewer};
+use crate::os_interface::debugging::DebugReceiver;
+use crate::os_interface::input::InputAggregator;
+use crate::{emulator::EmulatorCommand, os_interface::input::KeyboardInput};
 
 const WINDOW_NAME: &str = "Another GameBoy Emulator";
 const INPUT_POLLS_PER_SECOND: u32 = 60;
 const WINDOW_FRAME_RATE: u32 = 60;
+const WINDOW_SCALE: u32 = 4;
+const WINDOW_HEIGHT: u32 = SCREEN_HEIGHT as u32 * WINDOW_SCALE;
+const WINDOW_WIDTH: u32 = SCREEN_WIDTH as u32 * WINDOW_SCALE;
 
-const KEY_MAPPING: [Key; 8] = [
-    Key::D,     // Bit 0: Right
-    Key::A,     // Bit 1: Left
-    Key::W,     // Bit 2: Up
-    Key::S,     // Bit 3: Down
-    Key::K,     // Bit 4: A
-    Key::J,     // Bit 5: B
-    Key::Enter, // Bit 6: Select
-    Key::Space, // Bit 7: Start
-];
-pub fn get_main_window() -> Window {
-    let mut window = Window::new(
-        WINDOW_NAME,
-        SCREEN_WIDTH as usize,
-        SCREEN_HEIGHT as usize,
-        WindowOptions { scale: minifb::Scale::X4, ..Default::default() },
-    )
-    .unwrap();
+pub fn get_main_canvas(sdl: &Sdl) -> WindowCanvas {
+    let video = sdl.video().unwrap();
 
-    window.set_position(100, 100);
+    let window = video
+        .window(WINDOW_NAME, WINDOW_WIDTH, WINDOW_HEIGHT)
+        .position(100, 100)
+        .build()
+        .unwrap();
 
-    window
+    let mut canvas = window.into_canvas().build().unwrap();
+    canvas
+        .set_logical_size(SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32)
+        .unwrap();
+    canvas.set_integer_scale(true).unwrap();
+
+    canvas
 }
 
-pub fn get_tile_map_window() -> Window {
-    let mut window = Window::new(
-        "Tile Viewer",
-        TileViewer::WINDOW_WIDTH,
-        TileViewer::WINDOW_HEIGHT,
-        WindowOptions { scale: minifb::Scale::X2, ..Default::default() },
-    )
-    .unwrap();
+// pub fn get_tile_map_window() -> Window {
+//     let mut window = Window::new(
+//         "Tile Viewer",
+//         TileViewer::WINDOW_WIDTH,
+//         TileViewer::WINDOW_HEIGHT,
+//         WindowOptions { scale: minifb::Scale::X2, ..Default::default() },
+//     )
+//     .unwrap();
 
-    window.set_position(1000, 100);
+//     window.set_position(1000, 100);
 
-    window
-}
+//     window
+// }
 
 pub struct OsWindow {
-    main_window: Window,
-    last_sent_input: u8,
-    button_input: ButtonInput,
+    main_canvas: WindowCanvas,
+    event_pump: EventPump,
+    input_aggregator: InputAggregator,
     frame_handle: ReceiverFrameHandle,
     shared_command: Arc<Mutex<EmulatorCommand>>,
     spin_sleeper: SpinSleeper,
     debug_receiver: DebugReceiver,
+    _sdl: Sdl,
 }
 
 impl OsWindow {
@@ -68,38 +73,46 @@ impl OsWindow {
         shared_command: Arc<Mutex<EmulatorCommand>>,
         debug_receiver: DebugReceiver,
     ) -> Self {
+        let sdl = sdl2::init().unwrap();
+
         Self {
-            main_window: get_main_window(),
-            button_input,
+            main_canvas: get_main_canvas(&sdl),
+            event_pump: sdl.event_pump().unwrap(),
             frame_handle,
             shared_command,
             spin_sleeper: SpinSleeper::new(100_000).with_spin_strategy(spin_sleep::SpinStrategy::YieldThread),
-            last_sent_input: 0xFF,
             debug_receiver,
+            input_aggregator: InputAggregator::new(button_input, &sdl),
+            _sdl: sdl,
         }
     }
 
     pub fn start_loop(&mut self, start_command: EmulatorCommand) {
+        let texture_creator = self.main_canvas.texture_creator();
+        let mut texture = texture_creator
+            .create_texture_streaming(PixelFormatEnum::RGB888, SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32)
+            .unwrap();
+
         let inner_duration = Duration::from_secs(1) / INPUT_POLLS_PER_SECOND;
         let outer_duration = Duration::from_secs(1) / WINDOW_FRAME_RATE;
 
         *self.shared_command.lock().unwrap() = start_command;
 
-        while self.main_window.is_open() {
+        'main: loop {
             let loop_start = Instant::now();
 
             loop {
-                let current_time = Instant::now();
-                let elapsed_frame_time = current_time - loop_start;
-
+                let elapsed_frame_time = Instant::now() - loop_start;
                 if elapsed_frame_time >= outer_duration {
                     break;
                 }
 
+                if self.handle_events() {
+                    break 'main;
+                }
                 self.send_input_to_emulator();
 
                 let time_left_in_frame = outer_duration - elapsed_frame_time;
-
                 if time_left_in_frame < inner_duration {
                     self.spin_sleeper.sleep(time_left_in_frame);
                 } else {
@@ -107,42 +120,39 @@ impl OsWindow {
                 }
             }
 
-            self.update_display();
+            self.update_display(&mut texture);
             self.debug_receiver.update()
         }
     }
 
-    fn update_display(&mut self) {
-        if self.frame_handle.update_frame() {
-            self.main_window
-                .update_with_buffer(
-                    &self.frame_handle.get_frame()[..],
-                    SCREEN_WIDTH as usize,
-                    SCREEN_HEIGHT as usize,
-                )
-                .unwrap()
-        } else {
-            self.main_window.update();
-        }
-    }
+    fn handle_events(&mut self) -> bool {
+        let mut should_quit = false;
 
-    fn poll_input(&self) -> u8 {
-        let mut input = 0x00;
-        for (i, key) in KEY_MAPPING.iter().enumerate() {
-            if !self.main_window.is_key_down(*key) {
-                input |= 0b1 << i
+        for event in self.event_pump.poll_iter() {
+            match event {
+                Event::Quit { .. } | Event::KeyDown { scancode: Some(Scancode::Escape), .. } => should_quit = true,
+                _ => {},
             }
         }
 
-        input
+        should_quit
+    }
+
+    fn update_display(&mut self, texture: &mut Texture) {
+        if self.frame_handle.update_frame() {
+            let frame = self.frame_handle.get_frame();
+            let bytes = unsafe { std::slice::from_raw_parts(frame.as_ptr().cast::<u8>(), SCREEN_SIZE * 4) };
+
+            texture.update(None, bytes, SCREEN_WIDTH as usize * 4).unwrap();
+        }
+
+        self.main_canvas.clear();
+        self.main_canvas.copy(texture, None, None).unwrap();
+        self.main_canvas.present();
     }
 
     fn send_input_to_emulator(&mut self) {
-        let input_value = self.poll_input();
-        if input_value != self.last_sent_input {
-            self.button_input.store(input_value, Ordering::Release);
-            self.last_sent_input = input_value;
-        }
+        self.input_aggregator.poll_and_send(&self.event_pump);
     }
 }
 

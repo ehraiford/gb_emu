@@ -13,7 +13,7 @@ pub struct JoyPadInput {
 }
 
 impl JoyPadInput {
-    const DEFAULT_INPUT_VALUE: u8 = 0xFF;
+    const NO_BUTTON_PRESSED: u8 = 0xFF;
 
     pub fn write(&mut self, value: u8) {
         self.selected_input = SelectedInput::from(value);
@@ -37,6 +37,7 @@ impl JoyPadInput {
         prev_nibble & !new_nibble != 0
     }
 }
+
 
 #[cfg(feature = "headless")]
 impl Default for JoyPadInput {
@@ -114,6 +115,6 @@ impl From<u8> for SelectedInput {
 
 pub type ButtonInput = Arc<AtomicU8>;
 pub fn new_button_input() -> ButtonInput {
-    Arc::new(AtomicU8::new(JoyPadInput::DEFAULT_INPUT_VALUE))
+    Arc::new(AtomicU8::new(JoyPadInput::NO_BUTTON_PRESSED))
 }
 

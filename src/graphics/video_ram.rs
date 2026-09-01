@@ -248,7 +248,7 @@ impl ColoredPixel {
         Self { color: palette >> (color_number * 2) & 0b11 }
     }
 
-    pub fn to_minifb_u32(self) -> u32 {
+    pub fn to_packed_rgb(self) -> u32 {
         let shade = match self.color {
             0 => 0xFF,
             1 => 0xAA,
@@ -372,7 +372,7 @@ impl TileMapImage {
     pub const PIXELS_IN_TILEMAP: usize = TileMap::TILES_IN_TILE_MAP * Tile::PIXELS_IN_TILE;
     pub fn write_to_buffer(&self, destination: &mut [u32]) {
         for (i, pixel) in self.buffer.iter().enumerate() {
-            destination[i] = pixel.to_minifb_u32();
+            destination[i] = pixel.to_packed_rgb();
         }
     }
 }
