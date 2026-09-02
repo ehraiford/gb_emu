@@ -7,7 +7,7 @@ use crate::{
 pub struct OamDma {
     remaining_bytes: u8,
     source_address: Address,
-    currently_transferring: bool,
+    state: DmaState,
 }
 
 impl OamDma {
@@ -25,13 +25,18 @@ impl OamDma {
     pub fn initiate_transfer(&mut self, input: u8) {
         self.remaining_bytes = Self::TOTAL_TRANSFER_SIZE;
         self.source_address = Self::determine_source_address(input);
-        self.currently_transferring = true;
+        self.state = DmaState::Initializing;
     }
 
     pub fn tick(&mut self, bus: &mut Bus, events: &mut EventQueue) {
-        if !self.is_transferring() {
-            return;
+        match self.state {
+            DmaState::Idle => (),
+            DmaState::Initializing => self.state = DmaState::Transferring,
+            DmaState::Transferring => self.transfer_byte(bus, events),
         }
+    }
+
+    fn transfer_byte(&mut self, bus: &mut Bus, events: &mut EventQueue) {
         let byte = bus.peek(self.source_address);
 
         let destination_address = self.get_destination_address();
@@ -46,11 +51,16 @@ impl OamDma {
         }
     }
 
-    fn is_transferring(&self) -> bool {
-        self.currently_transferring
-    }
     fn end_transfer(&mut self, events: &mut EventQueue) {
-        self.currently_transferring = false;
+        self.state = DmaState::Idle;
         events.push(GameBoyEvent::EndOamDmaTransfer);
     }
+}
+
+#[derive(Default)]
+enum DmaState {
+    #[default]
+    Idle,
+    Initializing,
+    Transferring,
 }
