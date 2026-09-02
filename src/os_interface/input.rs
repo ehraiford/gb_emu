@@ -1,9 +1,6 @@
 use std::sync::atomic::Ordering;
 
-use sdl2::{
-    EventPump, Sdl,
-    keyboard::{Keycode, Scancode},
-};
+use sdl2::{EventPump, Sdl, keyboard::Scancode};
 
 use crate::{io_devices::joypad_input::ButtonInput, os_interface::controller::ControllerInput};
 
@@ -30,7 +27,7 @@ impl InputAggregator {
         if let Some(controller) = ControllerInput::new(sdl) {
             this.add_source(Box::new(controller));
         }
-        
+
         this
     }
 

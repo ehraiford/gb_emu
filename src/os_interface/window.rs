@@ -10,11 +10,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::emulator::EmulatorCommand;
 use crate::graphics::ppu::{Frame, SCREEN_HEIGHT, SCREEN_SIZE, SCREEN_WIDTH};
 use crate::io_devices::joypad_input::ButtonInput;
 use crate::os_interface::debugging::DebugReceiver;
 use crate::os_interface::input::InputAggregator;
-use crate::{emulator::EmulatorCommand, os_interface::input::KeyboardInput};
 
 const WINDOW_NAME: &str = "Another GameBoy Emulator";
 const INPUT_POLLS_PER_SECOND: u32 = 60;
