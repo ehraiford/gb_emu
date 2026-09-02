@@ -64,14 +64,14 @@ impl IoRegisters {
             IoSection::Interrupts => self.interrupt_flag_register.read(),
             IoSection::Audio => self.audio.read(address),
             IoSection::Lcd => self.lcd_registers.read(address),
-            IoSection::Keys => BusAccessFailure::Unimplemented.into(),           // CGB: KEY1 speed switch
-            IoSection::VramBankSelect => BusAccessFailure::Unimplemented.into(),  // CGB: VRAM bank select
+            IoSection::Keys => BusAccessFailure::Unimplemented.into(), // CGB: KEY1 speed switch
+            IoSection::VramBankSelect => BusAccessFailure::Unimplemented.into(), // CGB: VRAM bank select
             IoSection::BootRomMappingControl => BusAccessFailure::TriedAccessingUnusableMemory.into(),
-            IoSection::Ir => BusAccessFailure::Unimplemented.into(),              // CGB: infrared port
-            IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(),   // CGB: extended color palettes
+            IoSection::Ir => BusAccessFailure::Unimplemented.into(), // CGB: infrared port
+            IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(), // CGB: extended color palettes
             IoSection::ObjectPriorityMode => BusAccessFailure::Unimplemented.into(), // CGB: OBJ priority mode
-            IoSection::WramBankSelect => BusAccessFailure::Unimplemented.into(),  // CGB: WRAM bank select
-            IoSection::VramDma => BusAccessFailure::Unimplemented.into(),         // CGB: HDMA/GDMA
+            IoSection::WramBankSelect => BusAccessFailure::Unimplemented.into(), // CGB: WRAM bank select
+            IoSection::VramDma => BusAccessFailure::Unimplemented.into(), // CGB: HDMA/GDMA
         }
     }
 
@@ -83,18 +83,18 @@ impl IoRegisters {
         match section {
             IoSection::JoypadInput => self.joypad.write(value),
             IoSection::SerialTransfer => self.serial.write(address, value),
-            IoSection::TimerAndDivider => self.timer_divider.write(address, value),
+            IoSection::TimerAndDivider => self.timer_divider.write(address, value, events),
             IoSection::Interrupts => self.interrupt_flag_register.write(value),
             IoSection::Audio => self.audio.write(address, value),
             IoSection::Lcd => self.lcd_registers.write(address, value, events),
-            IoSection::Keys => BusAccessFailure::Unimplemented.into(),           // CGB: KEY1 speed switch
+            IoSection::Keys => BusAccessFailure::Unimplemented.into(), // CGB: KEY1 speed switch
             IoSection::VramBankSelect => BusAccessFailure::Unimplemented.into(), // CGB: VRAM bank select
             IoSection::BootRomMappingControl => events.push(GameBoyEvent::UnmapBootRom),
-            IoSection::Ir => BusAccessFailure::Unimplemented.into(),             // CGB: infrared port
-            IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(),  // CGB: extended color palettes
+            IoSection::Ir => BusAccessFailure::Unimplemented.into(), // CGB: infrared port
+            IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(), // CGB: extended color palettes
             IoSection::ObjectPriorityMode => BusAccessFailure::Unimplemented.into(), // CGB: OBJ priority mode
             IoSection::WramBankSelect => BusAccessFailure::Unimplemented.into(), // CGB: WRAM bank select
-            IoSection::VramDma => BusAccessFailure::Unimplemented.into(),        // CGB: HDMA/GDMA
+            IoSection::VramDma => BusAccessFailure::Unimplemented.into(), // CGB: HDMA/GDMA
         }
     }
 
@@ -105,18 +105,18 @@ impl IoRegisters {
         match section {
             IoSection::JoypadInput => self.joypad.read(),
             IoSection::SerialTransfer => self.serial.read(address),
-            IoSection::TimerAndDivider => self.timer_divider.read(address),
+            IoSection::TimerAndDivider => self.timer_divider.peek(address),
             IoSection::Interrupts => self.interrupt_flag_register.read(),
             IoSection::Audio => self.audio.read(address),
             IoSection::Lcd => self.lcd_registers.peek(address),
-            IoSection::Keys => BusAccessFailure::Unimplemented.into(),           // CGB: KEY1 speed switch
+            IoSection::Keys => BusAccessFailure::Unimplemented.into(), // CGB: KEY1 speed switch
             IoSection::VramBankSelect => BusAccessFailure::Unimplemented.into(), // CGB: VRAM bank select
             IoSection::BootRomMappingControl => u8::from(BusAccessFailure::TriedAccessingUnusableMemory),
-            IoSection::Ir => BusAccessFailure::Unimplemented.into(),             // CGB: infrared port
-            IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(),  // CGB: extended color palettes
+            IoSection::Ir => BusAccessFailure::Unimplemented.into(), // CGB: infrared port
+            IoSection::BgObjPalettes => BusAccessFailure::Unimplemented.into(), // CGB: extended color palettes
             IoSection::ObjectPriorityMode => BusAccessFailure::Unimplemented.into(), // CGB: OBJ priority mode
             IoSection::WramBankSelect => BusAccessFailure::Unimplemented.into(), // CGB: WRAM bank select
-            IoSection::VramDma => BusAccessFailure::Unimplemented.into(),        // CGB: HDMA/GDMA
+            IoSection::VramDma => BusAccessFailure::Unimplemented.into(), // CGB: HDMA/GDMA
         }
     }
 }

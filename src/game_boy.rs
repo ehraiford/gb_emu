@@ -123,6 +123,8 @@ impl GameBoy {
             GameBoyEvent::TriedRunningIllegalInstruction => {
                 todo!()
             },
+            // TODO: Drive the APU frame sequencer from this once the APU is implemented.
+            GameBoyEvent::DivApuEvent => (),
         }
     }
 
@@ -252,4 +254,5 @@ pub enum GameBoyEvent {
     EndOamDmaTransfer,
     Interrupt(Interrupt),
     TriedRunningIllegalInstruction,
+    DivApuEvent,
 }
