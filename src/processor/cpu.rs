@@ -105,9 +105,12 @@ impl Cpu {
 
     fn disable_interrupts(&mut self) {
         self.ime = false;
+        self.ei_delay = 0;
     }
     pub fn enable_interrupts(&mut self) {
-        self.ei_delay = 2; // one for EI, one for the next instruction
+        if self.ei_delay == 0 {
+            self.ei_delay = 2; // one for EI, one for the next instruction
+        }
     }
 
     fn get_flag(&self, flag: Flag) -> bool {
