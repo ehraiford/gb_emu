@@ -16,11 +16,16 @@ pub struct PixelFetchers {
     pixels_displayed: u8,
     window_started_this_line: bool,
     window_penalty_remaining: u8,
+    startup_penalty_remaining: u8,
     pixels_to_discard: Option<u8>,
 }
 
 impl PixelFetchers {
     const WINDOW_START_PENALTY_DOTS: u8 = 6;
+    /// Mode 3 opens with a BG fetch whose result is discarded, so the first pixel cannot be
+    /// pushed immediately. Hardware mode 3 is 172 dots at SCX=0: 160 pixels plus 12 dots of
+    /// startup, and the fetcher state machine already accounts for 5 of those.
+    const MODE3_STARTUP_PENALTY_DOTS: u8 = 7;
 
     pub fn reset_for_new_scanline(&mut self) {
         self.object_fetcher.reset_for_new_scanline();
@@ -28,6 +33,7 @@ impl PixelFetchers {
         self.pixels_displayed = 0;
         self.window_started_this_line = false;
         self.window_penalty_remaining = 0;
+        self.startup_penalty_remaining = Self::MODE3_STARTUP_PENALTY_DOTS;
         self.pixels_to_discard = None;
     }
 
@@ -58,6 +64,11 @@ impl PixelFetchers {
     }
 
     pub fn tick(&mut self, lcd: &Lcd, v_ram: &VideoRam) -> Option<ColoredPixel> {
+        if self.startup_penalty_remaining > 0 {
+            self.startup_penalty_remaining -= 1;
+            return None;
+        }
+
         if self.handle_fine_scrolling(lcd, v_ram) {
             return None;
         }
