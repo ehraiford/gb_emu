@@ -11,13 +11,17 @@
 //! port, but the registers are the primary signal and the one this harness reads.
 
 use gb_emu::{cartridge::cartridge::Cartridge, game_boy::GameBoy};
-use std::{fs, path::{Path, PathBuf}};
+use std::{fs, panic, path::{Path, PathBuf}, sync::{Arc, Mutex}};
 
 const PASSED: [u8; 6] = [3, 5, 8, 13, 21, 34];
 const FAILED: [u8; 6] = [0x42; 6];
 /// `LD B,B ; JR -2` — the magic breakpoint plus the infinite loop that follows it.
 const TERMINATOR: [u8; 3] = [0x40, 0x18, 0xFE];
 const MAX_CYCLES: u64 = 0x200_0000;
+/// `at_terminator` matches a 3-byte window around the fetch pointer, so an incidental `40 18 FE`
+/// in ROM data can trip it mid-test. A real terminator is followed by `JR -2` spinning forever, so
+/// requiring the match to hold for a while separates the two.
+const TERMINATOR_SETTLE_TICKS: u32 = 64;
 
 /// Model suffixes the DMG core is not expected to satisfy. A ROM with no suffix applies to every
 /// model; the letters after the final dash list the models the test is written for (G = DMG,
@@ -51,9 +55,15 @@ fn run_mooneye_test(cartridge: Cartridge) -> Result<(), String> {
     let mut game_boy = GameBoy::new();
     game_boy.load_cartridge(cartridge);
 
+    let mut settled = 0;
     for _ in 0..MAX_CYCLES {
         game_boy.tick();
         if !at_terminator(&game_boy) {
+            settled = 0;
+            continue;
+        }
+        settled += 1;
+        if settled < TERMINATOR_SETTLE_TICKS {
             continue;
         }
         let registers = game_boy.debug_registers();
@@ -93,6 +103,19 @@ fn run_group(group: &str) {
     assert!(!roms.is_empty(), "No ROMs found under {}", root.join(group).display());
     roms.sort();
 
+    // The default hook would print a backtrace banner for every panicking ROM, drowning out the
+    // scoreboard. Stashing the panic's location instead keeps the report to one line while still
+    // naming the unimplemented corner of the core the ROM walked into.
+    let panic_site: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let previous_hook = panic::take_hook();
+    panic::set_hook({
+        let panic_site = Arc::clone(&panic_site);
+        Box::new(move |info| {
+            let location = info.location().map_or_else(|| "?".to_string(), |l| l.to_string());
+            *panic_site.lock().unwrap() = Some(format!("{location}: {}", info.payload_as_str().unwrap_or("panic")));
+        })
+    });
+
     let mut failures = Vec::new();
     for path in &roms {
         let name = path.strip_prefix(&root).unwrap_or(path).display().to_string();
@@ -103,10 +126,21 @@ fn run_group(group: &str) {
                 continue;
             },
         };
-        if let Err(failure) = run_mooneye_test(cartridge) {
-            failures.push(format!("{name}: {failure}"));
+        // An unimplemented corner of the core shows up as a panic partway through a ROM. Catching
+        // it keeps that ROM a single red line on the scoreboard instead of taking the run down
+        // before any of the results get printed.
+        let outcome = panic::catch_unwind(panic::AssertUnwindSafe(|| run_mooneye_test(cartridge)));
+        match outcome {
+            Ok(Ok(())) => (),
+            Ok(Err(failure)) => failures.push(format!("{name}: {failure}")),
+            Err(_) => {
+                let site = panic_site.lock().unwrap().take();
+                failures.push(format!("{name}: panicked at {}", site.as_deref().unwrap_or("unknown site")))
+            },
         }
     }
+
+    panic::set_hook(previous_hook);
 
     println!("{group}: {}/{} passed", roms.len() - failures.len(), roms.len());
     for failure in &failures {
@@ -119,13 +153,13 @@ fn run_group(group: &str) {
 // run them with `cargo test --features headless --test mooneye_tests -- --ignored --nocapture`.
 // Drop the attribute once a group goes green so it can hold the line.
 #[test]
-#[ignore = "14/69 passing - opt-in scoreboard, not a regression gate yet"]
+#[ignore = "38/69 passing - opt-in scoreboard, not a regression gate yet"]
 fn test_mooneye_acceptance() {
     run_group("acceptance");
 }
 
 #[test]
-#[ignore = "12/28 passing - all 15 remaining are MBC2/MBC5 ROMs, plus MBC1M multicart"]
+#[ignore = "25/28 passing - 2 MBC2 RAM ROMs, 1 MBC1M multicart"]
 fn test_mooneye_emulator_only() {
     run_group("emulator-only");
 }
