@@ -1,17 +1,18 @@
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
-use crate::cartridge::cartridge::{CartridgeDevice, RAM_BANK_SIZE};
+use crate::cartridge::cartridge::{CartridgeDevice, CartridgeError, RAM_BANK_SIZE};
 use crate::{
     bus::{Address, BusDefault},
     onboard_memory::rom_and_ram::{RamBank, RomBank},
 };
+const RAMG_OPEN: u8 = 0b0000_1010;
 
 #[derive(Debug, Clone)]
 pub enum MemoryBankController {
     MBC1(MemoryBankController1),
     MBC2(MemoryBankController2),
     MBC3(MemoryBankController3),
-    MBC5,
+    MBC5(MemoryBankController5),
     MBC6,
     MBC7,
 }
@@ -21,7 +22,7 @@ impl MemoryBankController {
     /// the header so a caller can report them by name, but every accessor on them is `todo!()`, so
     /// loading one has to be refused up front rather than panicking on the first ROM read.
     pub fn is_implemented(&self) -> bool {
-        matches!(self, Self::MBC1(_) | Self::MBC2(_) | Self::MBC3(_))
+        matches!(self, Self::MBC1(_) | Self::MBC2(_) | Self::MBC3(_) | Self::MBC5(_))
     }
 
     pub fn name(&self) -> &'static str {
@@ -29,13 +30,14 @@ impl MemoryBankController {
             Self::MBC1(_) => "MBC1",
             Self::MBC2(_) => "MBC2",
             Self::MBC3(_) => "MBC3",
-            Self::MBC5 => "MBC5",
+            Self::MBC5(_) => "MBC5",
             Self::MBC6 => "MBC6",
             Self::MBC7 => "MBC7",
         }
     }
-
-    pub fn write(
+}
+impl BankController for MemoryBankController {
+    fn write(
         &mut self,
         address: Address,
         value: u8,
@@ -46,13 +48,13 @@ impl MemoryBankController {
             MemoryBankController::MBC1(mbc) => mbc.write(address, value, ram_banks, device),
             MemoryBankController::MBC2(mbc) => mbc.write(address, value, ram_banks, device),
             MemoryBankController::MBC3(mbc) => mbc.write(address, value, ram_banks, device),
-            MemoryBankController::MBC5 => todo!(),
+            MemoryBankController::MBC5(mbc) => mbc.write(address, value, ram_banks, device),
             MemoryBankController::MBC6 => todo!(),
             MemoryBankController::MBC7 => todo!(),
         }
     }
 
-    pub fn read(
+    fn read(
         &mut self,
         address: Address,
         rom_banks: &[RomBank],
@@ -63,13 +65,13 @@ impl MemoryBankController {
             MemoryBankController::MBC1(mbc) => mbc.read(address, rom_banks, ram_banks, device),
             MemoryBankController::MBC2(mbc) => mbc.read(address, rom_banks, ram_banks, device),
             MemoryBankController::MBC3(mbc) => mbc.read(address, rom_banks, ram_banks, device),
-            MemoryBankController::MBC5 => todo!(),
+            MemoryBankController::MBC5(mbc) => mbc.read(address, rom_banks, ram_banks, device),
             MemoryBankController::MBC6 => todo!(),
             MemoryBankController::MBC7 => todo!(),
         }
     }
 
-    pub fn peek(
+    fn peek(
         &self,
         address: Address,
         rom_banks: &[RomBank],
@@ -80,7 +82,40 @@ impl MemoryBankController {
             MemoryBankController::MBC1(mbc) => mbc.peek(address, rom_banks, ram_banks, device),
             MemoryBankController::MBC2(mbc) => mbc.peek(address, rom_banks, ram_banks, device),
             MemoryBankController::MBC3(mbc) => mbc.peek(address, rom_banks, ram_banks, device),
-            MemoryBankController::MBC5 => todo!(),
+            MemoryBankController::MBC5(mbc) => mbc.peek(address, rom_banks, ram_banks, device),
+            MemoryBankController::MBC6 => todo!(),
+            MemoryBankController::MBC7 => todo!(),
+        }
+    }
+
+    fn get_bank_number(&self, device: CartridgeDevice) -> Option<usize> {
+        match self {
+            MemoryBankController::MBC1(mbc) => mbc.get_bank_number(device),
+            MemoryBankController::MBC2(mbc) => mbc.get_bank_number(device),
+            MemoryBankController::MBC3(mbc) => mbc.get_bank_number(device),
+            MemoryBankController::MBC5(mbc) => mbc.get_bank_number(device),
+            MemoryBankController::MBC6 => todo!(),
+            MemoryBankController::MBC7 => todo!(),
+        }
+    }
+
+    fn load_save_data(&mut self, data: &[u8]) -> Result<(), CartridgeError> {
+        match self {
+            MemoryBankController::MBC1(mbc) => mbc.load_save_data(data),
+            MemoryBankController::MBC2(mbc) => mbc.load_save_data(data),
+            MemoryBankController::MBC3(mbc) => mbc.load_save_data(data),
+            MemoryBankController::MBC5(mbc) => mbc.load_save_data(data),
+            MemoryBankController::MBC6 => todo!(),
+            MemoryBankController::MBC7 => todo!(),
+        }
+    }
+
+    fn retrieve_save_data(&self) -> Vec<u8> {
+        match self {
+            MemoryBankController::MBC1(mbc) => mbc.retrieve_save_data(),
+            MemoryBankController::MBC2(mbc) => mbc.retrieve_save_data(),
+            MemoryBankController::MBC3(mbc) => mbc.retrieve_save_data(),
+            MemoryBankController::MBC5(mbc) => mbc.retrieve_save_data(),
             MemoryBankController::MBC6 => todo!(),
             MemoryBankController::MBC7 => todo!(),
         }
@@ -104,6 +139,8 @@ pub(crate) trait BankController {
         device: CartridgeDevice,
     ) -> u8;
     fn get_bank_number(&self, device: CartridgeDevice) -> Option<usize>;
+    fn load_save_data(&mut self, data: &[u8]) -> Result<(), CartridgeError>;
+    fn retrieve_save_data(&self) -> Vec<u8>;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -125,13 +162,17 @@ pub struct MemoryBankController1 {
 }
 
 impl MemoryBankController1 {
-    const RAMG_OPEN: u8 = 0b0000_1010;
     const RAMG_REGISTER_MASK: u8 = 0x0F;
     const BANK_REGISTER_1_MASK: u8 = 0b0001_1111;
     const BANK_REGISTER_2_MASK: u8 = 0b0000_0011;
     const BANK_2_MODE_REGISTER_MASK: u8 = 0b0000_0001;
 
     pub fn new(num_rom_banks: usize, num_ram_banks: usize) -> Self {
+        debug_assert!(
+            num_rom_banks.is_power_of_two(),
+            "bank masking assumes a power-of-two bank count"
+        );
+        debug_assert!(num_ram_banks == 0 || num_ram_banks.is_power_of_two());
         Self {
             bank_register_1: 1,
             ram_gate_register: 0,
@@ -182,7 +223,7 @@ impl MemoryBankController1 {
         self.lower_rom_bank_number = bank & self.rom_bank_mask;
     }
     fn recalculate_ram_bank_number(&mut self) {
-        self.ram_bank_number = if self.ram_gate_register != Self::RAMG_OPEN || self.ram_bank_mask.is_none() {
+        self.ram_bank_number = if self.ram_gate_register != RAMG_OPEN || self.ram_bank_mask.is_none() {
             None
         } else if self.bank_2_mode_register == 0b1 {
             Some((self.bank_register_2 as usize) & self.ram_bank_mask.expect("Already checked above"))
@@ -260,6 +301,19 @@ impl BankController for MemoryBankController1 {
             CartridgeDevice::ExternalRam => self.ram_bank_number,
         }
     }
+
+    fn load_save_data(&mut self, data: &[u8]) -> Result<(), CartridgeError> {
+        match data.is_empty() {
+            true => Ok(()),
+            false => Err(CartridgeError::MisMatchedRamSaveSize(
+                "MBC1 does not accept load data".into(),
+            )),
+        }
+    }
+
+    fn retrieve_save_data(&self) -> Vec<u8> {
+        Vec::new()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -268,21 +322,27 @@ pub struct MemoryBankController2 {
     rom_bank_mask: usize,
 
     upper_rom_bank_number: usize,
-    ram_bank_number: Option<usize>,
+    ram_accessible: bool,
+    ram_bank: RamBank<{ Self::MBC2_RAM_SIZE }>, // RAM lives on MBC2 itself
 }
 
 impl MemoryBankController2 {
-    const RAMG_OPEN: u8 = 0b0000_1010;
+    const MBC2_RAM_SIZE: usize = 512;
     const RAMG_REGISTER_MASK: u8 = 0x0F;
-    const RAM_VALUE_MASK: u8 = 0x0F; // MBC2 RAM only stores in the right nibble
+    const RAM_VALUE_MASK: u8 = 0xF0; // MBC2 RAM only stores in the right nibble. Top is always open bus value.
     const RAM_ADDRESS_MASK: Address = 0x01FF; // MBC2 RAM addresses wrap in the 10th bit
     const ROMB_REGISTER_MASK: u8 = 0x0F;
 
     pub fn new(num_rom_banks: usize) -> Self {
+        debug_assert!(
+            num_rom_banks.is_power_of_two(),
+            "bank masking assumes a power-of-two bank count"
+        );
         Self {
             rom_bank_mask: num_rom_banks - 1,
             upper_rom_bank_number: 1,
-            ram_bank_number: None,
+            ram_accessible: false,
+            ram_bank: RamBank::<{ Self::MBC2_RAM_SIZE }>::default(),
         }
     }
 
@@ -291,10 +351,7 @@ impl MemoryBankController2 {
     }
 
     fn write_ram_gate_register(&mut self, value: u8) {
-        match value & Self::RAMG_REGISTER_MASK == Self::RAMG_OPEN {
-            true => self.ram_bank_number = Some(0),
-            false => self.ram_bank_number = None,
-        }
+        self.ram_accessible = value & Self::RAMG_REGISTER_MASK == RAMG_OPEN;
     }
     fn write_rom_bank_register(&mut self, mut value: u8) {
         value &= Self::ROMB_REGISTER_MASK;
@@ -309,18 +366,12 @@ impl MemoryBankController2 {
         (address - CartridgeDevice::ExternalRam.get_starting_address()) & Self::RAM_ADDRESS_MASK
     }
     fn convert_ram_value(value: u8) -> u8 {
-        value & Self::RAM_VALUE_MASK
+        value | Self::RAM_VALUE_MASK
     }
 }
 
 impl BankController for MemoryBankController2 {
-    fn write(
-        &mut self,
-        address: Address,
-        value: u8,
-        ram_banks: &mut [RamBank<RAM_BANK_SIZE>],
-        device: CartridgeDevice,
-    ) {
+    fn write(&mut self, address: Address, value: u8, _: &mut [RamBank<RAM_BANK_SIZE>], device: CartridgeDevice) {
         match device {
             CartridgeDevice::UpperRomBank => return,
             CartridgeDevice::LowerRomBank => match Self::is_addressing_ramg_not_romb(address) {
@@ -328,12 +379,12 @@ impl BankController for MemoryBankController2 {
                 false => self.write_rom_bank_register(value),
             },
             CartridgeDevice::ExternalRam => {
-                let Some(ram_bank) = self.ram_bank_number.and_then(|i| ram_banks.get_mut(i)) else {
+                if !self.ram_accessible {
                     return;
-                };
+                }
                 let ram_value = Self::convert_ram_value(value);
                 let ram_address = Self::get_ram_address(address);
-                ram_bank.write(ram_address, ram_value);
+                self.ram_bank.write(ram_address, ram_value);
             },
         }
     }
@@ -342,43 +393,58 @@ impl BankController for MemoryBankController2 {
         &mut self,
         address: Address,
         rom_banks: &[RomBank],
-        ram_banks: &[RamBank<RAM_BANK_SIZE>],
+        _ram_banks: &[RamBank<RAM_BANK_SIZE>],
         device: CartridgeDevice,
     ) -> u8 {
-        self.peek(address, rom_banks, ram_banks, device)
+        self.peek(address, rom_banks, _ram_banks, device)
     }
 
     fn peek(
         &self,
         address: Address,
         rom_banks: &[RomBank],
-        ram_banks: &[RamBank<RAM_BANK_SIZE>],
+        _: &[RamBank<RAM_BANK_SIZE>],
         device: CartridgeDevice,
     ) -> u8 {
-        let bank_number = self.get_bank_number(device);
-
-        let read_val = match device {
+        let read_value = match device {
             CartridgeDevice::LowerRomBank | CartridgeDevice::UpperRomBank => {
+                let bank_number = self.get_bank_number(device).unwrap();
                 let in_device_address = address - device.get_starting_address();
-                rom_banks.get(bank_number.unwrap()).map(|b| b.read(in_device_address))
+                rom_banks.get(bank_number).map(|b| b.read(in_device_address))
             },
-            CartridgeDevice::ExternalRam => {
-                let ram_address = Self::get_ram_address(address);
-                bank_number
-                    .and_then(|i| ram_banks.get(i))
-                    .map(|b| b.read(ram_address) | !Self::RAM_VALUE_MASK)
-            },
+            CartridgeDevice::ExternalRam => self
+                .ram_accessible
+                .then(|| self.ram_bank.peek(Self::get_ram_address(address))),
         };
 
-        read_val.unwrap_or(u8::DEFAULT_BUS_VALUE)
+        read_value.unwrap_or(u8::DEFAULT_BUS_VALUE)
     }
 
     fn get_bank_number(&self, device: CartridgeDevice) -> Option<usize> {
         match device {
             CartridgeDevice::LowerRomBank => Some(0),
             CartridgeDevice::UpperRomBank => Some(self.upper_rom_bank_number),
-            CartridgeDevice::ExternalRam => self.ram_bank_number,
+            CartridgeDevice::ExternalRam => None,
         }
+    }
+
+    fn load_save_data(&mut self, data: &[u8]) -> Result<(), CartridgeError> {
+        if Self::MBC2_RAM_SIZE != data.len() {
+            return Err(CartridgeError::MisMatchedRamSaveSize(format!(
+                "MBC2 needs {} bytes but received {}.",
+                Self::MBC2_RAM_SIZE,
+                data.len()
+            )));
+        }
+
+        let adjusted_data: Vec<u8> = data.iter().map(|b| b | 0xF0).collect();
+        self.ram_bank.get_data_mut().clone_from_slice(&adjusted_data);
+
+        Ok(())
+    }
+
+    fn retrieve_save_data(&self) -> Vec<u8> {
+        self.ram_bank.get_data().into()
     }
 }
 
@@ -391,20 +457,25 @@ pub struct MemoryBankController3 {
     upper_rom_bank_number: usize,
     ram_target: Mbc3RamTarget,
 
-    ram_bank_mask: usize,
+    ram_bank_mask: Option<usize>,
     rom_bank_mask: usize,
 }
 
 impl MemoryBankController3 {
     pub fn new(num_rom_banks: usize, num_ram_banks: usize, has_rtc: bool) -> Self {
         let rtc = has_rtc.then(|| RealTimeClock::new());
+        debug_assert!(
+            num_rom_banks.is_power_of_two(),
+            "bank masking assumes a power-of-two bank count"
+        );
+        debug_assert!(num_ram_banks == 0 || num_ram_banks.is_power_of_two());
         Self {
             rtc,
             ram_timer_gate_register: 0,
             ram_bank_and_rtc_select_register: 0,
             upper_rom_bank_number: 1,
             ram_target: Mbc3RamTarget::Nothing,
-            ram_bank_mask: num_ram_banks.saturating_sub(1), // this being zero is already handled in read/write/peek
+            ram_bank_mask: (num_ram_banks > 0).then(|| num_ram_banks - 1),
             rom_bank_mask: num_rom_banks - 1,
         }
     }
@@ -516,6 +587,27 @@ impl BankController for MemoryBankController3 {
             },
         }
     }
+
+    fn load_save_data(&mut self, data: &[u8]) -> Result<(), CartridgeError> {
+        if let Some(ref mut rtc) = self.rtc {
+            *rtc = RealTimeClock::try_from(data)?;
+            Ok(())
+        } else if !data.is_empty() {
+            Err(CartridgeError::MisMatchedRamSaveSize(
+                "MBC3 received data but has no RTC".into(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn retrieve_save_data(&self) -> Vec<u8> {
+        if let Some(rtc) = self.rtc {
+            rtc.into()
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -525,14 +617,16 @@ enum Mbc3RamTarget {
     RtcReg(u8),
 }
 impl Mbc3RamTarget {
-    const RAMG_OPEN: u8 = 0b0000_1010;
-    fn derive(gate_reg: u8, select_reg: u8, mask: usize) -> Self {
-        if gate_reg != Self::RAMG_OPEN {
+    fn derive(gate_reg: u8, select_reg: u8, mask: Option<usize>) -> Self {
+        if gate_reg != RAMG_OPEN {
             return Self::Nothing;
         }
         // RAM Banks
         if select_reg < 0x08 {
-            Self::RamBank(select_reg as usize & mask)
+            match mask {
+                Some(mask) => Self::RamBank(select_reg as usize & mask),
+                None => Self::Nothing,
+            }
         // RTC Regs
         } else if select_reg < 0x0D {
             Self::RtcReg(select_reg)
@@ -662,6 +756,47 @@ impl RealTimeClock {
     fn recompose_days(&self) -> u64 {
         self.days_low as u64 | ((self.day_high_and_flags as u64 & 0b1) << 8)
     }
+
+    fn from_rtc_file(data: &[u8; 8]) -> Self {
+        let anchor_time = SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(u64::from_le_bytes(*data)));
+
+        Self::from(anchor_time.unwrap_or(SystemTime::UNIX_EPOCH))
+    }
+}
+
+impl From<SystemTime> for RealTimeClock {
+    fn from(value: SystemTime) -> Self {
+        let mut this = Self::new();
+
+        this.crystal_anchor_time = value;
+        this.latch_clock();
+
+        this
+    }
+}
+
+impl TryFrom<&[u8]> for RealTimeClock {
+    type Error = CartridgeError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        match value.len() {
+            8 => Ok(Self::from_rtc_file(value.try_into().unwrap())),
+            48 => todo!("Still need to support .sav style"),
+            _ => Err(CartridgeError::MisMatchedRamSaveSize(
+                "RTC supports from 8 bytes (just a timestamp) or from 48 (regs, live regs, timestamp)".into(),
+            )),
+        }
+    }
+}
+impl From<RealTimeClock> for Vec<u8> {
+    fn from(rtc: RealTimeClock) -> Self {
+        rtc.crystal_anchor_time
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .to_le_bytes()
+            .into()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -685,5 +820,145 @@ impl RtcLatchTrigger {
             self.in_mid_state = false;
             false
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MemoryBankController5 {
+    ram_gate_register: u8,
+    combined_romb: u16, // romb0 and romb1 concatenated
+    ramb: u8,
+
+    ram_bank_num: Option<usize>,
+    upper_rom_bank_num: usize,
+
+    rom_bank_mask: usize,
+    ram_bank_mask: Option<usize>,
+}
+impl MemoryBankController5 {
+    pub fn new(num_rom_banks: usize, num_ram_banks: usize) -> Self {
+        debug_assert!(
+            num_rom_banks.is_power_of_two(),
+            "bank masking assumes a power-of-two bank count"
+        );
+        debug_assert!(num_ram_banks == 0 || num_ram_banks.is_power_of_two());
+        Self {
+            ram_gate_register: 0,
+            combined_romb: 0,
+            ramb: 0,
+
+            ram_bank_num: None,
+            upper_rom_bank_num: 1,
+
+            rom_bank_mask: num_rom_banks - 1,
+            ram_bank_mask: (num_ram_banks > 0).then(|| num_ram_banks - 1),
+        }
+    }
+
+    fn write_ram_gate_register(&mut self, value: u8) {
+        self.ram_gate_register = value;
+        self.recalculate_ram_bank_number();
+    }
+    fn write_romb0(&mut self, value: u8) {
+        self.combined_romb &= 0x0100; // zero out lower 8 bits
+        self.combined_romb |= value as u16;
+        self.recalculate_rom_bank_number();
+    }
+    fn write_romb1(&mut self, value: u8) {
+        self.combined_romb &= 0x00FF; // zero out top bit
+        self.combined_romb |= ((value as u16) & 0b1) << 8;
+        self.recalculate_rom_bank_number();
+    }
+    fn write_ramb(&mut self, value: u8) {
+        self.ramb = value & 0x0F;
+        self.recalculate_ram_bank_number();
+    }
+
+    fn recalculate_ram_bank_number(&mut self) {
+        self.ram_bank_num = match self.ram_bank_mask {
+            Some(mask) if self.ram_gate_register == RAMG_OPEN => Some(self.ramb as usize & mask),
+            _ => None,
+        };
+    }
+    fn recalculate_rom_bank_number(&mut self) {
+        self.upper_rom_bank_num = self.combined_romb as usize & self.rom_bank_mask;
+    }
+}
+impl BankController for MemoryBankController5 {
+    fn read(
+        &mut self,
+        address: Address,
+        rom_banks: &[RomBank],
+        ram_banks: &[RamBank<RAM_BANK_SIZE>],
+        device: CartridgeDevice,
+    ) -> u8 {
+        self.peek(address, rom_banks, ram_banks, device)
+    }
+
+    fn write(
+        &mut self,
+        address: Address,
+        value: u8,
+        ram_banks: &mut [RamBank<RAM_BANK_SIZE>],
+        device: CartridgeDevice,
+    ) {
+        if device == CartridgeDevice::ExternalRam {
+            let ram_address = address - CartridgeDevice::ExternalRam.get_starting_address();
+            let Some(ram_bank) = self.ram_bank_num.and_then(|i| ram_banks.get_mut(i)) else {
+                return;
+            };
+            ram_bank.write(ram_address, value);
+            return;
+        }
+
+        match address {
+            0x0000..0x2000 => self.write_ram_gate_register(value),
+            0x2000..0x3000 => self.write_romb0(value),
+            0x3000..0x4000 => self.write_romb1(value),
+            0x4000..0x6000 => self.write_ramb(value),
+            0x6000..0x8000 => (),
+            _ => unreachable!("RAM addresses were already handled"),
+        }
+    }
+
+    fn peek(
+        &self,
+        address: Address,
+        rom_banks: &[RomBank],
+        ram_banks: &[RamBank<RAM_BANK_SIZE>],
+        device: CartridgeDevice,
+    ) -> u8 {
+        let in_device_address = address - device.get_starting_address();
+        let bank_number = self.get_bank_number(device);
+
+        let read_val = match device {
+            CartridgeDevice::LowerRomBank | CartridgeDevice::UpperRomBank => {
+                rom_banks.get(bank_number.unwrap()).map(|b| b.peek(in_device_address))
+            },
+            CartridgeDevice::ExternalRam => bank_number
+                .and_then(|bank_num| ram_banks.get(bank_num))
+                .map(|b| b.peek(in_device_address)),
+        };
+
+        read_val.unwrap_or(u8::DEFAULT_BUS_VALUE)
+    }
+
+    fn get_bank_number(&self, device: CartridgeDevice) -> Option<usize> {
+        match device {
+            CartridgeDevice::LowerRomBank => Some(0),
+            CartridgeDevice::UpperRomBank => Some(self.upper_rom_bank_num),
+            CartridgeDevice::ExternalRam => self.ram_bank_num,
+        }
+    }
+
+    fn load_save_data(&mut self, data: &[u8]) -> Result<(), CartridgeError> {
+        match data.is_empty() {
+            true => Ok(()),
+            false => Err(CartridgeError::MisMatchedRamSaveSize("MBC5 has no data".into())),
+        }
+    }
+
+    fn retrieve_save_data(&self) -> Vec<u8> {
+        Vec::new()
     }
 }

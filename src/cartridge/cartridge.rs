@@ -1,6 +1,9 @@
 use crate::{
     bus::{Address, BusDefault, MemoryTarget},
-    cartridge::{header::Header, memory_bank_controllers::MemoryBankController},
+    cartridge::{
+        header::Header,
+        memory_bank_controllers::{BankController, MemoryBankController},
+    },
     onboard_memory::rom_and_ram::{RamBank, RomBank},
 };
 
@@ -11,6 +14,7 @@ pub struct Cartridge {
     memory_bank_controller: Option<MemoryBankController>,
     rom_banks: Vec<RomBank>,
     ram_banks: Vec<RamBank<RAM_BANK_SIZE>>,
+    has_battery: bool,
 }
 
 impl Cartridge {
@@ -28,8 +32,9 @@ impl Cartridge {
         }
         let rom_banks = vec![RomBank::new(); header.get_num_rom_banks()];
         let ram_banks = vec![RamBank::new(); header.get_num_ram_banks()];
+        let has_battery = header.has_battery();
 
-        let mut this = Self { memory_bank_controller, rom_banks, ram_banks };
+        let mut this = Self { memory_bank_controller, rom_banks, ram_banks, has_battery };
 
         this.initialize_cartridge_data(data, header)?;
 
@@ -42,6 +47,7 @@ impl Cartridge {
             memory_bank_controller: None,
             rom_banks: vec![RomBank::new(), RomBank::new()],
             ram_banks: vec![RamBank::new()],
+            has_battery: false,
         }
     }
 
@@ -60,21 +66,6 @@ impl Cartridge {
         }
 
         Ok(())
-    }
-
-    fn get_default_bank(&self, device: CartridgeDevice) -> Option<&[u8]> {
-        match device {
-            CartridgeDevice::LowerRomBank => self.rom_banks.get(0).and_then(|b| Some(b.get_data())),
-            CartridgeDevice::UpperRomBank => self.rom_banks.get(1).and_then(|b| Some(b.get_data())),
-            CartridgeDevice::ExternalRam => self.ram_banks.get(0).and_then(|b| Some(b.get_data())),
-        }
-    }
-    fn get_default_bank_mut(&mut self, device: CartridgeDevice) -> Option<&mut [u8]> {
-        match device {
-            CartridgeDevice::LowerRomBank => self.rom_banks.get_mut(0).and_then(|b| Some(b.get_data_mut())),
-            CartridgeDevice::UpperRomBank => self.rom_banks.get_mut(1).and_then(|b| Some(b.get_data_mut())),
-            CartridgeDevice::ExternalRam => self.ram_banks.get_mut(0).and_then(|b| Some(b.get_data_mut())),
-        }
     }
 
     pub fn peek(&self, address: Address, device: CartridgeDevice) -> u8 {
@@ -109,6 +100,51 @@ impl Cartridge {
                 .and_then(|b| b.get_mut(in_device_address).map(|v| *v = value));
         }
     }
+
+    fn get_default_bank(&self, device: CartridgeDevice) -> Option<&[u8]> {
+        match device {
+            CartridgeDevice::LowerRomBank => self.rom_banks.get(0).and_then(|b| Some(b.get_data())),
+            CartridgeDevice::UpperRomBank => self.rom_banks.get(1).and_then(|b| Some(b.get_data())),
+            CartridgeDevice::ExternalRam => self.ram_banks.get(0).and_then(|b| Some(b.get_data())),
+        }
+    }
+    fn get_default_bank_mut(&mut self, device: CartridgeDevice) -> Option<&mut [u8]> {
+        match device {
+            CartridgeDevice::LowerRomBank => self.rom_banks.get_mut(0).and_then(|b| Some(b.get_data_mut())),
+            CartridgeDevice::UpperRomBank => self.rom_banks.get_mut(1).and_then(|b| Some(b.get_data_mut())),
+            CartridgeDevice::ExternalRam => self.ram_banks.get_mut(0).and_then(|b| Some(b.get_data_mut())),
+        }
+    }
+
+    pub fn get_save_ram(&self) -> Option<Vec<u8>> {
+        if !self.has_battery {
+            return None;
+        }
+
+        let mut data = Vec::new();
+        for bank in &self.ram_banks {
+            data.extend_from_slice(bank.get_data());
+        }
+        if let Some(mbc) = &self.memory_bank_controller {
+            data.extend_from_slice(&mbc.retrieve_save_data());
+        }
+
+        Some(data)
+    }
+    pub fn load_save_ram(&mut self, bytes: &[u8]) -> Result<(), CartridgeError> {
+        let mut chunks = bytes.chunks_exact(RAM_BANK_SIZE);
+
+        for (chunk, bank) in chunks.by_ref().zip(&mut self.ram_banks) {
+            bank.get_data_mut().copy_from_slice(chunk);
+        }
+
+        let remainder = chunks.remainder();
+        if let Some(mbc) = &mut self.memory_bank_controller {
+            mbc.load_save_data(remainder)?;
+        }
+
+        Ok(())
+    }
 }
 
 /// Why a ROM image could not be turned into a `Cartridge`. These are all "this file is not something
@@ -118,7 +154,10 @@ pub enum CartridgeError {
     /// Smaller than the 0x150-byte header, so there is nothing to parse.
     RomTooSmall(usize),
     /// The header's declared size disagrees with the file on disk.
-    SizeMismatch { expected_kb: usize, actual_kb: usize },
+    SizeMismatch {
+        expected_kb: usize,
+        actual_kb: usize,
+    },
     /// Byte 0x147 is not a cartridge type we know about.
     UnknownCartridgeType(u8),
     /// Byte 0x148 is not a defined ROM size.
@@ -127,6 +166,7 @@ pub enum CartridgeError {
     UnknownRamSize(u8),
     /// The header names a controller we recognise but have not implemented yet.
     UnsupportedMemoryBankController(&'static str),
+    MisMatchedRamSaveSize(String),
 }
 
 impl std::fmt::Display for CartridgeError {
@@ -143,6 +183,7 @@ impl std::fmt::Display for CartridgeError {
             Self::UnknownRomSize(code) => write!(f, "unknown ROM size code {code:#04X}"),
             Self::UnknownRamSize(code) => write!(f, "unknown RAM size code {code:#04X}"),
             Self::UnsupportedMemoryBankController(name) => write!(f, "{name} is not implemented yet"),
+            Self::MisMatchedRamSaveSize(string) => write!(f, "{}", string),
         }
     }
 }

@@ -3,6 +3,7 @@ use crate::{
         cartridge::CartridgeError,
         memory_bank_controllers::{
             MemoryBankController, MemoryBankController1, MemoryBankController2, MemoryBankController3,
+            MemoryBankController5,
         },
     },
     helpers::concat_2_bytes,
@@ -45,6 +46,9 @@ impl Header {
     }
     pub fn get_memory_bank_controller(&self) -> Option<MemoryBankController> {
         self.cartridge_elements.mbc.clone()
+    }
+    pub fn has_battery(&self) -> bool {
+        self.cartridge_elements.battery.is_some()
     }
 }
 
@@ -166,31 +170,52 @@ impl CartridgeElements {
                 battery: Some(()),
                 ..Default::default()
             },
-            0x19 => Self { mbc: Some(MemoryBankController::MBC5), ..Default::default() },
+            0x19 => Self {
+                mbc: Some(MemoryBankController::MBC5(MemoryBankController5::new(
+                    num_rom_banks,
+                    num_ram_banks,
+                ))),
+                ..Default::default()
+            },
             0x1A => Self {
-                mbc: Some(MemoryBankController::MBC5),
+                mbc: Some(MemoryBankController::MBC5(MemoryBankController5::new(
+                    num_rom_banks,
+                    num_ram_banks,
+                ))),
                 ram: Some(()),
                 ..Default::default()
             },
             0x1B => Self {
-                mbc: Some(MemoryBankController::MBC5),
+                mbc: Some(MemoryBankController::MBC5(MemoryBankController5::new(
+                    num_rom_banks,
+                    num_ram_banks,
+                ))),
                 ram: Some(()),
                 battery: Some(()),
                 ..Default::default()
             },
             0x1C => Self {
-                mbc: Some(MemoryBankController::MBC5),
+                mbc: Some(MemoryBankController::MBC5(MemoryBankController5::new(
+                    num_rom_banks,
+                    num_ram_banks,
+                ))),
                 rumble: Some(()),
                 ..Default::default()
             },
             0x1D => Self {
-                mbc: Some(MemoryBankController::MBC5),
+                mbc: Some(MemoryBankController::MBC5(MemoryBankController5::new(
+                    num_rom_banks,
+                    num_ram_banks,
+                ))),
                 rumble: Some(()),
                 ram: Some(()),
                 ..Default::default()
             },
             0x1E => Self {
-                mbc: Some(MemoryBankController::MBC5),
+                mbc: Some(MemoryBankController::MBC5(MemoryBankController5::new(
+                    num_rom_banks,
+                    num_ram_banks,
+                ))),
                 rumble: Some(()),
                 ram: Some(()),
                 battery: Some(()),

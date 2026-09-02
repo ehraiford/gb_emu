@@ -39,7 +39,7 @@ impl Default for RomBank {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct RamBank<const SIZE: usize> {
     data: [u8; SIZE],
 }
