@@ -183,6 +183,17 @@ impl GameBoy {
         self.cpu.debug_registers()
     }
 
+    /// Debug hook for test harnesses: (ppu mode, dot within line, ly).
+    pub fn debug_ppu_state(&self) -> (u8, u16, u8) {
+        let (mode, dot) = self.ppu.debug_mode_state();
+        (mode, dot, self.peek_mem(0xFF44))
+    }
+
+    /// Debug hook: (mode, dot_in_line, ly) of the PPU's most recent mode transition.
+    pub fn debug_last_ppu_transition(&self) -> (u8, u16, u8) {
+        self.ppu.debug_last_transition()
+    }
+
     pub fn get_pc(&self) -> u16 {
         self.cpu.get_pc()
     }

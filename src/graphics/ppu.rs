@@ -21,6 +21,8 @@ pub const SCREEN_SIZE: usize = SCREEN_HEIGHT as usize * SCREEN_WIDTH as usize;
 const DOTS_PER_LINE: Dots = 456;
 
 pub struct Ppu {
+    /// Debug hook for test harnesses: (mode, dot_in_line, ly) of the most recent mode transition.
+    debug_last_transition: (u8, u16, u8),
     mode_tracking: PpuModeTracker,
     pixel_fetchers: PixelFetchers,
     screen: Screen,
@@ -32,6 +34,7 @@ impl Ppu {
     pub fn new(frame_handle: SenderFrameHandle) -> Self {
         Self {
             screen: Screen::new(frame_handle),
+            debug_last_transition: (0, 0, 0),
             mode_tracking: Default::default(),
             pixel_fetchers: Default::default(),
             oam_scanner: Default::default(),
@@ -42,6 +45,7 @@ impl Ppu {
     pub fn new() -> Self {
         Self {
             screen: Screen::new(),
+            debug_last_transition: (0, 0, 0),
             mode_tracking: Default::default(),
             pixel_fetchers: Default::default(),
             oam_scanner: Default::default(),
@@ -74,6 +78,17 @@ impl Ppu {
         } else {
             None
         }
+    }
+
+    /// Debug hook for test harnesses: (mode number, dot within the current line).
+    pub fn debug_mode_state(&self) -> (u8, u16) {
+        (u8::from(self.mode_tracking.mode), self.mode_tracking.dot_in_line())
+    }
+
+    /// Debug hook: (mode, dot_in_line, ly) of the most recent mode transition, recorded at dot
+    /// granularity rather than the M-cycle granularity an external tick loop can observe.
+    pub fn debug_last_transition(&self) -> (u8, u16, u8) {
+        self.debug_last_transition
     }
 
     fn get_mode(&self) -> &PpuMode {
@@ -161,6 +176,8 @@ impl<'a, 'b, 'c, 'd, 'e> PpuOperationContext<'a, 'b, 'c, 'd, 'e> {
         }
 
         if let Some(mode) = new_mode {
+            self.ppu.debug_last_transition =
+                (u8::from(mode), self.ppu.mode_tracking.dot_in_line(), self.lcd.get_ly());
             self.events.push(GameBoyEvent::ChangeBusAccessForPpuMode(mode));
             self.lcd.set_ppu_mode(mode, self.events);
             if mode == PpuMode::DrawingPixels {
