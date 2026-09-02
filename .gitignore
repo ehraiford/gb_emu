@@ -2,3 +2,7 @@
 /gb_emu/target/
 /test_roms/
 /disassembled_output/
+/tools/reference_tracer/sameboy/
+/tools/reference_tracer/tracer.exe
+/tools/reference_tracer/dmg_boot.bin
+*.trace
