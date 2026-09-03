@@ -2,7 +2,8 @@ use crate::{
     bus::{Address, BusDefault, MemoryTarget},
     cartridge::{
         header::Header,
-        memory_bank_controllers::{BankController, MemoryBankController},
+        memory_bank_controllers::{BankController, MemoryBankController, MemoryBankController2},
+        save_data::{SaveData, SaveDataReader},
     },
     onboard_memory::rom_and_ram::{RamBank, RomBank},
 };
@@ -27,7 +28,7 @@ impl Cartridge {
         let memory_bank_controller = header.get_memory_bank_controller();
         if let Some(mbc) = &memory_bank_controller {
             if !mbc.is_implemented() {
-                return Err(CartridgeError::UnsupportedMemoryBankController(mbc.name()));
+                return Err(CartridgeError::UnsupportedMemoryBankController(mbc.bank_name()));
             }
         }
         let rom_banks = vec![RomBank::new(); header.get_num_rom_banks()];
@@ -116,34 +117,51 @@ impl Cartridge {
         }
     }
 
-    pub fn get_save_ram(&self) -> Option<Vec<u8>> {
+    pub fn get_save_data(&self) -> Option<SaveData> {
         if !self.has_battery {
             return None;
         }
 
-        let mut data = Vec::new();
+        let mut ram: Vec<u8> = Vec::new();
         for bank in &self.ram_banks {
-            data.extend_from_slice(bank.get_data());
+            ram.extend_from_slice(bank.get_data());
         }
+        let mut save_data = SaveData::SrmAndRtc { srm: ram, rtc: None };
+
         if let Some(mbc) = &self.memory_bank_controller {
-            data.extend_from_slice(&mbc.retrieve_save_data());
+            mbc.append_save_data(&mut save_data);
         }
 
-        Some(data)
+        Some(save_data)
     }
-    pub fn load_save_ram(&mut self, bytes: &[u8]) -> Result<(), CartridgeError> {
-        let mut chunks = bytes.chunks_exact(RAM_BANK_SIZE);
-
-        for (chunk, bank) in chunks.by_ref().zip(&mut self.ram_banks) {
-            bank.get_data_mut().copy_from_slice(chunk);
+    pub fn load_save_data(&mut self, data: SaveData) -> Result<(), CartridgeError> {
+        if !self.has_battery {
+            return Err(CartridgeError::SavingUnsupported("Cartridges without a battery"));
         }
 
-        let remainder = chunks.remainder();
+        let mut reader = SaveDataReader::new(&data, self.ram_len())?;
+
+        for bank in &mut self.ram_banks {
+            let ram_chunk = reader
+                .read_ram(RAM_BANK_SIZE)
+                .ok_or_else(CartridgeError::insufficient_save_data)?;
+            bank.get_data_mut().copy_from_slice(ram_chunk);
+        }
+
         if let Some(mbc) = &mut self.memory_bank_controller {
-            mbc.load_save_data(remainder)?;
+            mbc.load_save_data(&mut reader)?;
         }
+
+        (!reader.has_remaining_data()).ok_or(CartridgeError::too_much_save_data())?;
 
         Ok(())
+    }
+
+    fn ram_len(&self) -> usize {
+        match &self.memory_bank_controller {
+            Some(MemoryBankController::MBC2(_)) => MemoryBankController2::MBC2_RAM_SIZE,
+            _ => self.ram_banks.len() * RAM_BANK_SIZE,
+        }
     }
 }
 
@@ -167,6 +185,15 @@ pub enum CartridgeError {
     /// The header names a controller we recognise but have not implemented yet.
     UnsupportedMemoryBankController(&'static str),
     MisMatchedRamSaveSize(String),
+    SavingUnsupported(&'static str),
+}
+impl CartridgeError {
+    pub fn insufficient_save_data() -> Self {
+        Self::MisMatchedRamSaveSize("Provided save file was not large enough to fill Cartridge RAM and/or RTC".into())
+    }
+    pub fn too_much_save_data() -> Self {
+        Self::MisMatchedRamSaveSize("Provided save file is too large to fit into RAM and / or RTC".into())
+    }
 }
 
 impl std::fmt::Display for CartridgeError {
@@ -184,6 +211,7 @@ impl std::fmt::Display for CartridgeError {
             Self::UnknownRamSize(code) => write!(f, "unknown RAM size code {code:#04X}"),
             Self::UnsupportedMemoryBankController(name) => write!(f, "{name} is not implemented yet"),
             Self::MisMatchedRamSaveSize(string) => write!(f, "{}", string),
+            Self::SavingUnsupported(name) => write!(f, "{} does not support save files", name),
         }
     }
 }

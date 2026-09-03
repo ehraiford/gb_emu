@@ -1,6 +1,7 @@
 use std::time::{Duration, SystemTime};
 
 use crate::cartridge::cartridge::{CartridgeDevice, CartridgeError, RAM_BANK_SIZE};
+use crate::cartridge::save_data::{SaveData, SaveDataReader};
 use crate::{
     bus::{Address, BusDefault},
     onboard_memory::rom_and_ram::{RamBank, RomBank},
@@ -23,17 +24,6 @@ impl MemoryBankController {
     /// loading one has to be refused up front rather than panicking on the first ROM read.
     pub fn is_implemented(&self) -> bool {
         matches!(self, Self::MBC1(_) | Self::MBC2(_) | Self::MBC3(_) | Self::MBC5(_))
-    }
-
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::MBC1(_) => "MBC1",
-            Self::MBC2(_) => "MBC2",
-            Self::MBC3(_) => "MBC3",
-            Self::MBC5(_) => "MBC5",
-            Self::MBC6 => "MBC6",
-            Self::MBC7 => "MBC7",
-        }
     }
 }
 impl BankController for MemoryBankController {
@@ -99,7 +89,18 @@ impl BankController for MemoryBankController {
         }
     }
 
-    fn load_save_data(&mut self, data: &[u8]) -> Result<(), CartridgeError> {
+    fn bank_name(&self) -> &'static str {
+        match self {
+            MemoryBankController::MBC1(mbc) => mbc.bank_name(),
+            MemoryBankController::MBC2(mbc) => mbc.bank_name(),
+            MemoryBankController::MBC3(mbc) => mbc.bank_name(),
+            MemoryBankController::MBC5(mbc) => mbc.bank_name(),
+            MemoryBankController::MBC6 => todo!(),
+            MemoryBankController::MBC7 => todo!(),
+        }
+    }
+
+    fn load_save_data(&mut self, data: &mut SaveDataReader) -> Result<(), CartridgeError> {
         match self {
             MemoryBankController::MBC1(mbc) => mbc.load_save_data(data),
             MemoryBankController::MBC2(mbc) => mbc.load_save_data(data),
@@ -110,12 +111,12 @@ impl BankController for MemoryBankController {
         }
     }
 
-    fn retrieve_save_data(&self) -> Vec<u8> {
+    fn append_save_data(&self, save_data: &mut SaveData) {
         match self {
-            MemoryBankController::MBC1(mbc) => mbc.retrieve_save_data(),
-            MemoryBankController::MBC2(mbc) => mbc.retrieve_save_data(),
-            MemoryBankController::MBC3(mbc) => mbc.retrieve_save_data(),
-            MemoryBankController::MBC5(mbc) => mbc.retrieve_save_data(),
+            MemoryBankController::MBC1(mbc) => mbc.append_save_data(save_data),
+            MemoryBankController::MBC2(mbc) => mbc.append_save_data(save_data),
+            MemoryBankController::MBC3(mbc) => mbc.append_save_data(save_data),
+            MemoryBankController::MBC5(mbc) => mbc.append_save_data(save_data),
             MemoryBankController::MBC6 => todo!(),
             MemoryBankController::MBC7 => todo!(),
         }
@@ -123,6 +124,10 @@ impl BankController for MemoryBankController {
 }
 
 pub(crate) trait BankController {
+    fn bank_name(&self) -> &'static str;
+
+    fn get_bank_number(&self, device: CartridgeDevice) -> Option<usize>;
+
     fn read(
         &mut self,
         address: Address,
@@ -138,9 +143,11 @@ pub(crate) trait BankController {
         ram_banks: &[RamBank<RAM_BANK_SIZE>],
         device: CartridgeDevice,
     ) -> u8;
-    fn get_bank_number(&self, device: CartridgeDevice) -> Option<usize>;
-    fn load_save_data(&mut self, data: &[u8]) -> Result<(), CartridgeError>;
-    fn retrieve_save_data(&self) -> Vec<u8>;
+
+    fn load_save_data(&mut self, _data: &mut SaveDataReader) -> Result<(), CartridgeError> {
+        Ok(())
+    }
+    fn append_save_data(&self, _save_data: &mut SaveData) {}
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -302,17 +309,8 @@ impl BankController for MemoryBankController1 {
         }
     }
 
-    fn load_save_data(&mut self, data: &[u8]) -> Result<(), CartridgeError> {
-        match data.is_empty() {
-            true => Ok(()),
-            false => Err(CartridgeError::MisMatchedRamSaveSize(
-                "MBC1 does not accept load data".into(),
-            )),
-        }
-    }
-
-    fn retrieve_save_data(&self) -> Vec<u8> {
-        Vec::new()
+    fn bank_name(&self) -> &'static str {
+        "MBC1"
     }
 }
 
@@ -327,7 +325,7 @@ pub struct MemoryBankController2 {
 }
 
 impl MemoryBankController2 {
-    const MBC2_RAM_SIZE: usize = 512;
+    pub const MBC2_RAM_SIZE: usize = 512;
     const RAMG_REGISTER_MASK: u8 = 0x0F;
     const RAM_VALUE_MASK: u8 = 0xF0; // MBC2 RAM only stores in the right nibble. Top is always open bus value.
     const RAM_ADDRESS_MASK: Address = 0x01FF; // MBC2 RAM addresses wrap in the 10th bit
@@ -428,23 +426,20 @@ impl BankController for MemoryBankController2 {
         }
     }
 
-    fn load_save_data(&mut self, data: &[u8]) -> Result<(), CartridgeError> {
-        if Self::MBC2_RAM_SIZE != data.len() {
-            return Err(CartridgeError::MisMatchedRamSaveSize(format!(
-                "MBC2 needs {} bytes but received {}.",
-                Self::MBC2_RAM_SIZE,
-                data.len()
-            )));
-        }
+    fn bank_name(&self) -> &'static str {
+        "MBC2"
+    }
 
-        let adjusted_data: Vec<u8> = data.iter().map(|b| b | 0xF0).collect();
-        self.ram_bank.get_data_mut().clone_from_slice(&adjusted_data);
-
+    fn load_save_data(&mut self, data: &mut SaveDataReader) -> Result<(), CartridgeError> {
+        self.ram_bank.get_data_mut().copy_from_slice(
+            data.read_ram(Self::MBC2_RAM_SIZE)
+                .ok_or(CartridgeError::insufficient_save_data())?,
+        );
         Ok(())
     }
 
-    fn retrieve_save_data(&self) -> Vec<u8> {
-        self.ram_bank.get_data().into()
+    fn append_save_data(&self, save_data: &mut SaveData) {
+        save_data.append_ram(self.ram_bank.get_data());
     }
 }
 
@@ -588,24 +583,25 @@ impl BankController for MemoryBankController3 {
         }
     }
 
-    fn load_save_data(&mut self, data: &[u8]) -> Result<(), CartridgeError> {
-        if let Some(ref mut rtc) = self.rtc {
-            *rtc = RealTimeClock::try_from(data)?;
-            Ok(())
-        } else if !data.is_empty() {
-            Err(CartridgeError::MisMatchedRamSaveSize(
-                "MBC3 received data but has no RTC".into(),
-            ))
-        } else {
-            Ok(())
+    fn bank_name(&self) -> &'static str {
+        match self.rtc.is_some() {
+            true => "MBC3+RTC",
+            false => "MBC3",
         }
     }
 
-    fn retrieve_save_data(&self) -> Vec<u8> {
+    fn load_save_data(&mut self, data: &mut SaveDataReader) -> Result<(), CartridgeError> {
+        match (&mut self.rtc, data.read_rtc()) {
+            (None, Some(_)) => Err(CartridgeError::too_much_save_data()),
+            (Some(_), None) => Err(CartridgeError::insufficient_save_data()),
+            (Some(mbc_rtc), Some(save_rtc)) => Ok(*mbc_rtc = RealTimeClock::try_from(save_rtc)?),
+            (None, None) => Ok(()),
+        }
+    }
+
+    fn append_save_data(&self, save_data: &mut SaveData) {
         if let Some(rtc) = self.rtc {
-            rtc.into()
-        } else {
-            Vec::new()
+            save_data.append_rtc(&rtc);
         }
     }
 }
@@ -638,12 +634,12 @@ impl Mbc3RamTarget {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct RealTimeClock {
+pub struct RealTimeClock {
     seconds: u8,
     minutes: u8,
     hours: u8,
     days_low: u8,
-    day_high_and_flags: u8,
+    days_high_and_flags: u8,
 
     latch_trigger: RtcLatchTrigger,
 
@@ -660,7 +656,7 @@ impl RealTimeClock {
             minutes: 0,
             hours: 0,
             days_low: 0,
-            day_high_and_flags: 0,
+            days_high_and_flags: 0,
             latch_trigger: RtcLatchTrigger::new(),
             crystal_anchor_time: SystemTime::now(),
         }
@@ -672,7 +668,7 @@ impl RealTimeClock {
             0x09 => Some(self.minutes),
             0x0A => Some(self.hours),
             0x0B => Some(self.days_low),
-            0x0C => Some(self.day_high_and_flags),
+            0x0C => Some(self.days_high_and_flags),
             _ => None,
         }
     }
@@ -682,7 +678,7 @@ impl RealTimeClock {
             0x09 => Some(&mut self.minutes),
             0x0A => Some(&mut self.hours),
             0x0B => Some(&mut self.days_low),
-            0x0C => Some(&mut self.day_high_and_flags),
+            0x0C => Some(&mut self.days_high_and_flags),
             _ => None,
         }
     }
@@ -705,7 +701,7 @@ impl RealTimeClock {
     }
 
     fn is_halted(&self) -> bool {
-        self.day_high_and_flags & 0b0100_0000 != 0
+        self.days_high_and_flags & 0b0100_0000 != 0
     }
 
     fn write_to_latch(&mut self, value: u8) {
@@ -715,32 +711,16 @@ impl RealTimeClock {
     }
 
     fn latch_clock(&mut self) {
-        let mut secs_since_anchor = SystemTime::now()
+        let duration = SystemTime::now()
             .duration_since(self.crystal_anchor_time)
-            .unwrap_or_default()
-            .as_secs();
+            .unwrap_or_default();
+        let regs = self.convert_duration_to_regs(duration);
 
-        let days = secs_since_anchor / Self::SECS_IN_DAY;
-        secs_since_anchor %= Self::SECS_IN_DAY;
-
-        let hours = secs_since_anchor / Self::SECS_IN_HOUR;
-        secs_since_anchor %= Self::SECS_IN_HOUR;
-
-        let minutes = secs_since_anchor / Self::SECS_IN_MINUTE;
-        let secs = secs_since_anchor % Self::SECS_IN_MINUTE;
-
-        self.seconds = secs as u8;
-        self.minutes = minutes as u8;
-        self.hours = hours as u8;
-        self.days_low = days as u8; // just gives us the LSB anyway
-
-        self.day_high_and_flags &= 0b1111_1110; // mask out 9th bit of Day
-        if days % 512 > 255 {
-            self.day_high_and_flags |= 0b0000_0001; // 9th bit
-        }
-        if days > 511 {
-            self.day_high_and_flags |= 0b1000_0000; // overflow bit
-        }
+        self.seconds = regs[0];
+        self.minutes = regs[1];
+        self.hours = regs[2];
+        self.days_low = regs[3];
+        self.days_high_and_flags = regs[4];
     }
     fn write_regs_back_to_clock(&mut self) {
         let mut time_in_secs = self.seconds as u64;
@@ -754,24 +734,136 @@ impl RealTimeClock {
     }
 
     fn recompose_days(&self) -> u64 {
-        self.days_low as u64 | ((self.day_high_and_flags as u64 & 0b1) << 8)
+        self.days_low as u64 | ((self.days_high_and_flags as u64 & 0b1) << 8)
+    }
+
+    fn get_latched_regs(&self) -> [u8; 5] {
+        [
+            self.seconds,
+            self.minutes,
+            self.hours,
+            self.days_low,
+            self.days_high_and_flags,
+        ]
+    }
+    fn get_live_regs(&self) -> [u8; 5] {
+        if self.is_halted() {
+            self.get_latched_regs()
+        } else {
+            let elapsed = SystemTime::now()
+                .duration_since(self.crystal_anchor_time)
+                .unwrap_or_default();
+            self.convert_duration_to_regs(elapsed)
+        }
     }
 
     fn from_rtc_file(data: &[u8; 8]) -> Self {
         let anchor_time = SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(u64::from_le_bytes(*data)));
 
-        Self::from(anchor_time.unwrap_or(SystemTime::UNIX_EPOCH))
-    }
-}
-
-impl From<SystemTime> for RealTimeClock {
-    fn from(value: SystemTime) -> Self {
         let mut this = Self::new();
 
-        this.crystal_anchor_time = value;
+        this.crystal_anchor_time = anchor_time.unwrap_or(SystemTime::now());
         this.latch_clock();
 
         this
+    }
+
+    /// Converts regs (assuming the order on the RTC) into a Duration
+    fn convert_regs_to_duration(regs: [u8; 5]) -> Duration {
+        let live_days = regs[3] as u64 | ((regs[4] as u64 & 0b1) << 8);
+        let live_secs = regs[0] as u64
+            + (regs[1] as u64 * Self::SECS_IN_MINUTE)
+            + (regs[2] as u64 * Self::SECS_IN_HOUR)
+            + (live_days * Self::SECS_IN_DAY);
+
+        Duration::from_secs(live_secs)
+    }
+
+    fn convert_duration_to_regs(&self, elapsed: Duration) -> [u8; 5] {
+        let mut secs = elapsed.as_secs();
+
+        let days = secs / Self::SECS_IN_DAY;
+        secs %= Self::SECS_IN_DAY;
+        let hours = secs / Self::SECS_IN_HOUR;
+        secs %= Self::SECS_IN_HOUR;
+        let minutes = secs / Self::SECS_IN_MINUTE;
+        let seconds = secs % Self::SECS_IN_MINUTE;
+
+        let mut day_high_and_flags = self.days_high_and_flags & 0b1111_1110;
+        if days % 512 > 255 {
+            day_high_and_flags |= 0b0000_0001; // 9th bit
+        }
+        if days > 511 {
+            day_high_and_flags |= 0b1000_0000; // overflow bit
+        }
+
+        [
+            seconds as u8,
+            minutes as u8,
+            hours as u8,
+            days as u8,
+            day_high_and_flags,
+        ]
+    }
+
+    fn anchor_from_now(elapsed: Duration) -> SystemTime {
+        SystemTime::now().checked_sub(elapsed).unwrap_or(SystemTime::UNIX_EPOCH)
+    }
+    /// `.sav` layout is 5 live registers as u32::le, 5 latched registers as u32::le, and an 8 byte Unix TimeStamp
+    fn from_sav_file(data: &[u8; 48]) -> Self {
+        let mut this = Self::new();
+
+        // convert live and latched registers back to u8s
+        let registers: Vec<u8> = data[0..40]
+            .chunks(4)
+            .map(|c| u32::from_le_bytes(c.try_into().unwrap()) as u8)
+            .collect();
+
+        // latched regs are the second group
+        this.seconds = registers[5];
+        this.minutes = registers[6];
+        this.hours = registers[7];
+        this.days_low = registers[8];
+        this.days_high_and_flags = registers[9];
+
+        let live = Self::convert_regs_to_duration(registers[0..5].try_into().unwrap());
+        let timestamp = u64::from_le_bytes(data[40..48].try_into().unwrap());
+        this.crystal_anchor_time = if this.is_halted() {
+            Self::anchor_from_now(live)
+        } else {
+            Duration::from_secs(timestamp)
+                .checked_sub(live)
+                .and_then(|d| SystemTime::UNIX_EPOCH.checked_add(d))
+                .unwrap_or_else(|| Self::anchor_from_now(live))
+        };
+        this
+    }
+
+    pub fn as_rtc_file_timestamp(&self) -> [u8; 8] {
+        self.crystal_anchor_time
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .to_le_bytes()
+            .into()
+    }
+
+    pub fn as_sav_file_data(&self) -> [u8; 48] {
+        let mut data = [0; 48];
+
+        let live = self.get_live_regs();
+        let latched = self.get_latched_regs();
+        for (i, reg) in live.iter().chain(latched.iter()).enumerate() {
+            data[i * 4] = *reg; // "u32 le" by just putting the u8 in the leftmost byte
+        }
+
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        data[40..48].copy_from_slice(&timestamp.to_le_bytes());
+
+        data
     }
 }
 
@@ -781,21 +873,11 @@ impl TryFrom<&[u8]> for RealTimeClock {
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         match value.len() {
             8 => Ok(Self::from_rtc_file(value.try_into().unwrap())),
-            48 => todo!("Still need to support .sav style"),
+            48 => Ok(Self::from_sav_file(value.try_into().unwrap())),
             _ => Err(CartridgeError::MisMatchedRamSaveSize(
                 "RTC supports from 8 bytes (just a timestamp) or from 48 (regs, live regs, timestamp)".into(),
             )),
         }
-    }
-}
-impl From<RealTimeClock> for Vec<u8> {
-    fn from(rtc: RealTimeClock) -> Self {
-        rtc.crystal_anchor_time
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-            .to_le_bytes()
-            .into()
     }
 }
 
@@ -951,14 +1033,7 @@ impl BankController for MemoryBankController5 {
         }
     }
 
-    fn load_save_data(&mut self, data: &[u8]) -> Result<(), CartridgeError> {
-        match data.is_empty() {
-            true => Ok(()),
-            false => Err(CartridgeError::MisMatchedRamSaveSize("MBC5 has no data".into())),
-        }
-    }
-
-    fn retrieve_save_data(&self) -> Vec<u8> {
-        Vec::new()
+    fn bank_name(&self) -> &'static str {
+        "MBC5"
     }
 }
