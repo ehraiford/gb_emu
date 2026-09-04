@@ -5,7 +5,10 @@ use crate::os_interface::window::SenderFrameHandle;
 
 use crate::{
     bus::{Bus, MemoryMapEvent},
-    cartridge::cartridge::Cartridge,
+    cartridge::{
+        cartridge::{Cartridge, CartridgeError},
+        save_data::{SaveData, SaveLayout},
+    },
     graphics::{
         ppu::{Ppu, PpuMode, PpuOperationContext},
         video_ram::TileMapImage,
@@ -60,7 +63,15 @@ impl GameBoy {
     }
 
     pub fn load_cartridge(&mut self, cartridge: Cartridge) {
-        self.bus.load_cartridge(cartridge)
+        *self.bus.get_cartridge_mut() = cartridge;
+    }
+
+    pub fn load_save(&mut self, save: SaveData) -> Result<(), CartridgeError> {
+        self.bus.get_cartridge_mut().load_save_data(save)
+    }
+
+    pub fn get_new_save_data(&mut self, layout: SaveLayout) -> Option<SaveData> {
+        self.bus.get_cartridge_mut().get_new_save_data(layout)
     }
 
     fn tick_oam_dma(&mut self) {

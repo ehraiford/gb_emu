@@ -122,8 +122,8 @@ impl Bus {
         }
     }
 
-    pub fn load_cartridge(&mut self, cartridge: Cartridge) {
-        self.cartridge = cartridge;
+    pub fn get_cartridge_mut(&mut self) -> &mut Cartridge {
+        &mut self.cartridge
     }
 
     pub fn handle_memory_map_event(&mut self, event: MemoryMapEvent) {

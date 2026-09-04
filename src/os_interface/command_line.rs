@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Args, Parser, Subcommand};
 
@@ -7,6 +7,9 @@ use crate::os_interface::debugging::{DebugReceiver, DebugSender};
 #[derive(Parser)]
 #[command(about = "Another GameBoy Emulator")]
 pub struct CommandLineArguments {
+    #[arg(long, global = true)]
+    save_dir: Option<PathBuf>,
+
     #[command(subcommand)]
     command: CommandLineCommand,
 }
@@ -21,6 +24,16 @@ impl CommandLineArguments {
 
     pub fn get_debugging_handles(&self) -> (DebugSender, DebugReceiver) {
         DebugFeatures::get_debugging_handles(&self.command.get_debug_features())
+    }
+
+    pub fn get_save_dir(&self) -> PathBuf {
+        self.save_dir
+            .clone()
+            .unwrap_or_else(|| self.get_rom_path().parent().unwrap_or(Path::new(".")).to_path_buf())
+    }
+
+    pub fn get_rom_stem(&self) -> Option<&std::ffi::OsStr> {
+        self.get_rom_path().file_stem()
     }
 }
 
@@ -107,6 +120,8 @@ fn parse_int(string: &str) -> Result<u64, String> {
     } else if let Some(binary) = string.strip_prefix("0b") {
         u64::from_str_radix(binary, 2).map_err(|_| format!("'{string}' is not a valid number"))
     } else {
-        string.parse::<u64>().map_err(|_| format!("'{string}' is not a valid number"))
+        string
+            .parse::<u64>()
+            .map_err(|_| format!("'{string}' is not a valid number"))
     }
 }

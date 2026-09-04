@@ -3,7 +3,7 @@ use crate::{
     cartridge::{
         header::Header,
         memory_bank_controllers::{BankController, MemoryBankController, MemoryBankController2},
-        save_data::{SaveData, SaveDataReader},
+        save_data::{SaveData, SaveDataReader, SaveLayout},
     },
     onboard_memory::rom_and_ram::{RamBank, RomBank},
 };
@@ -15,7 +15,8 @@ pub struct Cartridge {
     memory_bank_controller: Option<MemoryBankController>,
     rom_banks: Vec<RomBank>,
     ram_banks: Vec<RamBank<RAM_BANK_SIZE>>,
-    has_battery: bool,
+    has_battery: bool, // determines if cart supports saves
+    ram_dirty: bool,   // flag for writes to ram / rtc not reflected in on-disk save file
 }
 
 impl Cartridge {
@@ -35,7 +36,13 @@ impl Cartridge {
         let ram_banks = vec![RamBank::new(); header.get_num_ram_banks()];
         let has_battery = header.has_battery();
 
-        let mut this = Self { memory_bank_controller, rom_banks, ram_banks, has_battery };
+        let mut this = Self {
+            memory_bank_controller,
+            rom_banks,
+            ram_banks,
+            has_battery,
+            ram_dirty: false,
+        };
 
         this.initialize_cartridge_data(data, header)?;
 
@@ -49,6 +56,7 @@ impl Cartridge {
             rom_banks: vec![RomBank::new(), RomBank::new()],
             ram_banks: vec![RamBank::new()],
             has_battery: false,
+            ram_dirty: false,
         }
     }
 
@@ -93,6 +101,9 @@ impl Cartridge {
         }
     }
     pub fn write(&mut self, address: Address, value: u8, device: CartridgeDevice) {
+        if device == CartridgeDevice::ExternalRam {
+            self.ram_dirty = true;
+        }
         if let Some(mbc) = &mut self.memory_bank_controller {
             mbc.write(address, value, &mut self.ram_banks, device)
         } else {
@@ -117,7 +128,7 @@ impl Cartridge {
         }
     }
 
-    pub fn get_save_data(&self) -> Option<SaveData> {
+    fn get_save_data(&self, layout: SaveLayout) -> Option<SaveData> {
         if !self.has_battery {
             return None;
         }
@@ -126,7 +137,8 @@ impl Cartridge {
         for bank in &self.ram_banks {
             ram.extend_from_slice(bank.get_data());
         }
-        let mut save_data = SaveData::SrmAndRtc { srm: ram, rtc: None };
+        let mut save_data = SaveData::empty(layout);
+        save_data.append_ram(&ram);
 
         if let Some(mbc) = &self.memory_bank_controller {
             mbc.append_save_data(&mut save_data);
@@ -155,6 +167,16 @@ impl Cartridge {
         (!reader.has_remaining_data()).ok_or(CartridgeError::too_much_save_data())?;
 
         Ok(())
+    }
+
+    /// Gets save data if it has been written to since this was last called.
+    pub fn get_new_save_data(&mut self, layout: SaveLayout) -> Option<SaveData> {
+        if self.ram_dirty {
+            self.ram_dirty = false;
+            self.get_save_data(layout)
+        } else {
+            None
+        }
     }
 
     fn ram_len(&self) -> usize {

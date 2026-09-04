@@ -1,5 +1,11 @@
 use crate::cartridge::{cartridge::CartridgeError, memory_bank_controllers::RealTimeClock};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SaveLayout {
+    SrmAndRtc,
+    Sav,
+}
+
 #[derive(Clone, Debug)]
 pub enum SaveData {
     // save data where RTC is a separate file
@@ -13,6 +19,21 @@ impl SaveData {
     }
     pub fn sav(sav: Vec<u8>) -> Self {
         Self::Sav { data: sav }
+    }
+
+    /// An empty save of the given shape, ready to be filled in by the cartridge.
+    pub fn empty(layout: SaveLayout) -> Self {
+        match layout {
+            SaveLayout::SrmAndRtc => Self::SrmAndRtc { srm: Vec::new(), rtc: None },
+            SaveLayout::Sav => Self::Sav { data: Vec::new() },
+        }
+    }
+
+    pub fn layout(&self) -> SaveLayout {
+        match self {
+            Self::SrmAndRtc { .. } => SaveLayout::SrmAndRtc,
+            Self::Sav { .. } => SaveLayout::Sav,
+        }
     }
 
     pub fn split(&self, expected_ram_len: usize) -> Result<(&[u8], Option<&[u8]>), CartridgeError> {

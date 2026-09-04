@@ -3,10 +3,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::{
-    cartridge::cartridge::{Cartridge, CartridgeError},
+    cartridge::{
+        cartridge::{Cartridge, CartridgeError},
+        save_data::SaveData,
+    },
     game_boy::{GameBoy, MCycles},
     graphics::video_ram::TileMapImage,
-    os_interface::command_line::CommandLineCommand,
+    os_interface::{command_line::CommandLineCommand, save_files::SaveFile},
 };
 #[cfg(not(feature = "headless"))]
 use crate::{
@@ -21,6 +24,7 @@ pub struct Emulator {
     ticked_frames: u32,
     spin_sleeper: SpinSleeper,
     start_time: Instant,
+    save_file: Option<SaveFile>,
     #[cfg(not(feature = "headless"))]
     debug_sender: DebugSender,
 }
@@ -32,6 +36,15 @@ impl Emulator {
     pub fn load_rom(&mut self, rom_data: &[u8]) -> Result<(), CartridgeError> {
         let cartridge = Cartridge::new(rom_data)?;
         self.gameboy.load_cartridge(cartridge);
+        Ok(())
+    }
+
+    pub fn attach_save_file(&mut self, file: SaveFile, data: Option<SaveData>) -> Result<(), CartridgeError> {
+        if let Some(data) = data {
+            self.gameboy.load_save(data)?;
+        }
+        self.save_file = Some(file);
+
         Ok(())
     }
 
@@ -66,6 +79,15 @@ impl Emulator {
         #[cfg(not(feature = "headless"))]
         self.send_debug_data_to_ui_thread();
 
+        // save any new save data
+        if let Some(save_file) = &mut self.save_file
+            && self.ticked_frames % 60 == 0
+        {
+            if let Some(save_data) = self.gameboy.get_new_save_data(save_file.layout()) {
+                // TODO: route into a debugger / log
+                let _ = save_file.save_data_to_file(save_data);
+            }
+        }
         if let Some(variance) = self.get_clock_variance() {
             self.spin_sleeper.sleep(variance);
         }
@@ -112,6 +134,7 @@ impl Emulator {
             start_time: Instant::now(),
             spin_sleeper: SpinSleeper::new(100_000).with_spin_strategy(spin_sleep::SpinStrategy::YieldThread),
             ticked_frames: 0,
+            save_file: None,
         }
     }
 }
@@ -137,6 +160,7 @@ impl Emulator {
             spin_sleeper: SpinSleeper::new(100_000).with_spin_strategy(spin_sleep::SpinStrategy::YieldThread),
             ticked_frames: 0,
             debug_sender,
+            save_file: None,
         }
     }
 
